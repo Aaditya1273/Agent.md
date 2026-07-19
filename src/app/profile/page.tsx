@@ -98,7 +98,7 @@ export default async function ProfilePage() {
               ) : (
                 <span
                   className="px-2.5 py-0.5 rounded-full text-xs font-semibold"
-                  style={{ background: "color-mix(in oklab, var(--primary) 12%, var(--background))", color: "var(--primary)" }}
+                  style={{ background: "color-mix(in oklab, oklch(0.72 0.15 160) 12%, var(--background))", color: "oklch(0.45 0.15 155)" }}
                 >
                   Free
                 </span>
