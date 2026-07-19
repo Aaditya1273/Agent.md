@@ -5,7 +5,10 @@ import { prisma } from "./lib/prisma";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
-  trustHost: true, // required for non-localhost deployments (Netlify, Vercel, etc.)
+  trustHost: true,
+  redirectProxyUrl: process.env.NEXTAUTH_URL
+    ? `${process.env.NEXTAUTH_URL}/api/auth`
+    : undefined,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
