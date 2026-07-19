@@ -1,11 +1,10 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearch"]
+  previewFeatures = ["fullTextSearchPostgres"]
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ─── Users ───
@@ -18,18 +17,22 @@ enum Role {
 }
 
 model User {
-  id              String    @id @default(uuid())
-  email           String    @unique
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+
   passwordHash    String?   @map("password_hash")
-  displayName     String    @map("display_name")
-  username        String    @unique
-  avatarUrl       String?   @map("avatar_url")
+  displayName     String?   @map("display_name")
+  username        String?   @unique
   bio             String?
   role            Role      @default(USER)
   isVerified      Boolean   @default(false) @map("is_verified")
   githubId        String?   @unique @map("github_id")
   googleId        String?   @unique @map("google_id")
-  emailVerifiedAt DateTime? @map("email_verified_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
@@ -41,8 +44,66 @@ model User {
   savedPresets      SavedPreset[]
   notifications     Notification[]
   maintainerProfile MaintainerProfile?
+  subscription      Subscription?
+  auditLogs         AuditLog[]
 
   @@map("users")
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String  @map("user_id")
+  type               String
+  provider           String
+  providerAccountId  String  @map("provider_account_id")
+  refresh_token      String? @db.Text
+  access_token       String? @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique @map("user_id")
+  stripeCustomerId     String?   @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
+  stripePriceId        String?   @map("stripe_price_id")
+  stripeCurrentPeriodEnd DateTime? @map("stripe_current_period_end")
+  status               String    @default("inactive")
+  tier                 String    @default("free")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
 }
 
 // ─── Presets ───
@@ -75,6 +136,7 @@ model Preset {
   parentPreset   Preset?  @relation("PresetParent", fields: [parentPresetId], references: [id])
   supersededBy   Preset?  @relation("PresetSuperseded", fields: [supersededById], references: [id])
   children       Preset[] @relation("PresetParent")
+  superseding    Preset[] @relation("PresetSuperseded")
   author         User     @relation(fields: [authorId], references: [id])
 
   files           PresetFile[]
@@ -87,6 +149,7 @@ model Preset {
   reviews         Review[]
   downloads       Download[]
   savedBy         SavedPreset[]
+  collectionItems CollectionItem[]
 
   publishedAt DateTime? @map("published_at")
   archivedAt  DateTime? @map("archived_at")
