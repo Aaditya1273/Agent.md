@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -91,4 +92,19 @@
     -webkit-font-smoothing: antialiased;
   }
   ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
+}
+
+/* highlight.js — override to stay theme-synced */
+@layer utilities {
+  .hljs {
+    background: transparent !important;
+    color: inherit !important;
+  }
+  code.hljs {
+    background: transparent !important;
+  }
+  pre code.hljs {
+    background: transparent !important;
+    padding: 0 !important;
+  }
 }
