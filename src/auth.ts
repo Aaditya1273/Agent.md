@@ -5,6 +5,7 @@ import { prisma } from "./lib/prisma";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  trustHost: true, // required for non-localhost deployments (Netlify, Vercel, etc.)
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
