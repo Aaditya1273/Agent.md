@@ -12,7 +12,7 @@ node_modules
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
-
+power-prompts
 # testing
 /coverage
 
