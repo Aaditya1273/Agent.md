@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getPresetData } from "../../../../../../lib/data";
-import { Download, Bookmark, Terminal, ChevronRight, FileText, Star, GitFork } from "lucide-react";
+import { Download, Bookmark, Terminal, ChevronRight, FileText, Star, GitFork, Lock } from "lucide-react";
 import MarkdownViewer from "../../../../../../components/MarkdownViewer";
 import AppNav from "../../../../../../components/AppNav";
 import "highlight.js/styles/github.css";

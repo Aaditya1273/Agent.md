@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { auth } from "../../auth";
+import { UserNav } from "./UserNav";
+import { SignInButton } from "./SignInButton";
 
 interface AppNavProps {
   /** Breadcrumb links shown in the center. Pass empty array to show nothing. */
@@ -6,6 +9,9 @@ interface AppNavProps {
 }
 
 export default async function AppNav({ links = [] }: AppNavProps) {
+  // Fetch session
+  const session = await auth();
+
   // Fetch GitHub star count server-side
   let starCount: number | null = null;
   try {
@@ -76,14 +82,6 @@ export default async function AppNav({ links = [] }: AppNavProps) {
 
         {/* Right actions */}
         <div className="flex items-center gap-2">
-          {/* Sign in */}
-          <button
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-            style={{ color: "var(--muted-foreground)", background: "transparent" }}
-          >
-            Sign in
-          </button>
-
           {/* GitHub Star — split pill */}
           <a
             href="https://github.com/Aaditya1273/Agent.md"
@@ -119,11 +117,18 @@ export default async function AppNav({ links = [] }: AppNavProps) {
           {/* Get Pro */}
           <Link
             href="/pro"
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors mr-2"
             style={{ background: "var(--foreground)", color: "var(--background)" }}
           >
             Get Pro
           </Link>
+
+          {/* Auth State (Extreme Right) */}
+          {session?.user ? (
+            <UserNav user={session.user} />
+          ) : (
+            <SignInButton />
+          )}
         </div>
       </div>
     </nav>
