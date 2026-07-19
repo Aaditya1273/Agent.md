@@ -15,6 +15,7 @@ node_modules
 power-prompts
 # testing
 /coverage
+power-models
 
 # next.js
 /.next/

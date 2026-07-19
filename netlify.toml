@@ -1,0 +1,17 @@
+[build]
+  command   = "npm run build"
+  publish   = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Do NOT put secrets here — set them in Netlify Dashboard → Site → Environment variables
+  # Required vars to add in the dashboard:
+  #   DATABASE_POOLER_URL
+  #   DATABASE_SESSION_URL
+  #   GOOGLE_CLIENT_ID
+  #   GOOGLE_CLIENT_SECRET
+  #   NEXTAUTH_SECRET
+  #   NEXTAUTH_URL   ← set to your Netlify domain, e.g. https://agent-md.netlify.app
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
