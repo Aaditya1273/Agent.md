@@ -1,0 +1,405 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ───
+
+enum Role {
+  USER
+  MAINTAINER
+  MODERATOR
+  ADMIN
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String?   @map("password_hash")
+  displayName     String    @map("display_name")
+  username        String    @unique
+  avatarUrl       String?   @map("avatar_url")
+  bio             String?
+  role            Role      @default(USER)
+  isVerified      Boolean   @default(false) @map("is_verified")
+  githubId        String?   @unique @map("github_id")
+  googleId        String?   @unique @map("google_id")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  presets           Preset[]
+  reviews           Review[]
+  collections       Collection[]
+  downloads         Download[]
+  savedPresets      SavedPreset[]
+  notifications     Notification[]
+  maintainerProfile MaintainerProfile?
+
+  @@map("users")
+}
+
+// ─── Presets ───
+
+enum PresetStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+  DEPRECATED
+}
+
+model Preset {
+  id            String       @id @default(uuid())
+  authorId      String       @map("author_id")
+  name          String
+  slug          String       @unique
+  tagline       String
+  description   String       @default("") @db.Text
+  version       String       @default("1.0.0")
+  license       String       @default("MIT")
+  status        PresetStatus @default(DRAFT)
+  isFeatured    Boolean      @default(false) @map("is_featured")
+  isCurated     Boolean      @default(false) @map("is_curated")
+  downloadCount Int          @default(0) @map("download_count")
+  averageRating Decimal      @default(0.00) @map("average_rating") @db.Decimal(3, 2)
+  reviewCount   Int          @default(0) @map("review_count")
+
+  parentPresetId String?  @map("parent_preset_id")
+  supersededById String?  @map("superseded_by_id")
+  parentPreset   Preset?  @relation("PresetParent", fields: [parentPresetId], references: [id])
+  supersededBy   Preset?  @relation("PresetSuperseded", fields: [supersededById], references: [id])
+  children       Preset[] @relation("PresetParent")
+  author         User     @relation(fields: [authorId], references: [id])
+
+  files           PresetFile[]
+  versions        PresetVersion[]
+  models          PresetModel[]
+  tasks           PresetTask[]
+  categories      PresetCategory[]
+  designLanguages PresetDesignLanguage[]
+  frameworks      PresetFramework[]
+  reviews         Review[]
+  downloads       Download[]
+  savedBy         SavedPreset[]
+
+  publishedAt DateTime? @map("published_at")
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@index([status])
+  @@index([authorId])
+  @@index([downloadCount(sort: Desc)])
+  @@index([averageRating(sort: Desc)])
+  @@index([publishedAt(sort: Desc)])
+  @@index([isFeatured, status])
+  @@map("presets")
+}
+
+model PresetFile {
+  id           String   @id @default(uuid())
+  presetId     String   @map("preset_id")
+  filePath     String   @map("file_path")
+  fileName     String   @map("file_name")
+  content      String   @db.Text
+  fileSizeBytes Int     @map("file_size_bytes")
+  mimeType     String   @default("text/markdown") @map("mime_type")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  preset       Preset   @relation(fields: [presetId], references: [id], onDelete: Cascade)
+
+  @@unique([presetId, filePath])
+  @@index([presetId])
+  @@map("preset_files")
+}
+
+model PresetVersion {
+  id        String   @id @default(uuid())
+  presetId  String   @map("preset_id")
+  version   String
+  changelog String?  @db.Text
+  checksum  String?
+  isLatest  Boolean  @default(false) @map("is_latest")
+  createdAt DateTime @default(now()) @map("created_at")
+  preset    Preset   @relation(fields: [presetId], references: [id], onDelete: Cascade)
+
+  @@unique([presetId, version])
+  @@index([presetId])
+  @@index([presetId, isLatest])
+  @@map("preset_versions")
+}
+
+// ─── Taxonomy ───
+
+model Model {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  iconUrl     String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  presets     PresetModel[]
+
+  @@map("models")
+}
+
+model Task {
+  id          String      @id @default(uuid())
+  slug        String      @unique
+  name        String
+  description String?
+  iconUrl     String?
+  categoryId  String?     @map("category_id")
+  category    Category?   @relation(fields: [categoryId], references: [id])
+  sortOrder   Int         @default(0) @map("sort_order")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  presets     PresetTask[]
+
+  @@map("tasks")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  emoji       String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  tasks       Task[]
+  presets     PresetCategory[]
+
+  @@map("categories")
+}
+
+model DesignLanguage {
+  id              String            @id @default(uuid())
+  slug            String            @unique
+  name            String
+  description     String?
+  previewImageUrl String?           @map("preview_image_url")
+  sortOrder       Int               @default(0) @map("sort_order")
+  isActive        Boolean           @default(true) @map("is_active")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  presets         PresetDesignLanguage[]
+
+  @@map("design_languages")
+}
+
+model Framework {
+  id        String          @id @default(uuid())
+  slug      String          @unique
+  name      String
+  category  String?
+  isActive  Boolean         @default(true) @map("is_active")
+  createdAt DateTime        @default(now()) @map("created_at")
+  presets   PresetFramework[]
+
+  @@map("frameworks")
+}
+
+// ─── Junction Tables ───
+
+model PresetModel {
+  presetId String @map("preset_id")
+  modelId  String @map("model_id")
+  preset   Preset @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  model    Model  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@id([presetId, modelId])
+  @@map("preset_models")
+}
+
+model PresetTask {
+  presetId String @map("preset_id")
+  taskId   String @map("task_id")
+  preset   Preset @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  task     Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([presetId, taskId])
+  @@map("preset_tasks")
+}
+
+model PresetCategory {
+  presetId   String   @map("preset_id")
+  categoryId String   @map("category_id")
+  preset     Preset   @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([presetId, categoryId])
+  @@map("preset_categories")
+}
+
+model PresetDesignLanguage {
+  presetId         String          @map("preset_id")
+  designLanguageId String          @map("design_language_id")
+  preset           Preset          @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  designLanguage   DesignLanguage  @relation(fields: [designLanguageId], references: [id], onDelete: Cascade)
+
+  @@id([presetId, designLanguageId])
+  @@map("preset_design_languages")
+}
+
+model PresetFramework {
+  presetId    String    @map("preset_id")
+  frameworkId String    @map("framework_id")
+  preset      Preset    @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  framework   Framework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+
+  @@id([presetId, frameworkId])
+  @@map("preset_frameworks")
+}
+
+// ─── Reviews ───
+
+model Review {
+  id        String   @id @default(uuid())
+  presetId  String   @map("preset_id")
+  userId    String   @map("user_id")
+  rating    Int
+  title     String?
+  content   String   @db.Text
+  isEdited  Boolean  @default(false) @map("is_edited")
+  isHidden  Boolean  @default(false) @map("is_hidden")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  preset    Preset   @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([presetId, userId])
+  @@index([presetId])
+  @@index([userId])
+  @@map("reviews")
+}
+
+// ─── Collections ───
+
+model Collection {
+  id          String            @id @default(uuid())
+  userId      String            @map("user_id")
+  name        String
+  description String?
+  isPublic    Boolean           @default(false) @map("is_public")
+  sortOrder   Int               @default(0) @map("sort_order")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       CollectionItem[]
+
+  @@index([userId])
+  @@map("collections")
+}
+
+model CollectionItem {
+  id           String     @id @default(uuid())
+  collectionId String     @map("collection_id")
+  presetId     String     @map("preset_id")
+  addedAt      DateTime   @default(now()) @map("added_at")
+  sortOrder    Int        @default(0) @map("sort_order")
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  preset       Preset     @relation(fields: [presetId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, presetId])
+  @@index([collectionId])
+  @@map("collection_items")
+}
+
+// ─── Downloads ───
+
+model Download {
+  id              String   @id @default(uuid())
+  presetId        String   @map("preset_id")
+  presetVersionId String?  @map("preset_version_id")
+  userId          String?  @map("user_id")
+  ipAddress       String?  @map("ip_address")
+  userAgent       String?  @map("user_agent") @db.Text
+  country         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  preset          Preset   @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  user            User?    @relation(fields: [userId], references: [id])
+
+  @@index([presetId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("downloads")
+}
+
+// ─── Saved Presets (Bookmarks) ───
+
+model SavedPreset {
+  userId   String   @map("user_id")
+  presetId String   @map("preset_id")
+  savedAt  DateTime @default(now()) @map("saved_at")
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preset   Preset   @relation(fields: [presetId], references: [id], onDelete: Cascade)
+
+  @@id([userId, presetId])
+  @@map("saved_presets")
+}
+
+// ─── Notifications ───
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String
+  title     String
+  body      String?  @db.Text
+  link      String?
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ─── Maintainer Profiles ───
+
+model MaintainerProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique @map("user_id")
+  displayName     String   @map("display_name")
+  bio             String?
+  websiteUrl      String?  @map("website_url")
+  githubUrl       String?  @map("github_url")
+  isVerified      Boolean  @default(false) @map("is_verified")
+  verifiedAt      DateTime? @map("verified_at")
+  applicationNotes String? @map("application_notes")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("maintainer_profiles")
+}
+
+// ─── Audit Logs ───
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorId     String?  @map("actor_id")
+  action      String
+  subjectType String   @map("subject_type")
+  subjectId   String   @map("subject_id")
+  metadata    Json     @default("{}")
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+  actor       User?    @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([subjectType, subjectId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
