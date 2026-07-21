@@ -20,7 +20,7 @@
 
 Modern AI coding assistants are incredibly capable—but getting consistent, production-quality output is surprisingly difficult.
 
-Every model behaves differently.
+Every model behaves differently....
 
 Every IDE expects different configuration files.
 
