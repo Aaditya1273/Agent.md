@@ -17,6 +17,10 @@ power-prompts
 /coverage
 power-models
 
+# internal strategy docs
+PRODUCTION.md
+ROADMAP.md
+
 # next.js
 /.next/
 /out/
