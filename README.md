@@ -16,6 +16,50 @@
 
 ---
 
+## CLI — Install Presets in Seconds
+
+```bash
+npx agentmd-cli install claude/Design/apple
+```
+
+No cloning. No searching GitHub. One command drops the preset directly into your project.
+
+### 2-Layer Install System
+
+**Layer 1 — Single preset**
+
+```bash
+npx agentmd-cli install claude/<category>/<preset>
+
+# Examples
+npx agentmd-cli install claude/Design/apple
+npx agentmd-cli install claude/Security/owasp
+npx agentmd-cli install claude/Testing/unit
+```
+
+**Layer 2 — Full category**
+
+```bash
+npx agentmd-cli install claude/<category>/
+
+# Examples
+npx agentmd-cli install claude/Security/
+npx agentmd-cli install claude/Testing/
+npx agentmd-cli install claude/Design/
+```
+
+**Browse first**
+
+```bash
+npx agentmd-cli list claude              # all categories
+npx agentmd-cli list claude/Design       # all Design presets
+npx agentmd-cli search authentication    # search by keyword
+```
+
+> Installing `claude/` with no category is intentionally blocked — explore and pick what you need.
+
+---
+
 ## ✨ The Problem
 
 Modern AI coding assistants are incredibly capable—but getting consistent, production-quality output is surprisingly difficult.
@@ -270,51 +314,6 @@ Optimization and scalability standards.
 ## 🔒 Security
 
 Secure-by-default engineering practices.
-
----
-
-# 🛣️ Roadmap
-
-## Phase 1
-
-* Curated preset library
-* Downloadable packs
-* Documentation
-* GitHub repository
-
----
-
-## Phase 2
-
-* Search
-* Categories
-* Model support
-* Versioning
-
----
-
-## Phase 3
-
-* AI recommendation assistant
-* Guided preset selection
-* Framework-aware recommendations
-
----
-
-## Phase 4
-
-* GitHub repository analysis
-* Automatic preset recommendations
-* Stack detection
-
----
-
-## Phase 5
-
-* Community marketplace
-* Preset ratings
-* Verified maintainers
-* Enterprise collections
 
 ---
 
