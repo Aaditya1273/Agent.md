@@ -47,3 +47,6 @@ deepseek-ui-apple.zip
 Done.
 
 That's V1.
+
+
+6 tables created in Supabase: users, accounts, sessions, verification_tokens, subscriptions, presets, preset_files, preset_versions, models, tasks, categories, design_languages, frameworks, all junction tables, reviews, collections, collection_items, downloads, saved_presets, notifications, maintainer_profiles, audit_logs

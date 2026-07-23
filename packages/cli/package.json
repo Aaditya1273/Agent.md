@@ -1,0 +1,40 @@
+{
+  "name": "agentmd-cli",
+  "version": "1.0.2",
+  "description": "Install AI engineering presets into any project. The npm for AI coding standards.",
+  "homepage": "https://agentmd.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentmd/agentmd.git"
+  },
+  "keywords": [
+    "ai",
+    "claude",
+    "cursor",
+    "llm",
+    "prompts",
+    "presets",
+    "engineering",
+    "claude-md",
+    "cursor-rules",
+    "ai-coding"
+  ],
+  "license": "MIT",
+  "bin": {
+    "agentmd": "bin/agentmd.js"
+  },
+  "files": [
+    "bin/",
+    "src/"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "picocolors": "1.1.1"
+  },
+  "scripts": {
+    "start": "node bin/agentmd.js",
+    "test": "node bin/agentmd.js --help"
+  }
+}

@@ -3,6 +3,7 @@ import { getPresetData } from "../../../../../../lib/data";
 import { Download, Bookmark, Terminal, ChevronRight, FileText, Star, GitFork, Lock } from "lucide-react";
 import MarkdownViewer from "../../../../../../components/MarkdownViewer";
 import AppNav from "../../../../../../components/AppNav";
+import CopyButton from "../../../../../../components/CopyButton";
 import "highlight.js/styles/github.css";
 
 export default async function PresetDetailPage({
@@ -154,11 +155,30 @@ export default async function PresetDetailPage({
                     <Terminal className="w-3.5 h-3.5" /> Quick Install
                   </h3>
                 </div>
-                <div className="p-4">
-                  <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>Initialize in your project:</p>
-                  <div className="rounded-xl p-3 text-xs font-mono break-all select-all cursor-text"
-                    style={{ background: "#f0ede9", color: "var(--foreground)" }}>
-                    <span style={{ color: "var(--primary)", fontWeight: 600 }}>npx</span> agentmd init {preset}
+                <div className="p-4 space-y-3">
+                  {/* Single preset install */}
+                  <div>
+                    <p className="text-xs mb-1.5" style={{ color: "var(--muted-foreground)" }}>This preset:</p>
+                    <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-mono"
+                      style={{ background: "#f0ede9", color: "var(--foreground)" }}>
+                      <span className="flex-1 break-all select-all cursor-text leading-relaxed">
+                        <span style={{ color: "var(--primary)", fontWeight: 600 }}>npx</span>{" "}
+                        agentmd-cli install {model}/{work}/{preset}
+                      </span>
+                      <CopyButton text={`npx agentmd-cli install ${model}/${work}/${preset}`} />
+                    </div>
+                  </div>
+                  {/* Category batch install */}
+                  <div>
+                    <p className="text-xs mb-1.5" style={{ color: "var(--muted-foreground)" }}>All {work} presets:</p>
+                    <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-mono"
+                      style={{ background: "#f0ede9", color: "var(--foreground)" }}>
+                      <span className="flex-1 break-all select-all cursor-text leading-relaxed">
+                        <span style={{ color: "var(--primary)", fontWeight: 600 }}>npx</span>{" "}
+                        agentmd-cli install {model}/{work}/
+                      </span>
+                      <CopyButton text={`npx agentmd-cli install ${model}/${work}/`} />
+                    </div>
                   </div>
                 </div>
               </div>

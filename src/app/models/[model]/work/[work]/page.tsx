@@ -1,6 +1,8 @@
 import Link from "next/link";
 import AppNav from "../../../../components/AppNav";
+import CopyButton from "../../../../components/CopyButton";
 import { getPresetsForWork } from "../../../../lib/data";
+import { Terminal } from "lucide-react";
 
 export default async function WorkPage({
   params,
@@ -26,6 +28,17 @@ export default async function WorkPage({
           <p className="mt-4 text-muted-foreground text-lg max-w-[54ch]">
             Select a specific standard or design language for {work.replace("-", " ")}.
           </p>
+
+          {/* CLI install strip */}
+          <div className="mt-6 inline-flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-mono"
+            style={{ background: "color-mix(in oklab, var(--primary) 7%, var(--background))", border: "1px solid color-mix(in oklab, var(--primary) 18%, transparent)" }}>
+            <Terminal className="w-4 h-4 shrink-0" style={{ color: "var(--primary)" }} />
+            <span className="text-foreground">
+              <span style={{ color: "var(--primary)", fontWeight: 600 }}>npx</span>{" "}
+              agentmd-cli install {model}/{work}/
+            </span>
+            <CopyButton text={`npx agentmd-cli install ${model}/${work}/`} />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
