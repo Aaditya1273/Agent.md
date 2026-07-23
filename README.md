@@ -16,6 +16,42 @@
 
 ---
 
+## IDE Extension — Install Without Leaving Your Editor
+
+The Agent.md extension works in **VS Code, Cursor, and Kiro**.
+
+**Install from VSIX:**
+
+```bash
+code --install-extension packages/vscode-extension/agentmd-1.0.0.vsix
+```
+
+Or via the UI: Extensions sidebar → `···` → **Install from VSIX...**
+
+**What you get:**
+
+- Agent.md icon in the activity bar — browse all 19 categories and 150+ presets in a sidebar tree
+- Click any preset to preview its full markdown content in a webview before installing
+- Install button inside the preview — one click drops the file into `.agentmd/presets/`
+- Install entire categories with one click from the tree
+- **Installed** panel shows everything in your `.agentmd/manifest.json`, click to open any file
+- **Detect Stack** command — reads your `package.json` and suggests relevant preset categories automatically (Next.js → Backend, Prisma → Database, Stripe → Design/stripe, etc.)
+- Search from command palette: `Ctrl+Shift+P` → `Agent.md: Search Presets`
+
+**All commands (`Ctrl+Shift+P`):**
+
+```
+Agent.md: Install Preset
+Agent.md: Install All in Category
+Agent.md: Search Presets
+Agent.md: Preview Preset
+Agent.md: Detect Project Stack & Suggest Presets
+Agent.md: Refresh
+Agent.md: Open Registry Website
+```
+
+---
+
 ## CLI — Install Presets in Seconds
 
 ```bash
