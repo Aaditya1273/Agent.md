@@ -9,7 +9,11 @@ Agent.md is the open registry for AI engineering presets. Our goal is to collect
 We welcome contributions across several areas:
 
 ### 1. Propose a New Preset
-Have you engineered a bulletproof system prompt for a specific framework (e.g., Next.js SaaS, Rust Backend, Solidy Smart Contracts) or design style (e.g., Apple-inspired, Linear-inspired)? 
+Have you engineered a bulletproof system prompt for a specific framework (e.g., Next.js SaaS, Rust Backend, Solidy Smart Contracts) or design style (e.g., Apple-inspired, Linear-inspired)? platform, community contributions welcome via the CONTRIBUTING guidelines
+Think of it as Tailwind UI or shadcn/ui, but for AI prompt configuration rather than UI components.
+
+Est. Credits Used: 1.99
+Elapsed time: 
 - Open an issue titled `[Preset Proposal] Name of Preset` to discuss it with the maintainers.
 - Provide a summary of the preset, the target model, and the problems it solves.
 
