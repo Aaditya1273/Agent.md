@@ -1,44 +1,118 @@
-# 🚀 Agent.md
+<div align="center">
 
-> **The Open Registry for AI Engineering Presets.**
->
-> Configure any AI coding model with production-ready engineering standards in seconds.
+# Agent.md
+
+**The Open Registry for AI Engineering Presets.**
+
+Configure Claude and every AI coding assistant with production-ready engineering standards in seconds.
+
+<img width="1672" height="941" alt="Agent.md" src="https://github.com/user-attachments/assets/2defc7cf-d968-48d9-b148-eed4eceda17e" />
+
+[![npm](https://img.shields.io/npm/v/agentmd-cli?label=agentmd-cli&color=000)](https://www.npmjs.com/package/agentmd-cli)
+[![npm downloads](https://img.shields.io/npm/dm/agentmd-cli?color=000)](https://www.npmjs.com/package/agentmd-cli)
+[![License: MIT](https://img.shields.io/badge/license-MIT-000.svg)](LICENSE)
+
+</div>
 
 ---
 
-<p align="center">
+## The Problem
 
-**One Platform. Every Model. Every Workflow.**
+Every AI coding assistant is capable. Getting *consistent* output is the hard part.
 
-*No prompt engineering. No trial and error. Just tested AI engineering presets.*
+Every model behaves differently. Every IDE expects different config files. Every GitHub repo suggests different prompts. Developers waste hours searching Reddit, Discord, and blog posts trying to figure out which `CLAUDE.md` actually works, which Cursor rules are up to date, or how to stop Gemini from hallucinating architecture.
 
-</p>
+There is no trusted, centralized place for AI engineering standards.
+
+**Agent.md is that place.**
 
 ---
 
-## IDE Extension — Install Without Leaving Your Editor
+## Install a Preset in One Command
 
-The Agent.md extension works in **VS Code, Cursor, and Kiro**.
+```bash
+npx agentmd-cli install claude/Security/owasp
+```
 
-**Install from VSIX:**
+No cloning. No searching GitHub. The preset lands directly in your project.
+
+---
+
+## CLI — 2-Layer Install System
+
+**Layer 1 — Single preset**
+
+```bash
+npx agentmd-cli install claude/<category>/<preset>
+```
+
+```bash
+npx agentmd-cli install claude/Design/apple
+npx agentmd-cli install claude/Security/jwt
+npx agentmd-cli install claude/Frontend/react
+npx agentmd-cli install claude/AI/agent-rules
+npx agentmd-cli install claude/Testing/unit
+```
+
+**Layer 2 — Full category (all presets at once)**
+
+```bash
+npx agentmd-cli install claude/<category>/
+```
+
+```bash
+npx agentmd-cli install claude/Security/
+npx agentmd-cli install claude/Frontend/
+npx agentmd-cli install claude/Testing/
+npx agentmd-cli install claude/Design/
+npx agentmd-cli install claude/AI/
+```
+
+**Browse and search**
+
+```bash
+npx agentmd-cli list claude                  # 20 categories, 297 presets
+npx agentmd-cli list claude/Security         # all 19 Security presets
+npx agentmd-cli search authentication        # find by keyword
+npx agentmd-cli search docker
+```
+
+> Installing `claude/` alone is intentionally blocked. Explore and pick what your project needs.
+
+**What gets installed**
+
+```
+your-project/
+└── .agentmd/
+    ├── manifest.json              ← tracks installed presets
+    └── presets/
+        ├── Security-jwt.md
+        ├── Design-apple.md
+        └── ...
+```
+
+---
+
+## IDE Extension
+
+Works in **VS Code, Cursor, and Kiro**.
 
 ```bash
 code --install-extension packages/vscode-extension/agentmd-1.0.0.vsix
 ```
 
-Or via the UI: Extensions sidebar → `···` → **Install from VSIX...**
+Or: Extensions sidebar → `···` → **Install from VSIX...**
 
 **What you get:**
 
-- Agent.md icon in the activity bar — browse all 19 categories and 150+ presets in a sidebar tree
-- Click any preset to preview its full markdown content in a webview before installing
-- Install button inside the preview — one click drops the file into `.agentmd/presets/`
-- Install entire categories with one click from the tree
-- **Installed** panel shows everything in your `.agentmd/manifest.json`, click to open any file
-- **Detect Stack** command — reads your `package.json` and suggests relevant preset categories automatically (Next.js → Backend, Prisma → Database, Stripe → Design/stripe, etc.)
-- Search from command palette: `Ctrl+Shift+P` → `Agent.md: Search Presets`
+- Activity bar panel — browse all 20 categories and 297 presets in a sidebar tree
+- Click any preset → opens a markdown preview webview with Install button
+- Install a single preset or an entire category with one click
+- **Installed** panel — shows your manifest, click any entry to open the file
+- **Detect Stack** — reads your `package.json` and auto-suggests preset categories (Next.js → Backend, Prisma → Database, Stripe → Design, etc.)
+- Search: `Ctrl+Shift+P` → `Agent.md: Search Presets`
 
-**All commands (`Ctrl+Shift+P`):**
+**Commands**
 
 ```
 Agent.md: Install Preset
@@ -52,339 +126,100 @@ Agent.md: Open Registry Website
 
 ---
 
-## CLI — Install Presets in Seconds
+## All Categories (Claude · 297 presets)
+
+| Category | Presets | Install All |
+|---|---|---|
+| AI | 12 | `npx agentmd-cli install claude/AI/` |
+| API | 12 | `npx agentmd-cli install claude/API/` |
+| Backend | 15 | `npx agentmd-cli install claude/Backend/` |
+| Business | 10 | `npx agentmd-cli install claude/Business/` |
+| Checklists | 8 | `npx agentmd-cli install claude/Checklists/` |
+| Community | 5 | `npx agentmd-cli install claude/Community/` |
+| Database | 13 | `npx agentmd-cli install claude/Database/` |
+| Design | 74 | `npx agentmd-cli install claude/Design/` |
+| DevOps | 15 | `npx agentmd-cli install claude/DevOps/` |
+| Documentation | 6 | `npx agentmd-cli install claude/Documentation/` |
+| Frontend | 16 | `npx agentmd-cli install claude/Frontend/` |
+| Open-Source | 14 | `npx agentmd-cli install claude/Open-Source/` |
+| Performance | 13 | `npx agentmd-cli install claude/Performance/` |
+| Research | 5 | `npx agentmd-cli install claude/Research/` |
+| Review | 8 | `npx agentmd-cli install claude/Review/` |
+| Security | 19 | `npx agentmd-cli install claude/Security/` |
+| Startup | 8 | `npx agentmd-cli install claude/Startup/` |
+| System Design | 16 | `npx agentmd-cli install claude/System Design/` |
+| Templates | 7 | `npx agentmd-cli install claude/Templates/` |
+| Testing | 11 | `npx agentmd-cli install claude/Testing/` |
+
+---
+
+## Design Presets — 74 Languages
+
+Get Claude to output UI in the exact visual language of any of these:
+
+`apple` · `stripe` · `vercel` · `linear.app` · `notion` · `figma` · `cursor` · `raycast` · `framer` · `shopify` · `airbnb` · `airtable` · `binance` · `bmw` · `bmw-m` · `bugatti` · `cal` · `claude` · `clay` · `clickhouse` · `cohere` · `coinbase` · `composio` · `dell-1996` · `elevenlabs` · `expo` · `ferrari` · `hashicorp` · `hp` · `ibm` · `intercom` · `kraken` · `lamborghini` · `lovable` · `mastercard` · `meta` · `minimax` · `mintlify` · `miro` · `mistral.ai` · `mongodb` · `nike` · `nintendo-2001` · `nvidia` · `ollama` · `opencode.ai` · `pinterest` · `playstation` · `posthog` · `renault` · `replicate` · `resend` · `revolut` · `runwayml` · `sanity` · `sentry` · `slack` · `spacex` · `spotify` · `starbucks` · `supabase` · `superhuman` · `tesla` · `theverge` · `together.ai` · `uber` · `vodafone` · `voltagent` · `warp` · `webflow` · `wired` · `wise` · `x.ai` · `zapier`
 
 ```bash
+npx agentmd-cli list claude/Design     # see all 74
 npx agentmd-cli install claude/Design/apple
+npx agentmd-cli install claude/Design/stripe
+npx agentmd-cli install claude/Design/   # all 74 at once
 ```
-
-No cloning. No searching GitHub. One command drops the preset directly into your project.
-
-### 2-Layer Install System
-
-**Layer 1 — Single preset**
-
-```bash
-npx agentmd-cli install claude/<category>/<preset>
-
-# Examples
-npx agentmd-cli install claude/Design/apple
-npx agentmd-cli install claude/Security/owasp
-npx agentmd-cli install claude/Testing/unit
-```
-
-**Layer 2 — Full category**
-
-```bash
-npx agentmd-cli install claude/<category>/
-
-# Examples
-npx agentmd-cli install claude/Security/
-npx agentmd-cli install claude/Testing/
-npx agentmd-cli install claude/Design/
-```
-
-**Browse first**
-
-```bash
-npx agentmd-cli list claude              # all categories
-npx agentmd-cli list claude/Design       # all Design presets
-npx agentmd-cli search authentication    # search by keyword
-```
-
-> Installing `claude/` with no category is intentionally blocked — explore and pick what you need.
 
 ---
 
-## ✨ The Problem
-
-Modern AI coding assistants are incredibly capable—but getting consistent, production-quality output is surprisingly difficult.
-
-Every model behaves differently.
-
-Every IDE expects different configuration files.
-
-Every GitHub repository recommends different prompts.
-
-Developers waste hours searching through:
-
-* GitHub repositories
-* Reddit discussions
-* Discord servers
-* Blog posts
-* Random prompt collections
-
-trying to answer questions like:
-
-* Which `DEEPSEEK.md` should I use?
-* Is this `CLAUDE.md` still up to date?
-* Which Cursor Rules work best?
-* How do I make Gemini stop hallucinating architecture?
-* Which prompt produces premium UI?
-* How do I upgrade an open-source project safely?
-
-There is no trusted, centralized place for AI engineering standards.
-
----
-
-# 💡 Our Solution
-
-**Agent.md** is the open-source registry of curated AI engineering presets.
-
-Instead of spending hours experimenting, developers simply choose:
-
-```text
-Model
-    ↓
-Task
-    ↓
-Style
-    ↓
-Download
-```
-
-Example:
-
-```text
-DeepSeek V4 Flash
-        +
-UI Development
-        +
-Apple-Inspired Design
-        ↓
-Download Production Pack
-```
-
-Inside the pack:
+## How It Works
 
 ```
-DEEPSEEK.md
-docs/
-├── ui.md
-├── typography.md
-├── motion.md
-├── review.md
-├── accessibility.md
-└── production-checklist.md
+Choose AI model
+      ↓
+Choose category (Security, Frontend, Design...)
+      ↓
+Install via CLI or IDE extension
+      ↓
+Paste into CLAUDE.md or AI assistant context
+      ↓
+Build with consistent, production-quality output
 ```
-
-Copy.
-
-Paste.
-
-Start building.
-
----
-
-# 🎯 Our Mission
-
-Become the **npm for AI engineering presets.**
-
-Just as developers install packages instead of writing everything from scratch,
-
-developers should install **tested AI engineering standards** instead of reinventing prompts for every project.
-
----
-
-# 🔥 What Makes Agent.md Different?
-
-We don't build AI models.
-
-We don't replace AI assistants.
-
-We make every AI coding assistant more consistent by providing curated, versioned engineering standards.
 
 Think of Agent.md as:
 
-* Tailwind UI → for AI workflows
-* shadcn/ui → for AI engineering standards
-* npm → for AI configuration
-* Awesome Lists → but maintained, tested, and production-focused
+- **npm** — for AI engineering standards
+- **shadcn/ui** — but for prompt configuration
+- **Tailwind UI** — but for AI workflows
+- **Awesome Lists** — but maintained, versioned, and production-tested
 
 ---
 
-# 🧩 How It Works
+## Web Registry
 
-## Step 1
+Browse and preview all presets at [agentmd.com](https://agentmd.com)
 
-Choose your AI model.
-
-Examples:
-
-* Claude
-* DeepSeek
-* Gemini
-* GPT
-* Qwen
-* Kimi
-* Grok
+Each preset page shows:
+- Full markdown preview
+- `npx agentmd-cli install` command with copy button
+- Category-level batch install command
 
 ---
 
-## Step 2
+## Contributing
 
-Choose what you're building.
+We welcome contributions — new presets, improvements to existing ones, and platform work.
 
-Examples:
-
-* Landing Page
-* SaaS
-* Dashboard
-* AI Agent
-* Blockchain
-* Browser Extension
-* Mobile App
-* Open Source Upgrade
-* API
-* Security Audit
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
-## Step 3
+## License
 
-Choose your preferred design language.
-
-Examples:
-
-* Apple-inspired
-* Linear-inspired
-* Stripe-inspired
-* Vercel-inspired
-* Notion-inspired
-* GitHub-inspired
-* Material Design
+MIT — see [LICENSE](LICENSE)
 
 ---
 
-## Step 4
+<div align="center">
 
-Download a curated preset package.
+**Build better with AI. One preset at a time.**
 
-No AI generation.
+[agentmd.com](https://agentmd.com) · [npm](https://www.npmjs.com/package/agentmd-cli) · [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentmd.agentmd) *(coming soon)*
 
-No waiting.
-
-No prompt engineering.
-
-Just production-ready documentation.
-
----
-
-# 📦 Preset Packs
-
-Each preset contains a collection of carefully designed Markdown documents.
-
-Example:
-
-```
-DEEPSEEK.md
-
-docs/
-
-01-engineering-principles.md
-02-ui-system.md
-03-design-system.md
-04-components.md
-05-motion.md
-06-performance.md
-07-security.md
-08-testing.md
-09-review.md
-10-production-checklist.md
-```
-
-Each document focuses on a single engineering concern.
-
----
-
-# 🏗️ Planned Categories
-
-## 🎨 UI
-
-Premium UI standards and design systems.
-
----
-
-## 🚀 SaaS
-
-Production SaaS architecture.
-
----
-
-## 🤖 AI
-
-AI agents, RAG systems, MCP workflows, automation.
-
----
-
-## 🌐 Full Stack
-
-Frontend + Backend engineering.
-
----
-
-## 📱 Mobile
-
-Cross-platform application standards.
-
----
-
-## 🔗 Blockchain
-
-Web3 applications and smart contract development.
-
----
-
-## 🔓 Open Source
-
-Modernizing, upgrading, and extending open-source projects while respecting their licenses.
-
----
-
-## ⚡ Performance
-
-Optimization and scalability standards.
-
----
-
-## 🔒 Security
-
-Secure-by-default engineering practices.
-
----
-
-# 🌍 Long-Term Vision
-
-We believe AI development will evolve the same way software development did.
-
-Developers won't search for prompts.
-
-They'll install engineering standards.
-
-Agent.md aims to become the largest open registry of curated, tested, versioned AI engineering presets.
-
----
-
-# 🤝 Contributing
-
-We welcome contributions from engineers, designers, researchers, and AI enthusiasts.
-
-Whether you're improving a preset, fixing documentation, or adding support for a new model, your contributions help the entire developer community.
-
-Contribution guidelines will be published soon.
-
----
-
-# 📜 License
-
-This repository will be released under an open-source license to encourage community collaboration while protecting the integrity of curated preset collections.
-
----
-
-<p align="center">
-
-**Build better with AI.**
-
-**One preset at a time.**
-
-</p>
+</div>
