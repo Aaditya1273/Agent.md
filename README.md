@@ -11,7 +11,7 @@ Configure Claude and every AI coding assistant with production-ready engineering
 [![npm](https://img.shields.io/npm/v/agentmd-cli?label=agentmd-cli&color=000)](https://www.npmjs.com/package/agentmd-cli)
 [![npm downloads](https://img.shields.io/npm/dm/agentmd-cli?color=000)](https://www.npmjs.com/package/agentmd-cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-000.svg)](LICENSE)
-
+![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23ff8a65&style=flat&labelStyle=upper)
 </div>
 
 ---
