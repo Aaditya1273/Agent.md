@@ -4,8 +4,10 @@ Version: 1.0.0
 
 Target Models
 
+- Claude Fable 5
+- Claude Opus 5
+- Claude Sonnet 5
 - Claude 5 Family
-- Claude 4.x Family
 - Future Claude Models
 
 ---

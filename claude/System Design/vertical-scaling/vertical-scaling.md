@@ -4,14 +4,11 @@ Version: 1.0.0
 
 Target Models
 
-- Claude Opus
-- Claude Sonnet
-- Claude Haiku
-- GPT Models
-- Gemini Models
-- DeepSeek Models
-- Qwen Models
-- Any AI-assisted engineering workflow
+- Claude Fable 5
+- Claude Opus 5
+- Claude Sonnet 5
+- Claude 5 Family
+- Future Claude Models
 
 ---
 
@@ -1206,14 +1203,11 @@ Version: 1.0.0
 
 Target Models
 
-- Claude Opus
-- Claude Sonnet
-- Claude Haiku
-- GPT Models
-- Gemini Models
-- DeepSeek Models
-- Qwen Models
-- Any AI-assisted engineering workflow
+- Claude Fable 5
+- Claude Opus 5
+- Claude Sonnet 5
+- Claude 5 Family
+- Future Claude Models
 
 ---
 

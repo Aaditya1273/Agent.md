@@ -1,17 +1,26 @@
+---
+targetModels:
+  - "Gemini 3.6 Flash"
+  - "Gemini 3.5 Flash"
+  - "Gemini 3.1 Pro"
+  - "Gemini 3 Family"
+  - "Future Gemini Models"
+version: "1.0.0"
+
+
+---
+
 # portfolio-template.md
 
 Version: 1.0.0
 
 Target Models
 
-- Claude Opus
-- Claude Sonnet
-- Claude Haiku
-- GPT Models
-- Gemini Models
-- DeepSeek Models
-- Qwen Models
-- Any AI-assisted engineering workflow
+- Gemini 3.6 Flash
+- Gemini 3.5 Flash
+- Gemini 3.1 Pro
+- Gemini 3 Family
+- Future Gemini Models
 
 ---
 

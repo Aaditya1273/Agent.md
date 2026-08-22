@@ -1,17 +1,26 @@
+---
+targetModels:
+  - "GPT-5.6"
+  - "GPT-5.5"
+  - "GPT-5.4"
+  - "GPT-5 Family"
+  - "Future GPT Models"
+version: "1.0.0"
+
+
+---
+
 # event-driven.md
 
 Version: 1.0.0
 
 Target Models
 
-- Claude Opus
-- Claude Sonnet
-- Claude Haiku
-- GPT Models
-- Gemini Models
-- DeepSeek Models
-- Qwen Models
-- Any AI-assisted engineering workflow
+- GPT-5.6
+- GPT-5.5
+- GPT-5.4
+- GPT-5 Family
+- Future GPT Models
 
 ---
 

@@ -1,17 +1,26 @@
+---
+targetModels:
+  - "DeepSeek V4"
+  - "DeepSeek V3.2"
+  - "DeepSeek R1"
+  - "DeepSeek V3 Family"
+  - "Future DeepSeek Models"
+version: "1.0.0"
+
+
+---
+
 # load.md
 
 Version: 1.0.0
 
 Target Models
 
-- Claude Opus
-- Claude Sonnet
-- Claude Haiku
-- GPT Models
-- Gemini Models
-- DeepSeek Models
-- Qwen Models
-- Any AI-assisted engineering workflow
+- DeepSeek V4
+- DeepSeek V3.2
+- DeepSeek R1
+- DeepSeek V3 Family
+- Future DeepSeek Models
 
 ---
 
