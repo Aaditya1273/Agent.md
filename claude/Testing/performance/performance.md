@@ -1,1094 +1,196 @@
-# performance.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: performance
+category: Testing
+description: Testing performance as a regression gate — budgets in CI, lab versus field data, and measuring the metrics users actually feel.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, performance testing methodologies, system efficiency validation, latency analysis, throughput verification, scalability assessment, resource optimization, and long-term engineering guidance for validating that software consistently delivers fast, reliable, and predictable performance under realistic production conditions.
+<purpose>
+Rules for catching performance regressions before users do. Capacity under
+concurrency is `Testing/load`; this package is about the speed of a single
+experience and keeping it from decaying.
 
-It applies to
-
-- APIs
-- Backend Services
-- Frontend Applications
-- Mobile Applications
-- SaaS Platforms
-- Enterprise Software
-- AI Systems
-- Distributed Systems
-- Cloud Infrastructure
-- High-Traffic Platforms
-
-Performance Testing is not benchmarking hardware.
-
-Performance Testing is the engineering discipline of validating that software consistently delivers predictable response times, efficient resource utilization, reliable throughput, and excellent user experience across expected production workloads while maintaining operational stability.
-
-Performance Testing answers one question:
-
-**Can the system consistently deliver the expected user experience within defined performance objectives under realistic operating conditions?**
+Performance degrades one pull request at a time. **A budget enforced in CI is the
+only mechanism that stops it**, because nobody notices 40ms.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Measure what users feel
 
-Understand Business Expectations
+<rules>
+For web interfaces, the Core Web Vitals plus one:
 
-↓
+| Metric | Good | Measures |
+| --- | --- | --- |
+| **LCP** — Largest Contentful Paint | < 2.5s | When the main content appears |
+| **INP** — Interaction to Next Paint | < 200ms | Responsiveness to input |
+| **CLS** — Cumulative Layout Shift | < 0.1 | Visual stability |
+| **TTFB** — Time to First Byte | < 800ms | Server and network |
 
-Understand User Experience
+INP replaced FID because it measures **every** interaction, not just the first —
+a page that responds instantly once and stutters afterwards now scores honestly.
 
-↓
-
-Measure System Performance
-
-↓
-
-Identify Bottlenecks
-
-↓
-
-Optimize Performance
-
-↓
-
-Validate Improvements
-
-↓
-
-Increase Operational Confidence
-
-↓
-
-Continuously Improve
-
-Performance is measured by user experience—not infrastructure utilization alone.
+For APIs, latency percentiles at the boundary: `p50`, `p95`, `p99`. Never the mean
+— see `Testing/load`.
 
 ---
+</rules>
 
-# Primary Objective
+# Lab and field are both required
 
-Every Performance Testing Strategy should maximize
+<rules>
+| | Lab (synthetic) | Field (RUM) |
+| --- | --- | --- |
+| Source | Lighthouse, WebPageTest, CI | Real users, `web-vitals` |
+| Strength | Reproducible; can gate a PR | Truthful; real devices and networks |
+| Weakness | Idealised device and network | Cannot block a regression pre-merge |
 
-Responsiveness
+Use lab data as the **gate** and field data as the **truth**. A lab score of 98 on
+a simulated fast connection tells you nothing about a mid-range Android on 4G,
+which is what most of the world is using.
 
-+
+```js
+// Field collection — send real user measurements, don't guess at them
+import { onLCP, onINP, onCLS, onTTFB } from "web-vitals";
 
-Efficiency
+const send = (metric) =>
+  navigator.sendBeacon("/rum", JSON.stringify({
+    name: metric.name, value: metric.value, rating: metric.rating,
+    id: metric.id, path: location.pathname,
+  }));
 
-+
+onLCP(send); onINP(send); onCLS(send); onTTFB(send);
+```
 
-Scalability
-
-+
-
-Reliability
-
-+
-
-Resource Utilization
-
-+
-
-Business Continuity
-
-+
-
-Operational Confidence
-
-+
-
-Long-Term Sustainability
-
-The objective is delivering consistently excellent user experience rather than achieving isolated benchmark results.
+`navigator.sendBeacon` survives page unload; a `fetch` in `visibilitychange`
+frequently does not.
 
 ---
+</rules>
 
-# Engineering Principles
+# Budgets in CI
 
-Always prioritize
+<rules>
+A budget only works if crossing it **fails the build**.
 
-Business Performance
+```js
+// lighthouserc.js — assert, don't just report
+module.exports = {
+  ci: {
+    collect: { url: ["http://localhost:3000/", "http://localhost:3000/checkout"], numberOfRuns: 3 },
+    assert: {
+      assertions: {
+        "categories:performance": ["error", { minScore: 0.9 }],
+        "largest-contentful-paint": ["error", { maxNumericValue: 2500 }],
+        "cumulative-layout-shift": ["error", { maxNumericValue: 0.1 }],
+        "total-byte-weight": ["error", { maxNumericValue: 500_000 }],
+      },
+    },
+  },
+};
+```
 
-↓
-
-User Experience
-
-↓
-
-Predictable Latency
-
-↓
-
-Efficient Resource Usage
-
-↓
-
-Scalability
-
-↓
-
-Operational Visibility
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Performance engineering should optimize user value rather than infrastructure statistics.
+- Run **at least 3 iterations** and take the median. Single runs on shared CI
+  runners are too noisy to gate on.
+- Budget the **bundle** as well as the timings — `size-limit` or
+  `bundlesize` catches a 300 KB dependency at the pull request that added it,
+  which is the only time it is cheap to remove.
+- Set budgets from **current measured values**, slightly tightened. An aspirational
+  budget that fails on day one gets disabled on day two.
 
 ---
+</rules>
 
-# Performance Testing Lifecycle
+# Comparing fairly
 
-Understand Business Goals
+<rules>
+Performance numbers are noisy; most reported "regressions" are measurement error.
 
-↓
-
-Identify Performance Objectives
-
-↓
-
-Model Real User Behavior
-
-↓
-
-Measure System Performance
-
-↓
-
-Analyze Bottlenecks
-
-↓
-
-Optimize System Efficiency
-
-↓
-
-Validate Improvements
-
-↓
-
-Continuously Improve
-
-Every performance test should produce actionable engineering knowledge.
+- Compare against the **base commit**, not against an absolute from last quarter.
+- Pin CPU throttling and network conditions so runs are comparable.
+- Prefer a **relative threshold** ("no more than 10% slower than base") over an
+  absolute one for CI gating.
+- Re-run before believing a single failure. Then look at a trend, not a point.
+- For microbenchmarks use a real harness — `benchmark.js`, `mitata`, `hyperfine` —
+  which handles warmup and statistical significance. A `Date.now()` difference
+  around a loop measures the JIT warming up.
 
 ---
+</rules>
 
-# Stage 1 — Performance Objective Discovery
+# Profile before optimising
 
-Identify
+<rules>
+A regression test tells you *that* it slowed down. Finding *where* needs a profile.
 
-Business-Critical Features
+| Symptom | Tool |
+| --- | --- |
+| Slow page load | Chrome DevTools Performance, WebPageTest filmstrip |
+| Slow interaction | Performance panel, React Profiler, `INP` attribution |
+| Large bundle | `webpack-bundle-analyzer`, `source-map-explorer` |
+| Slow endpoint | APM traces, flame graph, `--cpu-prof` |
+| Slow query | `EXPLAIN ANALYZE`, `pg_stat_statements` |
 
-↓
+```bash
+</rules>
 
-Performance Requirements
+# Node: capture a CPU profile of the real workload, then read the flame graph
 
-↓
+<rules>
+node --cpu-prof --cpu-prof-dir=./profiles server.js
+npx speedscope ./profiles/*.cpuprofile
+```
 
-Response Time Objectives
-
-↓
-
-Availability Targets
-
-↓
-
-User Experience Expectations
-
-↓
-
-Growth Projections
-
-↓
-
-Business Constraints
-
-↓
-
-Future Evolution
-
-Performance objectives should originate from business expectations rather than technical assumptions.
+**Never** optimise from a guess. The bottleneck is routinely somewhere nobody
+predicted, and the time spent on the wrong thing is unrecoverable.
 
 ---
+</rules>
 
-# Stage 2 — Critical Workload Identification
+# Anti-patterns
 
-Identify
-
-Authentication
-
-↓
-
-API Requests
-
-↓
-
-Database Operations
-
-↓
-
-Search
-
-↓
-
-Reporting
-
-↓
-
-AI Operations
-
-↓
-
-Payments
-
-↓
-
-Background Processing
-
-↓
-
-Notifications
-
-↓
-
-Administrative Operations
-
-Every important workload should have measurable performance expectations.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Lab data only | Idealised device and network | Collect field RUM |
+| Reporting the mean | Hides the tail | `p95`, `p99` |
+| Budgets that only warn | Nobody reads a warning | Fail the build |
+| A single CI run | Runner noise reads as regression | Median of 3+ |
+| Absolute budget on noisy CI | Flaky gate gets disabled | Relative to base commit |
+| Aspirational budget | Fails immediately, gets removed | Set from measured values |
+| `Date.now()` microbenchmarks | Measures JIT warmup | Use a real harness |
+| Optimising without a profile | Effort spent on the wrong code | Profile first |
+| No bundle budget | Dependencies accrete unnoticed | `size-limit` in CI |
+| Measuring only the homepage | Regressions hide on other routes | Budget key routes |
 
 ---
-
-# Stage 3 — User Behavior Modeling
-
-Model
-
-Concurrent Users
-
-↓
-
-Traffic Distribution
-
-↓
-
-Peak Usage
-
-↓
-
-Session Duration
-
-↓
-
-Think Time
-
-↓
-
-Feature Popularity
-
-↓
-
-Geographical Distribution
-
-↓
-
-Future Growth
-
-Performance testing should reflect realistic customer behavior.
-
----
-
-# Stage 4 — Environment Preparation
-
-Prepare
-
-Production Configuration
-
-↓
-
-Infrastructure
-
-↓
-
-Databases
-
-↓
-
-Caching
-
-↓
-
-Storage
-
-↓
-
-Networking
-
-↓
-
-Monitoring
-
-↓
-
-Observability
-
-Performance measurements should accurately represent production conditions.
-
----
-
-# Stage 5 — Performance Baseline
-
-Define
-
-Response Time
-
-↓
-
-Latency
-
-↓
-
-Throughput
-
-↓
-
-Availability
-
-↓
-
-Resource Usage
-
-↓
-
-Database Performance
-
-↓
-
-Cache Performance
-
-↓
-
-Business Metrics
-
-Performance baselines provide objective engineering reference points.
-
----
-
-# Stage 6 — System Performance Validation
-
-Measure
-
-Response Time
-
-↓
-
-Latency Percentiles
-
-↓
-
-Throughput
-
-↓
-
-Transaction Completion
-
-↓
-
-Concurrency
-
-↓
-
-Availability
-
-↓
-
-Business Success Rate
-
-↓
-
-User Experience
-
-Every metric should explain real customer impact.
-
----
-
-# Stage 7 — Resource Efficiency
-
-Monitor
-
-CPU
-
-↓
-
-Memory
-
-↓
-
-Disk
-
-↓
-
-Network
-
-↓
-
-Database Connections
-
-↓
-
-Thread Pools
-
-↓
-
-Garbage Collection
-
-↓
-
-Infrastructure Health
-
-Efficient resource utilization supports sustainable software growth.
-
----
-
-# Stage 8 — Bottleneck Analysis
-
-Identify
-
-Application Logic
-
-↓
-
-Database Queries
-
-↓
-
-Caching Strategy
-
-↓
-
-Network Communication
-
-↓
-
-Storage Systems
-
-↓
-
-External Services
-
-↓
-
-Infrastructure Constraints
-
-↓
-
-Architectural Limitations
-
-Every bottleneck should have measurable engineering and business impact.
-
----
-
-# Stage 9 — Optimization Validation
-
-Validate
-
-Caching Improvements
-
-↓
-
-Database Optimization
-
-↓
-
-API Performance
-
-↓
-
-Concurrency Improvements
-
-↓
-
-Memory Optimization
-
-↓
-
-Infrastructure Scaling
-
-↓
-
-Architecture Improvements
-
-↓
-
-Operational Efficiency
-
-Every optimization should produce measurable improvements.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design performance validation that maximizes
-
-Repeatability
-
-↓
-
-Deterministic Results
-
-↓
-
-Reliable Metrics
-
-↓
-
-Stable Environments
-
-↓
-
-Performance Visibility
-
-↓
-
-Regression Detection
-
-↓
-
-Engineering Confidence
-
-↓
-
-Continuous Improvement
-
-Reliable performance testing continuously validates that engineering improvements translate into measurable user benefits.
-
-# Stage 11 — Performance Metrics
-
-Every performance test should measure metrics that directly influence user experience and business outcomes.
-
-Measure
-
-Response Time
-
-↓
-
-Latency Percentiles
-
-↓
-
-Throughput
-
-↓
-
-Requests Per Second
-
-↓
-
-Transaction Completion Rate
-
-↓
-
-Error Rate
-
-↓
-
-Resource Utilization
-
-↓
-
-Business Impact
-
-Performance metrics should explain both technical efficiency and customer experience.
-
----
-
-# Stage 12 — Capacity Validation
-
-Every production system should have clearly understood performance capacity.
-
-Validate
-
-Concurrent Users
-
-↓
-
-Concurrent Requests
-
-↓
-
-Maximum Throughput
-
-↓
-
-Database Capacity
-
-↓
-
-Connection Limits
-
-↓
-
-Cache Capacity
-
-↓
-
-Queue Capacity
-
-↓
-
-Infrastructure Limits
-
-Capacity planning should be evidence-driven rather than assumption-driven.
-
----
-
-# Stage 13 — Scalability Verification
-
-Performance should remain predictable as workload increases.
-
-Validate
-
-Horizontal Scaling
-
-↓
-
-Vertical Scaling
-
-↓
-
-Auto Scaling
-
-↓
-
-Load Distribution
-
-↓
-
-Database Scaling
-
-↓
-
-Caching Efficiency
-
-↓
-
-Queue Processing
-
-↓
-
-Service Coordination
-
-Scalability should preserve both reliability and user experience.
-
----
-
-# Stage 14 — Dependency Performance
-
-Every dependency contributes to overall system performance.
-
-Validate
-
-Databases
-
-↓
-
-Caches
-
-↓
-
-Message Brokers
-
-↓
-
-Authentication Services
-
-↓
-
-Storage Systems
-
-↓
-
-Search Services
-
-↓
-
-External APIs
-
-↓
-
-Internal Services
-
-System performance is constrained by its slowest dependency.
-
----
-
-# Stage 15 — Test Organization
-
-Organize performance testing around measurable business capabilities.
-
-Group by
-
-Critical User Journeys
-
-↓
-
-Business Features
-
-↓
-
-API Domains
-
-↓
-
-Infrastructure Components
-
-↓
-
-Performance Objectives
-
-↓
-
-Risk Level
-
-↓
-
-Growth Scenarios
-
-↓
-
-Future Evolution
-
-Well-organized performance suites simplify optimization and long-term maintenance.
-
----
-
-# Stage 16 — Baseline Management
-
-Maintain historical performance baselines.
-
-Track
-
-Response Time History
-
-↓
-
-Latency Trends
-
-↓
-
-Infrastructure Changes
-
-↓
-
-Architecture Changes
-
-↓
-
-Optimization Results
-
-↓
-
-Capacity Growth
-
-↓
-
-Regression History
-
-↓
-
-Future Targets
-
-Performance baselines provide objective engineering benchmarks.
-
----
-
-# Stage 17 — Quality Attributes
-
-Every Performance Testing strategy should maximize
-
-Responsiveness
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Efficiency
-
-↓
-
-Operational Visibility
-
-↓
-
-Predictability
-
-↓
-
-Maintainability
-
-↓
-
-Engineering Excellence
-
-Performance quality is measured through consistently excellent user experience.
-
----
-
-# Stage 18 — Engineering Questions
-
-Before approving any performance test, ask
-
-Does this represent realistic production usage?
-
-↓
-
-Are business-critical workloads validated?
-
-↓
-
-Are performance objectives measurable?
-
-↓
-
-Can bottlenecks be identified?
-
-↓
-
-Are dependencies evaluated?
-
-↓
-
-Can engineers confidently predict production behavior?
-
-↓
-
-Will regressions be detected early?
-
-↓
-
-Does this improve operational confidence?
-
-If any answer is "No", improve the performance testing strategy before approval.
-
----
-
-# Stage 19 — Anti-Patterns
-
-Avoid
-
-Artificial benchmark scenarios
-
-↓
-
-Ignoring user experience
-
-↓
-
-Measuring only average latency
-
-↓
-
-Ignoring percentile metrics
-
-↓
-
-Testing unrealistic workloads
-
-↓
-
-Unstable environments
-
-↓
-
-Poor monitoring
-
-↓
-
-Ignoring dependency performance
-
-↓
-
-Single benchmark execution
-
-↓
-
-Premature optimization
-
-↓
-
-Treating performance as a one-time activity
-
-↓
-
-Optimizing metrics without improving user experience
-
-The objective is delivering predictable production performance—not achieving impressive benchmark numbers.
-
----
-
-# Stage 20 — Continuous Evolution
-
-Performance Testing should evolve together with software, infrastructure, and business growth.
-
-Continuously improve
-
-Performance Objectives
-
-↓
-
-Workload Models
-
-↓
-
-Infrastructure Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Monitoring
-
-↓
-
-Regression Detection
-
-↓
-
-Engineering Standards
-
-↓
-
-Operational Confidence
-
-Performance engineering is a continuous optimization process that protects user experience throughout software evolution.
-
----
-
-# Quality Attributes
-
-A high-quality Performance Testing strategy demonstrates
-
-- Predictable response times
-- Stable throughput
-- Efficient resource utilization
-- Reliable scalability
-- Accurate performance baselines
-- Strong operational visibility
-- Reliable regression detection
-- Production-like environments
-- Clear engineering intent
-- Long-term sustainability
-
----
-
-# Engineering Questions
-
-Before considering Performance Testing complete, verify
-
-- Are performance objectives clearly defined?
-- Are business-critical workloads represented?
-- Are realistic production conditions simulated?
-- Are response time targets consistently achieved?
-- Are bottlenecks identified and documented?
-- Are infrastructure dependencies measured?
-- Are scalability strategies validated?
-- Will future regressions be detected?
-- Can engineers confidently estimate production performance?
-- Will this strategy remain valuable as the system evolves?
-
----
-
-# Severity Levels
-
-## Critical
-
-- Business-critical workflows fail to meet performance objectives.
-- Response times become unacceptable.
-- System availability is compromised.
-- User experience significantly degrades.
-
-Immediate correction required.
-
----
-
-## High
-
-- Major latency regressions.
-- Infrastructure bottlenecks.
-- Resource exhaustion.
-- Database performance issues.
-
-Resolve before release.
-
----
-
-## Medium
-
-- Minor performance regressions.
-- Inefficient resource utilization.
-- Monitoring gaps.
-- Optimization opportunities.
-
-Improve during normal engineering work.
-
----
-
-## Low
-
-- Documentation improvements.
-- Reporting enhancements.
-- Baseline refinements.
-- Minor performance tuning opportunities.
-
-Address during continuous improvement.
-
----
+</antipatterns>
 
 # Checklist
 
-Before approving Performance Testing
-
-- Performance objectives defined
-- Business workloads identified
-- Production traffic modeled
-- Performance baselines established
-- Response time measured
-- Latency percentiles analyzed
-- Throughput validated
-- Resource utilization monitored
-- Dependencies evaluated
-- Bottlenecks identified
-- Scalability verified
-- Monitoring configured
-- Regression protection established
-- Engineering intent documented
-- Long-term maintainability verified
-
----
-
-# Definition of Done
-
-A Performance Testing strategy is considered complete when all business-critical workloads, production traffic patterns, response time objectives, latency distributions, throughput expectations, infrastructure components, service dependencies, scalability behaviors, resource utilization characteristics, optimization opportunities, monitoring capabilities, and performance baselines have been validated through repeatable, production-representative testing that provides engineering teams with high confidence that the system consistently delivers fast, reliable, efficient, and predictable user experiences while supporting sustainable business growth.
-
-Exceptional Performance Testing is not measured by benchmark scores or isolated response time improvements.
-
-It is measured by how effectively it validates real production performance, protects user experience under realistic workloads, identifies performance bottlenecks before customers encounter them, supports evidence-based optimization decisions, enables confident capacity planning, and continuously ensures the delivery of fast, reliable, scalable, and production-ready software.
+<checklist>
+- [ ] LCP, INP, CLS and TTFB are measured, not just a Lighthouse score
+- [ ] Field data is collected from real users via `web-vitals` and `sendBeacon`
+- [ ] Lab budgets run in CI and fail the build when exceeded
+- [ ] At least three runs are taken and the median used
+- [ ] Budgets were derived from current measurements, then tightened
+- [ ] Bundle size is budgeted separately and gated per pull request
+- [ ] Comparisons are relative to the base commit
+- [ ] Key routes are budgeted, not only the homepage
+- [ ] API latency is reported as percentiles
+- [ ] Microbenchmarks use a harness that handles warmup
+- [ ] Optimisation follows a profile, never a guess
+</checklist>

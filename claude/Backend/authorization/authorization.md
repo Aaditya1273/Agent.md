@@ -1,890 +1,212 @@
-# authorization.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: authorization
+category: Backend
+description: Enforcing access control in a service — where the check belongs, scoping queries by tenant, RBAC versus ABAC, and testing that a denial is actually denied.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, implement, review, secure, and maintain authorization systems.
+<purpose>
+Rules for enforcing who may do what, in a backend service. Authentication
+establishes identity (`Backend/authentication`); authorization decides what that
+identity may do. Policy modelling is `Security/authorization`; this package is
+about where the check lives and how it does not get skipped.
 
-Authorization is not simply checking whether a user is logged in.
-
-Authorization is the process of determining whether an authenticated identity is allowed to perform a specific action on a specific resource under defined business rules.
-
-The objective is to build authorization systems that enforce least privilege, prevent unauthorized access, scale across organizations, and remain understandable as products evolve.
-
-Authentication answers
-
-"Who are you?"
-
-Authorization answers
-
-"What are you allowed to do?"
+The dominant failure is not a wrong policy. It is a **missing check on one
+endpoint** — an authenticated request that returns somebody else's row.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Scope the query; do not check afterwards
 
-Verify Identity
+<rules>
+```ts
+// Broken — authenticated, authorized for nothing in particular
+const order = await db.order.findUnique({ where: { id: req.params.id } });
+if (order.tenantId !== req.auth.tenantId) return res.sendStatus(403);  // one refactor from gone
 
-↓
+// Correct — the scope is part of the query
+const order = await db.order.findFirst({
+  where: { id: req.params.id, tenantId: req.auth.tenantId },
+});
+if (!order) return res.sendStatus(404);
+```
 
-Identify Resource
+Filtering in the `WHERE` clause means there is no window in which the wrong data
+exists in the process, and no branch to forget. Make it structural: a repository
+layer that requires a tenant scope, or row-level security in the database, so an
+unscoped query cannot be written.
 
-↓
+```sql
+-- Postgres RLS: the database refuses to return another tenant's rows
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON orders
+  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+```
 
-Determine Action
-
-↓
-
-Evaluate Policy
-
-↓
-
-Grant or Deny
-
-↓
-
-Audit Decision
-
-↓
-
-Monitor Access
-
-↓
-
-Approve
-
-Every action must be explicitly authorized.
-
-Never trust authentication alone.
+Return `404` rather than `403` for objects the caller may not see — a `403`
+confirms the object exists. → `API/api-security`
 
 ---
+</rules>
 
-# Primary Objective
+# One layer owns the decision
 
-Every authorization system should answer one question.
+<rules>
+Authorization belongs in the **service layer**, where the domain objects are, not
+scattered across controllers and templates.
 
-"Can every action be approved or denied correctly according to business rules while preventing privilege escalation and unauthorized access?"
+| Layer | Role |
+| --- | --- |
+| Middleware | Coarse gates: route requires authentication, requires a scope |
+| Service | The real decision, with the object in hand |
+| Repository | Mandatory tenant scoping |
+| Database | Row-level security as a backstop |
+| UI | Hides what is not permitted — **never** a control |
 
-If the answer is uncertain,
+The UI hiding a button is a usability improvement. The request it would have made
+is still available to anyone with `curl`.
 
-the authorization design requires improvement.
+Centralise the policy so it can be read in one place:
 
----
+```ts
+// One function, exhaustively tested, used everywhere
+export function can(actor: Actor, action: Action, resource: Resource): boolean;
+```
 
-# Authorization Principles
-
-Every implementation should maximize
-
-Least Privilege
-
-↓
-
-Security
-
-↓
-
-Correctness
-
-↓
-
-Consistency
-
-↓
-
-Scalability
-
-↓
-
-Auditability
-
-↓
-
-Developer Experience
-
-Access should always be intentional.
-
-Never accidental.
+Scattered `if (user.role === "admin")` checks cannot be audited, and they drift.
+Note also that a role check is not a permission check — `admin` on one tenant is
+not `admin` on another.
 
 ---
+</rules>
 
-# Authorization Workflow
+# Model: roles, then attributes
 
-Authenticate Identity
+<rules>
+Start with **RBAC**: roles carry permissions, users hold roles, scoped to a
+tenant. It covers most systems and is easy to reason about and to display.
 
-↓
+Add **ABAC/ReBAC** only for rules RBAC cannot express — "the owner of the document
+or a member of its project", "only during business hours", "only below
+€10,000". Represent them as explicit policy rather than nested conditionals.
 
-Identify Resource
+For genuinely complex relationship graphs, a dedicated engine (OpenFGA, SpiceDB,
+Cedar, OPA) is worth the operational cost. Below that, a single well-tested `can()`
+function is simpler and faster.
 
-↓
+Rules that hold regardless of the model:
 
-Identify Action
-
-↓
-
-Load Policies
-
-↓
-
-Evaluate Rules
-
-↓
-
-Grant or Deny
-
-↓
-
-Log Decision
-
-↓
-
-Approve
+- **Deny by default.** An action with no matching policy is denied.
+- **Least privilege.** New roles start with nothing.
+- **Check every time**, on every request. A permission cached in a JWT is stale
+  the moment access is revoked.
+- **Field-level too.** Reading an order does not imply reading its
+  `costBasisCents`. Project explicit fields.
 
 ---
+</rules>
 
-# Stage 1 — Resource Identification
+# The checks people forget
 
-Determine
+<rules>
+| Path | Commonly missed |
+| --- | --- |
+| `PATCH`/`PUT` | Ownership checked on read, not on write |
+| Bulk endpoints | Checked for the first id, not for all of them |
+| Nested resources | `/orders/{id}/items/{itemId}` — item not verified to belong to the order |
+| Background jobs | Run as "system" with no scope at all |
+| Exports and reports | Aggregate across tenants |
+| GraphQL nested fields | Reached without passing the root check → `API/graphql` |
+| Webhooks and callbacks | Authenticated by URL secrecy alone |
+| Admin tooling | Internal-only assumption, publicly routable |
+| Object storage URLs | Signed once, valid indefinitely |
+| Cursors and filters | Encode a scope the client can edit |
 
-Users
-
-↓
-
-Organizations
-
-↓
-
-Projects
-
-↓
-
-Files
-
-↓
-
-Invoices
-
-↓
-
-Payments
-
-↓
-
-Reports
-
-↓
-
-Settings
-
-Authorization protects resources.
-
-Not routes.
+A background job acting on behalf of a user must carry that user's scope, not
+run unrestricted.
 
 ---
+</rules>
 
-# Stage 2 — Action Identification
+# Test denial, not just permission
 
-Identify supported operations.
+<rules>
+Authorization tests that only assert the happy path prove nothing. The valuable
+assertion is that a request **fails**.
 
-Examples
+```ts
+test("a member of tenant B cannot read tenant A's order", async () => {
+  const res = await request(app).get(`/v1/orders/${tenantAOrderId}`)
+    .set("Cookie", sessionFor(tenantBUser));
+  expect(res.status).toBe(404);
+});
+```
 
-Read
-
-Create
-
-Update
-
-Delete
-
-Approve
-
-Publish
-
-Archive
-
-Export
-
-Upload
-
-Download
-
-Share
-
-Actions should reflect business operations.
+- One denial test per protected resource type, at minimum.
+- A test that enumerates every route and asserts an unauthenticated request is
+  rejected catches the new endpoint someone forgot to protect. Make it fail
+  closed: new routes must be added to an explicit public allowlist.
+- Log every denial with actor, action, resource and source IP — a spike is either
+  an attack or a broken deploy. → `Security/audit-log`
 
 ---
+</rules>
 
-# Stage 3 — Identity Types
+# Anti-patterns
 
-Review
-
-Users
-
-Administrators
-
-Organizations
-
-Teams
-
-Services
-
-API Keys
-
-Machine Accounts
-
-Every identity should have well-defined permissions.
-
----
-
-# Stage 4 — Authorization Models
-
-Choose the appropriate model.
-
-Role-Based Access Control (RBAC)
-
-↓
-
-Attribute-Based Access Control (ABAC)
-
-↓
-
-Policy-Based Access Control (PBAC)
-
-↓
-
-Relationship-Based Access Control (ReBAC)
-
-↓
-
-Hybrid Models
-
-Use the simplest model that satisfies business requirements.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Fetch then compare ownership | One missed branch leaks data | Scope inside the query |
+| Tenant id from the request | Horizontal privilege escalation | Tenant from the session |
+| `403` for hidden objects | Confirms existence | `404` |
+| Checks scattered across controllers | Cannot be audited; drifts | One `can()` function |
+| Role string compared inline | Not scoped to a tenant; unauditable | Permission check via policy |
+| UI hiding treated as enforcement | `curl` bypasses it entirely | Server-side check always |
+| Permissions cached in a JWT | Revocation does not take effect | Check per request |
+| Object-level only | Sensitive fields leak to permitted readers | Field-level projection |
+| Ownership checked on read only | Writes go unchecked | Check on every mutation |
+| Bulk endpoints checking one id | The rest are unauthorized | Check every element |
+| Nested resource not verified | Item from another parent is returned | Verify the whole path |
+| Jobs running unrestricted | Bypass every check | Carry the user's scope |
+| Only happy-path tests | Missing checks are invisible | Assert denials |
+| No route-coverage test | New endpoints ship unprotected | Fail-closed allowlist test |
+| Denials not logged | Attacks and regressions unnoticed | Log actor, action, resource |
 
 ---
-
-# Stage 5 — Roles
-
-Define meaningful roles.
-
-Examples
-
-Guest
-
-Member
-
-Moderator
-
-Manager
-
-Administrator
-
-Owner
-
-Roles should represent responsibilities.
-
-Not implementation details.
-
----
-
-# Stage 6 — Permissions
-
-Permissions should be granular.
-
-Examples
-
-user.read
-
-user.create
-
-user.update
-
-user.delete
-
-invoice.approve
-
-project.archive
-
-settings.manage
-
-Permissions represent capabilities.
-
----
-
-# Stage 7 — Resource Ownership
-
-Determine ownership.
-
-Examples
-
-User owns profile
-
-Organization owns project
-
-Customer owns invoice
-
-Team owns repository
-
-Owners may receive additional permissions.
-
-Ownership should always be verified.
-
----
-
-# Stage 8 — Policy Evaluation
-
-Evaluate
-
-Identity
-
-↓
-
-Role
-
-↓
-
-Permission
-
-↓
-
-Ownership
-
-↓
-
-Resource State
-
-↓
-
-Business Rules
-
-↓
-
-Context
-
-Authorization should evaluate complete context.
-
----
-
-# Stage 9 — Context Awareness
-
-Review
-
-Current user
-
-Time
-
-Location
-
-Device
-
-Organization
-
-Subscription
-
-Environment
-
-Risk score
-
-Access decisions may depend on context.
-
----
-
-# Stage 10 — Least Privilege
-
-Grant only
-
-Required permissions
-
-↓
-
-Temporary permissions
-
-↓
-
-Scoped permissions
-
-↓
-
-Minimal access
-
-↓
-
-Explicit approval
-
-Access should be earned.
-
-Not inherited unnecessarily.
-
----
-
-# Stage 11 — Multi-Tenant Isolation
-
-Verify
-
-Tenant boundaries
-
-↓
-
-Organization isolation
-
-↓
-
-Data ownership
-
-↓
-
-Cross-tenant protection
-
-↓
-
-Shared resources
-
-Tenant isolation is mandatory.
-
----
-
-# Stage 12 — Hierarchical Access
-
-Support
-
-Organizations
-
-↓
-
-Departments
-
-↓
-
-Teams
-
-↓
-
-Projects
-
-↓
-
-Resources
-
-Inheritance should remain predictable.
-
----
-
-# Stage 13 — API Authorization
-
-Review
-
-Route protection
-
-↓
-
-Resource protection
-
-↓
-
-Scope validation
-
-↓
-
-Ownership checks
-
-↓
-
-Permission middleware
-
-Protect business operations.
-
-Not only endpoints.
-
----
-
-# Stage 14 — Authorization Caching
-
-Cache only when
-
-Safe
-
-↓
-
-Versioned
-
-↓
-
-Invalidatable
-
-↓
-
-Short-lived
-
-↓
-
-Observable
-
-Authorization caches must never weaken security.
-
----
-
-# Stage 15 — Denied Access
-
-Return
-
-403 Forbidden
-
-Provide
-
-Consistent response
-
-↓
-
-No sensitive details
-
-↓
-
-Audit logging
-
-↓
-
-Recovery guidance
-
-Authorization failures should not expose system internals.
-
----
-
-# Stage 16 — Auditing
-
-Log
-
-Access granted
-
-↓
-
-Access denied
-
-↓
-
-Permission changes
-
-↓
-
-Role changes
-
-↓
-
-Administrative actions
-
-↓
-
-Policy updates
-
-Authorization decisions should always be traceable.
-
----
-
-# Stage 17 — Security Review
-
-Review
-
-Privilege escalation
-
-↓
-
-Horizontal access
-
-↓
-
-Vertical access
-
-↓
-
-Broken access control
-
-↓
-
-Direct object references
-
-↓
-
-Policy bypass
-
-Broken authorization is one of the highest-risk vulnerabilities.
-
----
-
-# Stage 18 — Testing
-
-Verify
-
-Role validation
-
-↓
-
-Ownership validation
-
-↓
-
-Permission checks
-
-↓
-
-Tenant isolation
-
-↓
-
-Privilege escalation
-
-↓
-
-Negative scenarios
-
-↓
-
-Policy conflicts
-
-Authorization should be tested more than happy paths.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Roles
-
-Permissions
-
-Policies
-
-Scopes
-
-Ownership rules
-
-Examples
-
-Decision flow
-
-Documentation prevents inconsistent implementations.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Permission usage
-
-↓
-
-Unused roles
-
-↓
-
-Security incidents
-
-↓
-
-Policy complexity
-
-↓
-
-Developer feedback
-
-↓
-
-Business evolution
-
-Authorization evolves with products.
-
----
-
-# Authorization Quality Attributes
-
-Evaluate
-
-Correctness
-
-Security
-
-Consistency
-
-Scalability
-
-Auditability
-
-Maintainability
-
-Reliability
-
-Developer Experience
-
----
-
-# Authorization Questions
-
-Before approval ask
-
-Can every action be evaluated independently?
-
-↓
-
-Are permissions granular enough?
-
-↓
-
-Can users access only their own resources?
-
-↓
-
-Can administrators exceed intended privileges?
-
-↓
-
-Can tenant isolation ever fail?
-
-↓
-
-Are authorization decisions auditable?
-
-↓
-
-Would an independent security audit approve this model?
-
----
-
-# Severity Levels
-
-Critical
-
-Authorization bypass
-
-Privilege escalation
-
-Cross-tenant access
-
-Broken access control
-
-Sensitive data exposure
-
-Major
-
-Weak policy design
-
-Incorrect ownership validation
-
-Missing permission checks
-
-Policy inconsistencies
-
-Medium
-
-Documentation improvements
-
-Policy simplification
-
-Caching improvements
-
-Minor
-
-Naming improvements
-
-Examples
-
-Operational enhancements
-
-Future policy optimization
-
----
-
-# Authorization Checklist
-
-✓ Resources identified
-
-✓ Actions defined
-
-✓ Roles documented
-
-✓ Permissions granular
-
-✓ Ownership verified
-
-✓ Policy engine implemented
-
-✓ Least privilege enforced
-
-✓ Multi-tenant isolation reviewed
-
-✓ Authorization middleware implemented
-
-✓ Audit logging enabled
-
-✓ Security reviewed
-
-✓ Testing completed
-
-✓ Documentation complete
-
-✓ Production ready
-
-✓ Continuous monitoring enabled
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Role-only authorization
-
-Hardcoded permissions
-
-Global administrator bypasses
-
-Business logic inside middleware
-
-Authorization inside frontend only
-
-Missing ownership checks
-
-Shared administrator accounts
-
-Wildcard permissions
-
-Hidden authorization rules
-
-Duplicated policy logic
-
-Authorization based only on URLs
-
-Trusting client-provided roles
-
-Ignoring tenant isolation
-
-Treating authentication as authorization
-
----
-
-# Definition of Done
-
-Authorization review is complete when
-
-- Every protected resource has clearly defined access rules.
-- Roles, permissions, ownership, and business policies are consistently enforced.
-- Least privilege minimizes unnecessary access across users, services, and administrators.
-- Authorization decisions consider identity, resource, action, ownership, and contextual business rules.
-- Multi-tenant environments maintain complete isolation between organizations.
-- Audit logs provide traceability for every authorization decision and administrative change.
-- Security testing verifies resistance against privilege escalation, broken access control, and policy bypass attacks.
-- Documentation clearly explains permissions, policies, roles, scopes, and ownership rules.
-- The authorization system scales as products, teams, and organizations evolve.
-- Every action performed within the system is explicitly authorized before execution.
-
-Exceptional authorization systems are almost invisible.
-
-Legitimate users perform only the actions they are intended to perform, administrators operate within well-defined boundaries, attackers cannot escalate privileges, and every access decision is consistent, explainable, and auditable.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Every data access is scoped to the caller inside the query
+- [ ] Tenant scope comes from the session and never from client input
+- [ ] Repository or row-level security makes an unscoped query impossible
+- [ ] Hidden resources return `404`, not `403`
+- [ ] One central policy function owns every decision
+- [ ] Default is deny; new roles start with no permissions
+- [ ] Permissions are evaluated per request, not cached in a token
+- [ ] Field-level authorization protects sensitive properties
+- [ ] Mutations check authorization, not only reads
+- [ ] Bulk operations check every element
+- [ ] Nested resource paths are verified end to end
+- [ ] Background jobs run with an explicit scope
+- [ ] Exports and reports are tenant-scoped
+- [ ] Admin tooling is authenticated and network-restricted
+- [ ] Denial tests exist for every protected resource type
+- [ ] A fail-closed test asserts new routes are protected by default
+- [ ] Every denial is logged with actor, action, resource and source
+</checklist>

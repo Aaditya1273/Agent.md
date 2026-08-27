@@ -1,1131 +1,204 @@
-# secret-management.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: secret-management
+category: Security
+description: Keeping credentials out of source, configuration and images — storage, injection, rotation, and what to do once a secret has leaked.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, secret management methodologies, credential lifecycle frameworks, secure storage strategies, access control practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready systems that protect sensitive credentials throughout their entire lifecycle.
+<purpose>
+Rules for handling API keys, database passwords, signing keys and tokens.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Software
-- APIs
-- Cloud Platforms
-- Microservices
-- DevOps Infrastructure
-- CI/CD Pipelines
-- Production Software
-
-Secret management is not storing passwords in environment variables.
-
-Secret management is the engineering discipline of securely creating, storing, distributing, rotating, auditing, and retiring sensitive credentials while minimizing exposure, reducing operational risk, and preserving confidentiality throughout the software lifecycle.
-
-Secret management answers one question:
-
-**Can every sensitive credential remain protected throughout its entire lifecycle?**
+The operating assumption: **a secret in source control is already compromised.**
+Git history is permanent, forks are uncontrolled, and scanners crawl public
+repositories continuously. Treat "we will remove it later" as "we have rotated
+it" — because removing it without rotating changes nothing.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Where secrets live
 
-Identify Secrets
+<rules>
+| Location | Verdict |
+| --- | --- |
+| Secret manager (Vault, AWS Secrets Manager, GCP Secret Manager, 1Password) | **Preferred** — audited, rotatable, access-controlled |
+| KMS / HSM for signing and encryption keys | **Preferred** — the key never leaves the boundary |
+| Platform-injected environment variables | **Acceptable** — the common baseline |
+| CI/CD provider secret store | **Acceptable** for build-time credentials |
+| `.env` file, gitignored, local development only | **Tolerable** — never in an image or a deployed host |
+| Committed `.env`, config file, or source constant | **Never** |
+| Client bundle, mobile app, browser storage | **Never** — shipped to every user |
 
-↓
-
-Minimize Exposure
-
-↓
-
-Secure Storage
-
-↓
-
-Controlled Access
-
-↓
-
-Continuous Rotation
-
-↓
-
-Monitor Usage
-
-↓
-
-Detect Compromise
-
-↓
-
-Continuously Improve
-
-Secrets should exist only where they are required and only for as long as they are required.
+**Never** commit a secret "temporarily". **Never** paste one into an issue, a
+pull request, a chat message, or a support ticket — those systems are searchable
+and often exportable.
 
 ---
+</rules>
 
-# Primary Objective
+# Environment variables — the caveats
 
-Every secret management system should maximize
+<rules>
+Environment variables are the common baseline, and they leak in specific ways
+worth knowing:
 
-Confidentiality
+- **They appear in crash dumps and error reporters.** Scrub `process.env` before
+  sending a report to Sentry or similar.
+- **They are readable by every process the user runs**, and on Linux via
+  `/proc/<pid>/environ` for the same user.
+- **`docker inspect` shows them** for a running container.
+- **They land in shell history** when set inline on a command.
+- **Child processes inherit them.** A build step that shells out passes every
+  secret along.
 
-+
+```js
+// Fail fast and loudly at startup rather than sending `undefined` as a key.
+const required = ["DATABASE_URL", "JWT_SIGNING_KEY", "STRIPE_SECRET_KEY"];
+const missing = required.filter((k) => !process.env[k]);
+if (missing.length) {
+  throw new Error(`Missing required secrets: ${missing.join(", ")}`);
+}
+```
 
-Least Privilege
-
-+
-
-Integrity
-
-+
-
-Auditability
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every secret should remain protected regardless of infrastructure complexity.
+**Never** log `process.env`, and never interpolate a secret into a log line, a
+URL, or an error message.
 
 ---
+</rules>
 
-# Engineering Principles
+# Keeping them out of the repository
 
-Always prioritize
+<rules>
+```gitignore
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials.json
+service-account*.json
+```
 
-Least Privilege
+Commit a `.env.example` with **keys and empty values only** — never real values —
+so a contributor knows what is required.
 
-↓
+Run a secret scanner in CI and as a pre-commit hook (`gitleaks`, `trufflehog`,
+`detect-secrets`, or GitHub push protection). Scan the **full history**, not just
+the diff, when onboarding an existing repository.
 
-Secret Isolation
-
-↓
-
-Centralized Management
-
-↓
-
-Automatic Rotation
-
-↓
-
-Short Secret Lifetime
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Improvement
-
-Secrets should never become application configuration.
+**Never** rely on `.gitignore` alone. It does not protect a file already tracked,
+and `git add -f` bypasses it.
 
 ---
+</rules>
 
-# Secret Management Lifecycle
+# Containers and builds
 
-Identify Secrets
+<rules>
+- **Never** use `ENV SECRET=…` or `ARG SECRET=…` in a `Dockerfile`. Both persist
+  in the image layers and are readable with `docker history` by anyone who can
+  pull the image.
+- Use **build secrets** that are not committed to a layer:
 
-↓
+```dockerfile
+</rules>
 
-Classify Sensitivity
+# syntax=docker/dockerfile:1
 
-↓
+<rules>
+RUN --mount=type=secret,id=npm_token \
+    NPM_TOKEN=$(cat /run/secrets/npm_token) npm ci
+```
 
-Secure Storage
-
-↓
-
-Controlled Distribution
-
-↓
-
-Monitor Usage
-
-↓
-
-Rotate Secrets
-
-↓
-
-Retire Secrets
-
-↓
-
-Continuously Improve
-
-Every secret requires lifecycle management.
+- Inject runtime secrets through the orchestrator — Kubernetes `Secret` mounted
+  as a file, ECS task secrets, systemd credentials.
+- A Kubernetes `Secret` is **base64, not encrypted**, at rest by default. Enable
+  encryption at rest, restrict RBAC on the `secrets` resource, and prefer an
+  external-secrets operator backed by a real manager.
 
 ---
+</rules>
 
-# Stage 1 — Secret Identification
+# Rotation
 
-Identify
-
-Passwords
-
-↓
-
-API Keys
-
-↓
-
-Access Tokens
-
-↓
-
-Private Keys
-
-↓
-
-Certificates
-
-↓
-
-Database Credentials
-
-↓
-
-Cloud Credentials
-
-↓
-
-Service Credentials
-
-Unknown secrets cannot be protected.
+<rules>
+- **Rotate on a schedule** and **immediately on any suspicion** of exposure.
+- Design every integration to support **two valid credentials at once**, so
+  rotation is: issue new → deploy → verify → revoke old. Without overlap,
+  rotation means downtime, and rotation that means downtime does not happen.
+- Prefer **short-lived, automatically issued credentials** over long-lived static
+  ones: IAM roles, workload identity, OIDC federation from CI. The best secret is
+  the one that expires in an hour without anyone acting.
+- Keep an inventory: what exists, who can read it, when it was last rotated. An
+  unrotatable secret nobody owns is the one that ends up in an incident report.
 
 ---
+</rules>
 
-# Stage 2 — Classification
+# When a secret leaks
 
-Classify
+<rules>
+In this order:
 
-Critical Secrets
+1. **Revoke or rotate first.** Not "remove the commit" — revoke. The old value is
+   already cloned, cached and indexed.
+2. **Check for use.** Review provider audit logs from before the leak was noticed.
+3. **Then** clean history if you wish (`git filter-repo`, BFG) and force-push.
+   This is cosmetic; it does not un-leak anything and does not reach existing
+   clones or forks.
+4. **Record it.** What leaked, how, for how long, and what changed to prevent a
+   repeat.
 
-↓
-
-Production Secrets
-
-↓
-
-Infrastructure Secrets
-
-↓
-
-Application Secrets
-
-↓
-
-Temporary Credentials
-
-↓
-
-Third-Party Credentials
-
-↓
-
-Development Secrets
-
-↓
-
-Public Configuration
-
-Not every configuration value is a secret.
+**Never** treat a history rewrite as remediation. Rotation is remediation.
 
 ---
+</rules>
 
-# Stage 3 — Threat Analysis
+# Anti-patterns
 
-Identify
-
-Secret Leakage
-
-↓
-
-Repository Exposure
-
-↓
-
-Log Exposure
-
-↓
-
-Memory Exposure
-
-↓
-
-Environment Exposure
-
-↓
-
-Infrastructure Compromise
-
-↓
-
-Supply Chain Risks
-
-↓
-
-Emerging Threats
-
-Understanding exposure paths strengthens security.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| API key committed "temporarily" | History is permanent; scanners are fast | Rotate; use a secret manager |
+| `ENV SECRET=` in a `Dockerfile` | Readable via `docker history` | `--mount=type=secret` |
+| Secret in a client bundle or mobile app | Shipped to every user | Proxy through your backend |
+| `console.log(process.env)` | Secrets land in log aggregation | Never log the environment |
+| Same key across dev, staging and prod | One compromise takes everything | Separate credentials per environment |
+| No rotation because it causes downtime | Rotation never happens | Support two valid credentials |
+| Deleting the commit instead of rotating | Clones and forks retain it | Revoke first |
+| Kubernetes `Secret` assumed encrypted | Base64 is encoding | Encryption at rest + RBAC |
+| Secret in a URL query string | Access logs, `Referer`, history | Header or request body |
 
 ---
-
-# Stage 4 — Secret Architecture
-
-Design
-
-Central Secret Store
-
-↓
-
-Access Policies
-
-↓
-
-Identity Integration
-
-↓
-
-Secret Distribution
-
-↓
-
-Rotation Strategy
-
-↓
-
-Audit Logging
-
-↓
-
-Monitoring
-
-↓
-
-Future Expansion
-
-Secret architecture should eliminate unnecessary duplication.
-
----
-
-# Stage 5 — Storage Strategy
-
-Define
-
-Encrypted Storage
-
-↓
-
-Hardware Protection
-
-↓
-
-Cloud Secret Stores
-
-↓
-
-Key Separation
-
-↓
-
-Version Management
-
-↓
-
-Backup Strategy
-
-↓
-
-Recovery
-
-↓
-
-Operational Controls
-
-Secrets should remain encrypted at rest and protected during access.
-
----
-
-# Stage 6 — Access Control
-
-Protect
-
-Human Access
-
-↓
-
-Application Access
-
-↓
-
-Machine Access
-
-↓
-
-Temporary Access
-
-↓
-
-Administrative Access
-
-↓
-
-Emergency Access
-
-↓
-
-Service Identity
-
-↓
-
-Operational Security
-
-Every secret should have explicit ownership and controlled access.
-
----
-
-# Stage 7 — Secret Distribution
-
-Validate
-
-Identity
-
-↓
-
-Authorization
-
-↓
-
-Access Request
-
-↓
-
-Delivery
-
-↓
-
-Usage
-
-↓
-
-Expiration
-
-↓
-
-Revocation
-
-↓
-
-Engineering Quality
-
-Secrets should be distributed securely and only when necessary.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Secret Access
-
-↓
-
-Rotation Frequency
-
-↓
-
-Access Failures
-
-↓
-
-Expired Secrets
-
-↓
-
-Unauthorized Requests
-
-↓
-
-Audit Coverage
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Secret management should remain measurable.
-
----
-
-# Stage 9 — Compromise Detection
-
-Identify
-
-Credential Leakage
-
-↓
-
-Unauthorized Usage
-
-↓
-
-Unexpected Access
-
-↓
-
-Geographic Anomalies
-
-↓
-
-Privilege Abuse
-
-↓
-
-Expired Secret Usage
-
-↓
-
-Repository Exposure
-
-↓
-
-Operational Threats
-
-Early detection minimizes exposure.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Storage Architecture
-
-↓
-
-Identity Integration
-
-↓
-
-Trust Boundaries
-
-↓
-
-Access Policies
-
-↓
-
-Distribution Flow
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Secret architecture should remain understandable and secure.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Applications
-
-↓
-
-Growing Teams
-
-↓
-
-Growing Infrastructure
-
-↓
-
-Cloud Expansion
-
-↓
-
-Distributed Services
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Secret management should scale automatically.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Secret Availability
-
-↓
-
-Access Reliability
-
-↓
-
-Rotation Reliability
-
-↓
-
-Operational Stability
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Engineering Quality
-
-Reliable secret access preserves production stability.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Secret Inventory
-
-↓
-
-Ownership
-
-↓
-
-Rotation Policy
-
-↓
-
-Access Policy
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves operational consistency.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Credential Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Access Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Cloud Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Business Risks
-
-↓
-
-Technical Debt
-
-Secret risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Availability
-
-↓
-
-Developer Experience
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every secret management decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Secret Storage
-
-↓
-
-Access Controls
-
-↓
-
-Rotation Strategy
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Secret management requires continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Secret Inventory
-
-↓
-
-Access Metrics
-
-↓
-
-Rotation Metrics
-
-↓
-
-Risk Assessment
-
-↓
-
-Operational Health
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports improve governance and compliance.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Secrets
-
-↓
-
-Access Policies
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Recovery Procedures
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Secret management should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Secret Standards
-
-↓
-
-Access Reviews
-
-↓
-
-Rotation Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Secrets require continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Secret Protection
-
-↓
-
-Credential Lifecycle
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Automation
-
-↓
-
-Software Longevity
-
-Exceptional secret management continuously reduces credential exposure while preserving operational simplicity and engineering excellence.
-
----
-
-# Secret Management Quality Attributes
-
-Evaluate
-
-Confidentiality
-
-Integrity
-
-Least Privilege
-
-Auditability
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Has every secret been identified and classified?
-
-↓
-
-Can any secret be eliminated?
-
-↓
-
-Does every secret have explicit ownership?
-
-↓
-
-Are secrets automatically rotated?
-
-↓
-
-Can compromised secrets be revoked immediately?
-
-↓
-
-Can secret access be fully audited?
-
-↓
-
-Would experienced Security Engineers, Platform Engineers, Principal Engineers, DevOps Engineers, and Engineering Leadership confidently approve this secret management architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Production credential leakage
-
-Private key exposure
-
-Cloud credential compromise
-
-Infrastructure compromise
-
-Major
-
-Missing rotation
-
-Weak access controls
-
-Repository exposure
-
-Shared credentials
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Automation opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Secret Management Checklist
-
-✓ Secrets identified
-
-✓ Classification completed
-
-✓ Threats analyzed
-
-✓ Architecture designed
-
-✓ Storage strategy defined
-
-✓ Access controls implemented
-
-✓ Distribution secured
-
-✓ Security measured
-
-✓ Compromise detection implemented
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Hardcoded secrets
-
-Secrets inside source code
-
-Secrets inside repositories
-
-Sharing credentials
-
-Long-lived credentials
-
-Manual secret rotation
-
-Secrets in logs
-
-Secrets in error messages
-
-Using production secrets in development
-
-Duplicating credentials across systems
-
-Granting excessive access
-
-Treating secrets as ordinary configuration
-
----
-
-# Definition of Done
-
-A secret management strategy is considered complete when
-
-- All sensitive credentials, cryptographic material, authentication secrets, infrastructure credentials, service identities, and operational secrets have been systematically identified, classified, protected, and governed using secure engineering principles and evidence-based methodologies.
-- Every secret is securely generated, encrypted, distributed, accessed, monitored, rotated, revoked, archived, and retired while preventing credential leakage, unauthorized access, privilege escalation, repository exposure, operational misuse, and long-term accumulation of unmanaged secrets throughout the software lifecycle.
-- The secret management architecture supports scalable distributed systems, cloud infrastructure, automated deployment pipelines, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate secret inventory completeness, access controls, encryption strategies, rotation mechanisms, documentation quality, maintainability, scalability, production readiness, auditability, operational resilience, and long-term engineering sustainability before deployment.
-- Documentation clearly explains secret ownership, lifecycle management, storage architecture, access policies, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, recovery strategies, and future security improvements.
-- Secret management decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving cloud platforms, infrastructure providers, deployment environments, distributed architectures, and future software engineering ecosystems.
-- The resulting system demonstrates engineering discipline, strong credential protection, resilient access control, predictable secret lifecycle management, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional secret management is not measured by how many secrets are encrypted.
-
-It is measured by how consistently software minimizes secret exposure, automates credential lifecycle management, enforces least privilege, withstands evolving infrastructure threats, and continuously delivers secure, maintainable, and resilient credential protection throughout the lifetime of the software.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] No secret appears in source, config, or committed `.env` files
+- [ ] `.gitignore` covers `.env*`, `*.pem`, `*.key`, service-account JSON
+- [ ] `.env.example` lists keys with empty values only
+- [ ] A secret scanner runs in CI and over full history
+- [ ] Production secrets come from a secret manager or orchestrator injection
+- [ ] Required secrets are validated at startup with a clear failure
+- [ ] `process.env` is never logged and is scrubbed from error reports
+- [ ] No `ENV`/`ARG` secrets in Dockerfiles; build secrets use `--mount=type=secret`
+- [ ] Kubernetes secrets have encryption at rest and restricted RBAC
+- [ ] Each environment has distinct credentials
+- [ ] Every integration supports two valid credentials for zero-downtime rotation
+- [ ] Short-lived federated credentials used where the platform supports them
+- [ ] A written leak procedure exists that starts with revocation
+</checklist>

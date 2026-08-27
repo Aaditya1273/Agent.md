@@ -1,1133 +1,192 @@
-# indexes.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: indexes
+category: Database
+description: Indexing for real query patterns — column order in composite indexes, when an index is ignored, and the cost of the ones you do not need.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, maintaining, and optimizing database indexes.
+<purpose>
+Rules for choosing indexes. Query rewriting is `Database/query-optimization`.
 
-It applies to
-
-- PostgreSQL
-- MySQL
-- MariaDB
-- SQL Server
-- Oracle
-- SQLite
-- CockroachDB
-- Distributed SQL Databases
-
-Indexes are not performance optimizations added after development.
-
-Indexes are architectural components that determine how efficiently data can be discovered, retrieved, sorted, filtered, and joined.
-
-Poor indexing slows applications.
-
-Poor indexing also slows writes.
-
-Every index is a trade-off.
+Two facts govern everything below: **an index makes reads faster and writes
+slower**, and **an index the planner cannot use costs you everything and returns
+nothing.** Index for measured query patterns, never speculatively.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Index what you filter, join and sort on
 
-Understand Workloads
+<rules>
+Start from the actual queries, then read the plan:
 
-↓
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders WHERE tenant_id = $1 AND status = 'open' ORDER BY created_at DESC LIMIT 20;
+```
 
-Measure Queries
+Read for: `Seq Scan` on a large table, `Rows Removed by Filter` in the thousands,
+and a large gap between estimated and actual rows — that last one usually means
+stale statistics, so `ANALYZE` before concluding anything.
 
-↓
+Always index:
 
-Design Indexes
-
-↓
-
-Validate Usage
-
-↓
-
-Monitor Performance
-
-↓
-
-Optimize Continuously
-
-↓
-
-Remove Waste
-
-↓
-
-Maintain Simplicity
-
-Indexes should accelerate business operations.
-
-Not consume resources unnecessarily.
+- **Foreign keys.** PostgreSQL does not index them automatically, and an unindexed
+  FK makes every parent `DELETE` scan the child table.
+- **Columns in `WHERE`** on tables that grow.
+- **Join columns** on both sides.
+- **`ORDER BY` columns** where the sort would otherwise be external.
 
 ---
+</rules>
 
-# Primary Objective
+# Composite index column order
 
-Every indexing strategy should maximize
+<rules>
+The single most consequential decision, and the one most often wrong.
 
-Read Performance
+```sql
+-- Serves: (tenant_id), (tenant_id, status), (tenant_id, status, created_at)
+CREATE INDEX idx_orders_tenant_status_created
+  ON orders (tenant_id, status, created_at DESC);
+```
 
-+
+The rule is **leftmost prefix**: an index on `(a, b, c)` can serve queries
+filtering on `a`, `a`+`b`, or `a`+`b`+`c` — never `b` alone, never `c` alone.
 
-Predictable Query Plans
+Order the columns:
 
-+
+1. **Equality** predicates first (`tenant_id = $1`, `status = 'open'`)
+2. **Range** predicate next (`created_at > $2`) — a range stops the index being
+   usable for anything to its right
+3. **Sort** column last, matching the `ORDER BY` direction
 
-Write Efficiency
-
-+
-
-Storage Efficiency
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Observability
-
-+
-
-Long-Term Reliability
-
-Every index should justify its existence.
+Put the **most selective** equality column first among equals. A composite index
+usually replaces a single-column index on its leading column, so drop the
+redundant one.
 
 ---
+</rules>
 
-# Engineering Principles
+# Specialised index types
 
-Always prioritize
+<rules>
+| Type | Use |
+| --- | --- |
+| **B-tree** | Default; equality, ranges, sorting |
+| **Partial** | A subset you query constantly — far smaller |
+| **Covering** (`INCLUDE`) | Index-only scans; no heap fetch |
+| **Expression** | When you filter on a function of a column |
+| **GIN** | `jsonb`, arrays, full-text search |
+| **BRIN** | Very large, naturally ordered tables (time series) |
+| **Unique** | A correctness constraint that also indexes |
 
-Business Workloads
+```sql
+-- Partial: index only the rows actually queried
+CREATE INDEX idx_orders_open ON orders (tenant_id, created_at)
+  WHERE status = 'open';
 
-↓
+-- Covering: the query is answered from the index alone
+CREATE INDEX idx_orders_lookup ON orders (tenant_id, id) INCLUDE (total, status);
 
-Measured Performance
+-- Expression: without this, lower(email) cannot use an index on email
+CREATE INDEX idx_users_email_lower ON users (lower(email));
+```
 
-↓
-
-Query Efficiency
-
-↓
-
-Minimal Redundancy
-
-↓
-
-Operational Simplicity
-
-↓
-
-Scalability
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
-
-Never create indexes based on assumptions.
+**Never** wrap an indexed column in a function in the `WHERE` clause — 
+`WHERE lower(email) = $1` cannot use an index on `email`. Either index the
+expression or store the normalised value.
 
 ---
+</rules>
 
-# Index Lifecycle
+# When an index is ignored
 
-Analyze Workload
+<rules>
+The planner declines an index more often than people expect:
 
-↓
+| Cause | Fix |
+| --- | --- |
+| Function applied to the column | Expression index, or normalise on write |
+| Type mismatch (`varchar` vs `int` parameter) | Cast correctly; align the column type |
+| Leading `%` in a `LIKE` pattern | Trigram (`pg_trgm`) index or full-text search |
+| Low selectivity — the query returns most rows | A scan genuinely is cheaper |
+| Stale statistics | `ANALYZE` the table |
+| `OR` across different columns | Rewrite as `UNION`, or index each branch |
+| Small table | Sequential scan is faster; not a problem |
 
-Identify Queries
-
-↓
-
-Design Indexes
-
-↓
-
-Validate Plans
-
-↓
-
-Measure Performance
-
-↓
-
-Monitor Usage
-
-↓
-
-Optimize
-
-↓
-
-Continuously Improve
+That fourth row matters: **a sequential scan is not automatically a bug.** For a
+query returning 40% of a table, a scan is the correct plan.
 
 ---
+</rules>
 
-# Stage 1 — Workload Analysis
+# The cost of too many
 
-Understand
+<rules>
+Every index must be updated on every `INSERT`, `UPDATE` and `DELETE`, and occupies
+memory that would otherwise cache data.
 
-Business Operations
+```sql
+-- Never used since the last statistics reset — candidates for removal
+SELECT relname, indexrelname, idx_scan, pg_size_pretty(pg_relation_size(indexrelid))
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+ORDER BY pg_relation_size(indexrelid) DESC;
+```
 
-↓
-
-Read Patterns
-
-↓
-
-Write Patterns
-
-↓
-
-Search Behavior
-
-↓
-
-Sorting
-
-↓
-
-Filtering
-
-↓
-
-Growth Expectations
-
-↓
-
-Performance Goals
-
-Indexes begin with workload analysis.
+- **Drop unused indexes.** Verify across a full business cycle — a monthly report
+  may be the only consumer.
+- **Drop redundant ones.** `(a)` is redundant when `(a, b)` exists.
+- Build and drop with `CONCURRENTLY` in production → `Database/migration`.
+- Watch for **duplicate indexes** created by an ORM and a migration independently.
 
 ---
+</rules>
 
-# Stage 2 — Query Analysis
+# Anti-patterns
 
-Identify
-
-Frequent Queries
-
-↓
-
-Slow Queries
-
-↓
-
-Join Operations
-
-↓
-
-Sorting
-
-↓
-
-Aggregations
-
-↓
-
-Pagination
-
-↓
-
-Reporting
-
-↓
-
-Analytics
-
-Indexes should support actual workloads.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| One index per column | Composite queries still scan; writes slow | Composite in query order |
+| Wrong composite order | Leftmost-prefix rule makes it unusable | Equality, range, sort |
+| Unindexed foreign key | Parent deletes scan the child table | Index every FK |
+| `WHERE lower(x) = $1` on an index of `x` | Function defeats the index | Expression index |
+| `LIKE '%term%'` expecting B-tree | Leading wildcard cannot seek | `pg_trgm` or full-text |
+| Indexing speculatively | Write cost with no read benefit | Index measured patterns |
+| Never dropping unused indexes | Permanent write tax | Audit `idx_scan = 0` |
+| `CREATE INDEX` without `CONCURRENTLY` | Blocks writes during the build | `CONCURRENTLY` |
+| Assuming a `Seq Scan` is a bug | Often the correct plan | Read the row estimates |
+| Reading `EXPLAIN` without `ANALYZE` | Estimates, not reality | `EXPLAIN (ANALYZE, BUFFERS)` |
 
 ---
-
-# Stage 3 — Column Selection
-
-Select columns based on
-
-Filtering
-
-↓
-
-Joining
-
-↓
-
-Sorting
-
-↓
-
-Grouping
-
-↓
-
-Uniqueness
-
-↓
-
-Foreign Keys
-
-↓
-
-Search Frequency
-
-↓
-
-Business Value
-
-Not every column deserves an index.
-
----
-
-# Stage 4 — Index Types
-
-Choose appropriate indexes
-
-Primary Index
-
-↓
-
-Unique Index
-
-↓
-
-Composite Index
-
-↓
-
-Partial Index
-
-↓
-
-Covering Index
-
-↓
-
-Expression Index
-
-↓
-
-Hash Index
-
-↓
-
-Specialized Indexes
-
-Every index type solves a different problem.
-
----
-
-# Stage 5 — Composite Index Design
-
-Consider
-
-Column Order
-
-↓
-
-Selectivity
-
-↓
-
-Filtering Sequence
-
-↓
-
-Sorting Order
-
-↓
-
-Join Conditions
-
-↓
-
-Business Queries
-
-↓
-
-Reuse
-
-↓
-
-Future Growth
-
-Column order determines index usefulness.
-
----
-
-# Stage 6 — Query Optimization
-
-Design indexes for
-
-WHERE
-
-↓
-
-JOIN
-
-↓
-
-ORDER BY
-
-↓
-
-GROUP BY
-
-↓
-
-LIMIT
-
-↓
-
-Aggregation
-
-↓
-
-Range Queries
-
-↓
-
-Pagination
-
-Indexes should eliminate unnecessary scanning.
-
----
-
-# Stage 7 — Write Performance
-
-Evaluate impact on
-
-INSERT
-
-↓
-
-UPDATE
-
-↓
-
-DELETE
-
-↓
-
-Bulk Operations
-
-↓
-
-Replication
-
-↓
-
-Maintenance
-
-↓
-
-Storage
-
-↓
-
-Concurrency
-
-Every additional index has a write cost.
-
----
-
-# Stage 8 — Storage Efficiency
-
-Optimize
-
-Index Size
-
-↓
-
-Duplicate Indexes
-
-↓
-
-Unused Indexes
-
-↓
-
-Fragmentation
-
-↓
-
-Compression
-
-↓
-
-Memory Usage
-
-↓
-
-Disk Usage
-
-↓
-
-Growth
-
-Storage efficiency improves scalability.
-
----
-
-# Stage 9 — Execution Plans
-
-Review
-
-Query Plans
-
-↓
-
-Index Scans
-
-↓
-
-Sequential Scans
-
-↓
-
-Nested Loops
-
-↓
-
-Merge Joins
-
-↓
-
-Hash Joins
-
-↓
-
-Estimated Cost
-
-↓
-
-Actual Performance
-
-Execution plans explain database decisions.
-
----
-
-# Stage 10 — Selectivity
-
-Evaluate
-
-Unique Values
-
-↓
-
-Distribution
-
-↓
-
-Cardinality
-
-↓
-
-Filtering Effectiveness
-
-↓
-
-Data Skew
-
-↓
-
-Null Values
-
-↓
-
-Business Patterns
-
-↓
-
-Growth
-
-High selectivity generally improves index effectiveness.
-
----
-
-# Stage 11 — Monitoring
-
-Continuously monitor
-
-Index Usage
-
-↓
-
-Slow Queries
-
-↓
-
-Unused Indexes
-
-↓
-
-Fragmentation
-
-↓
-
-Storage Growth
-
-↓
-
-Latency
-
-↓
-
-Write Performance
-
-↓
-
-Database Health
-
-Unused indexes consume resources.
-
----
-
-# Stage 12 — Maintenance
-
-Regularly perform
-
-Rebuild
-
-↓
-
-Reorganize
-
-↓
-
-Statistics Updates
-
-↓
-
-Fragmentation Review
-
-↓
-
-Storage Cleanup
-
-↓
-
-Health Checks
-
-↓
-
-Performance Review
-
-↓
-
-Capacity Planning
-
-Maintenance preserves efficiency.
-
----
-
-# Stage 13 — Scalability
-
-Prepare for
-
-Growing Tables
-
-↓
-
-Higher Traffic
-
-↓
-
-More Users
-
-↓
-
-Larger Indexes
-
-↓
-
-Partitioning
-
-↓
-
-Replication
-
-↓
-
-Distributed Systems
-
-↓
-
-Future Expansion
-
-Indexes should scale with data.
-
----
-
-# Stage 14 — Reliability
-
-Ensure
-
-Predictable Queries
-
-↓
-
-Stable Performance
-
-↓
-
-Operational Consistency
-
-↓
-
-Recovery
-
-↓
-
-Backup Compatibility
-
-↓
-
-Migration Safety
-
-↓
-
-Replication
-
-↓
-
-Availability
-
-Indexes support reliable operations.
-
----
-
-# Stage 15 — Security
-
-Protect
-
-Sensitive Data
-
-↓
-
-Access Control
-
-↓
-
-Metadata
-
-↓
-
-Operational Visibility
-
-↓
-
-Compliance
-
-↓
-
-Auditing
-
-↓
-
-Administration
-
-↓
-
-Infrastructure
-
-Performance should never weaken security.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Purpose
-
-↓
-
-Indexed Columns
-
-↓
-
-Supported Queries
-
-↓
-
-Trade-offs
-
-↓
-
-Maintenance
-
-↓
-
-Growth Expectations
-
-↓
-
-Architecture Decisions
-
-↓
-
-Review History
-
-Documentation prevents unnecessary indexes.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Business Value
-
-↓
-
-Performance Gains
-
-↓
-
-Storage Cost
-
-↓
-
-Write Impact
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Simplicity
-
-↓
-
-Future Suitability
-
-Every index should be reviewed.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Duplicate Indexes
-
-↓
-
-Missing Indexes
-
-↓
-
-Unused Indexes
-
-↓
-
-Storage Risks
-
-↓
-
-Performance Risks
-
-↓
-
-Migration Risks
-
-↓
-
-Scaling Risks
-
-↓
-
-Operational Risks
-
-Poor indexing creates hidden technical debt.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Query Plans
-
-↓
-
-Index Design
-
-↓
-
-Storage Efficiency
-
-↓
-
-Maintenance
-
-↓
-
-Monitoring
-
-↓
-
-Automation
-
-↓
-
-Developer Experience
-
-↓
-
-Database Performance
-
-Optimization is continuous.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Performance
-
-↓
-
-Efficiency
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Database Excellence
-
-Well-designed indexes remain valuable as systems evolve.
-
----
-
-# Index Quality Attributes
-
-Evaluate
-
-Performance
-
-Efficiency
-
-Maintainability
-
-Scalability
-
-Storage Efficiency
-
-Reliability
-
-Observability
-
-Business Alignment
-
----
-
-# Index Questions
-
-Before creating an index ask
-
-Will this accelerate an important business query?
-
-↓
-
-Can existing indexes already solve this problem?
-
-↓
-
-Will write performance remain acceptable?
-
-↓
-
-Is the storage cost justified?
-
-↓
-
-Will this remain valuable as data grows?
-
-↓
-
-Can it simplify query execution?
-
-↓
-
-Would experienced database engineers confidently approve this index?
-
----
-
-# Severity Levels
-
-Critical
-
-Missing indexes causing production failures
-
-Broken primary indexes
-
-Severe query degradation
-
-Major
-
-Duplicate indexes
-
-Poor composite index design
-
-Write performance degradation
-
-Storage growth
-
-Medium
-
-Fragmentation
-
-Statistics outdated
-
-Maintenance improvements
-
-Minor
-
-Naming consistency
-
-Documentation improvements
-
-Review refinements
-
----
-
-# Index Checklist
-
-✓ Workloads analyzed
-
-✓ Queries reviewed
-
-✓ Columns selected
-
-✓ Index types chosen
-
-✓ Composite indexes optimized
-
-✓ Query performance validated
-
-✓ Write impact evaluated
-
-✓ Storage reviewed
-
-✓ Execution plans verified
-
-✓ Selectivity measured
-
-✓ Monitoring enabled
-
-✓ Maintenance scheduled
-
-✓ Scalability planned
-
-✓ Reliability ensured
-
-✓ Security reviewed
-
-✓ Documentation completed
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Indexing every column
-
-Creating duplicate indexes
-
-Ignoring execution plans
-
-Optimizing before measuring
-
-Ignoring write overhead
-
-Unused indexes
-
-Missing composite indexes
-
-Wrong column order
-
-Ignoring selectivity
-
-Never reviewing index usage
-
-Treating indexes as permanent
-
-Ignoring storage costs
-
----
-
-# Definition of Done
-
-An indexing strategy is considered production-ready when
-
-- Every index exists to support a measurable business workload, query pattern, or operational requirement.
-- Query execution plans consistently demonstrate efficient index utilization while avoiding unnecessary sequential scans where appropriate.
-- Composite indexes, covering indexes, partial indexes, and specialized index types are selected intentionally based on workload characteristics rather than assumptions.
-- Write performance, storage consumption, replication overhead, maintenance costs, and scalability implications remain balanced against read performance improvements.
-- Continuous monitoring identifies unused indexes, fragmentation, slow queries, storage growth, and opportunities for optimization before they affect production.
-- Index maintenance, statistics updates, rebuild strategies, and health checks preserve long-term query efficiency.
-- Documentation explains the purpose, supported workloads, design decisions, maintenance expectations, and trade-offs for every significant index.
-- Database growth, evolving workloads, infrastructure expansion, and future business requirements can be accommodated without extensive redesign.
-- Engineers can confidently understand, maintain, optimize, and evolve the indexing strategy through documented standards and measurable performance metrics.
-- The indexing architecture consistently demonstrates predictable performance, operational simplicity, scalability, maintainability, and long-term engineering excellence.
-
-Exceptional indexing is rarely noticed.
-
-Users simply experience consistently fast applications, developers write straightforward queries without performance surprises, databases scale predictably under increasing workloads, and every index continues to provide measurable value because it exists to solve a real business problem rather than a hypothetical optimization.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Indexes were added in response to a measured plan, not speculation
+- [ ] Every foreign key is indexed
+- [ ] Composite indexes order columns equality, then range, then sort
+- [ ] Sort direction in the index matches the `ORDER BY`
+- [ ] No `WHERE` clause wraps an indexed column in a function
+- [ ] Partial indexes are used where queries target a consistent subset
+- [ ] Covering indexes are used where an index-only scan is achievable
+- [ ] `jsonb`, array and full-text columns use GIN
+- [ ] Unused and redundant indexes are audited and dropped
+- [ ] Index creation uses `CONCURRENTLY` in production
+- [ ] `ANALYZE` has run before drawing conclusions from a plan
+</checklist>

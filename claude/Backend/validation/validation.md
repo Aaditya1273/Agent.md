@@ -1,886 +1,217 @@
-# validation.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: validation
+category: Backend
+description: Validating input at the trust boundary — schema-first parsing, allowlists, mass-assignment prevention, and separating shape from business rules.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, implement, review, and maintain validation systems for backend applications.
+<purpose>
+Rules for validating input on the server. The principle is one line: **anything
+that crosses a trust boundary is parsed into a known type before any code acts on
+it.**
 
-Validation is not simply checking whether input exists.
-
-Validation is the process of ensuring that every piece of incoming data is correct, complete, safe, meaningful, and consistent with business rules before entering the application.
-
-The objective is to reject invalid data as early as possible while maintaining security, reliability, consistency, and developer experience.
-
-Invalid data should never enter the business layer.
+Client-side validation is a user-experience feature. It provides no security —
+the client is under the attacker's control. Every rule here is server-side.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Parse, do not validate
 
-Receive Input
+<rules>
+Validation that returns a boolean leaves you holding the same untyped value.
+Parsing returns a **new, typed value** that cannot be wrong further down.
 
-↓
+```ts
+const CreateOrder = z.object({
+  customerId: z.string().uuid(),
+  items: z.array(z.object({
+    sku: z.string().regex(/^[A-Z0-9-]{3,32}$/),
+    qty: z.number().int().min(1).max(999),
+  })).min(1).max(100),
+  note: z.string().max(500).optional(),
+  currency: z.enum(["EUR", "USD", "GBP"]),
+}).strict();                                   // reject unknown keys
 
-Validate Structure
+app.post("/v1/orders", (req, res) => {
+  const parsed = CreateOrder.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json(toFieldErrors(parsed.error));
+  return createOrder(parsed.data);             // typed from here down
+});
+```
 
-↓
+After this line, `parsed.data.qty` is a bounded integer by construction. No
+downstream function needs to re-check it, and the type system enforces that.
 
-Validate Types
-
-↓
-
-Validate Business Rules
-
-↓
-
-Sanitize Data
-
-↓
-
-Reject Invalid Input
-
-↓
-
-Pass Trusted Data
-
-↓
-
-Approve
-
-Trust data only after validation.
-
-Never before.
+Tooling: `zod`/`valibot`/`typebox` (TypeScript), `pydantic` (Python),
+`go-playground/validator` (Go), Bean Validation (Java), `dry-schema` (Ruby). Where
+you already publish an OpenAPI document, generate the validator from it so the
+spec and the check cannot disagree. → `API/open-api`
 
 ---
+</rules>
 
-# Primary Objective
+# `.strict()` is the mass-assignment fix
 
-Every validation system should answer one question.
+<rules>
+```ts
+// Without .strict(): { "email": "…", "role": "admin", "credits": 999999 }
+await db.user.update({ where: { id }, data: req.body });   // ← privilege escalation
+```
 
-"Can invalid, malicious, incomplete, or inconsistent data be prevented from entering the application?"
+Unknown fields must be **rejected**, not ignored, and an object must never be
+spread straight into an ORM write. Build the update from explicitly named fields:
 
-If the answer is uncertain,
+```ts
+const { email, displayName } = parsed.data;
+await db.user.update({ where: { id }, data: { email, displayName } });
+```
 
-the validation strategy requires improvement.
-
----
-
-# Validation Principles
-
-Every implementation should maximize
-
-Correctness
-
-↓
-
-Security
-
-↓
-
-Consistency
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-User Experience
-
-Validation should fail fast.
-
-Not fail later.
+This is the same defect as `params.permit` misuse in Rails and
+`@ModelAttribute` binding in Spring. It is consistently in the OWASP top ten and
+it is one line to prevent.
 
 ---
+</rules>
 
-# Validation Workflow
+# Allowlist everything, and bound everything
 
-Receive Request
+<rules>
+| Input | Rule |
+| --- | --- |
+| Strings | `maxLength` on every one. A `text` field with no cap is a memory vector |
+| Arrays | `min` and `max` length |
+| Numbers | Explicit range, and integer-vs-float stated |
+| Enumerations | A closed set, never free text |
+| Identifiers | Format-checked (`uuid`, prefixed opaque id) |
+| Dates | RFC 3339, plus a sane range — reject year 9999 |
+| Body size | Framework-level limit (`express.json({ limit: "100kb" })`) |
+| Content type | Validated and rejected when unexpected |
+| Uploads | Type by magic bytes, not by extension or `Content-Type`; size capped |
 
-↓
+**Never** write a denylist. `if (input.includes("<script>"))` is bypassed by
+`<ScRiPt>`, `<img onerror>`, and a hundred other encodings. Enumerate what is
+allowed.
 
-Validate Schema
+Sanitising by stripping characters is worse than rejecting: it produces a value
+that passed no check and matches nothing you specified. Reject, and say why.
 
-↓
-
-Validate Types
-
-↓
-
-Validate Format
-
-↓
-
-Validate Business Rules
-
-↓
-
-Sanitize Data
-
-↓
-
-Reject or Continue
-
-↓
-
-Approve
+Compressed request bodies need a decompressed-size cap as well — a 1 KB gzip
+payload can expand to gigabytes.
 
 ---
+</rules>
 
-# Stage 1 — Input Identification
+# Shape, then business rules
 
-Identify every input source.
+<rules>
+Two distinct layers, and they belong in different places:
 
-Examples
+| Layer | Checks | Where | Response |
+| --- | --- | --- | --- |
+| Shape | Types, ranges, formats, required fields | Edge, before business logic | `422` with field errors |
+| Business rules | Uniqueness, balance, state transitions, permissions | Domain service, inside the transaction | `409`/`422` with a domain code |
 
-Request Body
-
-Query Parameters
-
-Route Parameters
-
-Headers
-
-Cookies
-
-Files
-
-Environment Variables
-
-CLI Arguments
-
-Webhooks
-
-Every external input must be validated.
+A uniqueness check is **not** shape validation. Checking "is this email taken?"
+before inserting is a race — two concurrent requests both see "free". The database
+constraint is the guarantee; the pre-check is only a nicer error message.
+→ `Database/schema-design`
 
 ---
+</rules>
 
-# Stage 2 — Schema Validation
+# Validation is not encoding
 
-Define explicit schemas.
+<rules>
+Validated input is still untrusted **in a different context**. A name that is
+perfectly valid input is still dangerous when concatenated into SQL, a shell
+command, a file path, or HTML.
 
-Review
+- Parameterise SQL. → `Security/sql-injection`
+- Never build shell commands from input. → `Security/command-injection`
+- Resolve and confine file paths. → `Security/path-traversal`
+- Escape on output, per context. → `Security/xss`
+- Block private address ranges when fetching a supplied URL (SSRF).
 
-Required fields
-
-↓
-
-Optional fields
-
-↓
-
-Default values
-
-↓
-
-Nested objects
-
-↓
-
-Arrays
-
-↓
-
-Enums
-
-Schemas define the contract.
+Validation reduces the surface. Context-correct encoding is what actually
+prevents injection.
 
 ---
+</rules>
 
-# Stage 3 — Type Validation
+# Error responses
 
-Validate
+<rules>
+```json
+{ "code": "validation_failed", "message": "Validation failed", "requestId": "req_01J8Z",
+  "errors": [
+    { "field": "items.0.qty", "code": "out_of_range", "message": "Must be between 1 and 999." },
+    { "field": "currency",    "code": "invalid_enum", "message": "Must be one of EUR, USD, GBP." }
+  ] }
+```
 
-String
-
-Number
-
-Boolean
-
-Date
-
-Object
-
-Array
-
-Enum
-
-Nullability
-
-Never rely on implicit type conversion.
+- Return **all** failures at once, not the first. Otherwise the client fixes one
+  field per round trip.
+- Use a path (`items.0.qty`) that identifies the exact field.
+- Stable machine `code` per error; the human message may change freely.
+- Never echo the rejected value back if it might be a credential.
+  → `Backend/error-handling`
 
 ---
+</rules>
 
-# Stage 4 — Format Validation
+# Anti-patterns
 
-Validate formats.
-
-Examples
-
-Email
-
-Phone
-
-UUID
-
-URL
-
-Slug
-
-Date
-
-ISO Timestamp
-
-JWT
-
-Country Code
-
-Postal Code
-
-IP Address
-
-Formats should follow accepted standards.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Relying on client-side validation | The client is attacker-controlled | Always validate server-side |
+| Boolean validation, untyped value | Every downstream layer re-checks | Parse into a typed value |
+| Ignoring unknown fields | Mass assignment (`role: "admin"`) | `.strict()` and reject |
+| Spreading the body into an ORM write | Any column becomes settable | Name the fields explicitly |
+| Denylist filtering | Bypassed by encoding variants | Allowlist |
+| Sanitising by stripping | Produces an unspecified value | Reject with a reason |
+| Unbounded strings and arrays | Memory exhaustion | `maxLength` / `max` everywhere |
+| No body size limit | Trivial DoS | Framework-level cap |
+| No decompressed-size cap | Zip-bomb expansion | Ratio and absolute limits |
+| Upload type from extension | Trivially spoofed | Magic-byte detection |
+| Uniqueness checked before insert only | Races under concurrency | Database constraint |
+| Business rules at the edge | Duplicated and drifts from the domain | Enforce in the service |
+| Validation treated as injection prevention | Wrong layer | Encode per output context |
+| First-error-only responses | One round trip per field | Return all errors |
+| Rejected values echoed back | May log credentials | Redact |
 
 ---
-
-# Stage 5 — Length Validation
-
-Review
-
-Minimum length
-
-Maximum length
-
-Array size
-
-Object depth
-
-File size
-
-Text size
-
-Limits protect both users and systems.
-
----
-
-# Stage 6 — Range Validation
-
-Validate
-
-Age
-
-Price
-
-Quantity
-
-Rating
-
-Score
-
-Coordinates
-
-Dates
-
-Ranges should match business requirements.
-
----
-
-# Stage 7 — Enum Validation
-
-Restrict values.
-
-Examples
-
-Status
-
-Role
-
-Priority
-
-Category
-
-Country
-
-Payment Method
-
-Only accept supported values.
-
----
-
-# Stage 8 — Business Validation
-
-Validate business rules.
-
-Examples
-
-Email uniqueness
-
-↓
-
-Stock availability
-
-↓
-
-Subscription status
-
-↓
-
-Organization membership
-
-↓
-
-Account ownership
-
-↓
-
-Balance limits
-
-Business validation belongs after schema validation.
-
----
-
-# Stage 9 — Cross-Field Validation
-
-Review relationships.
-
-Examples
-
-Start Date < End Date
-
-Password = Confirm Password
-
-Country matches Postal Code
-
-Currency matches Region
-
-Plan supports Feature
-
-Validation should understand relationships.
-
----
-
-# Stage 10 — Sanitization
-
-Sanitize
-
-Whitespace
-
-↓
-
-HTML
-
-↓
-
-Scripts
-
-↓
-
-Unicode
-
-↓
-
-Encoding
-
-↓
-
-Unexpected characters
-
-Sanitize after validation.
-
-Never replace validation.
-
----
-
-# Stage 11 — File Validation
-
-Review
-
-File type
-
-↓
-
-Extension
-
-↓
-
-MIME type
-
-↓
-
-File size
-
-↓
-
-Virus scanning
-
-↓
-
-Image dimensions
-
-↓
-
-Filename
-
-Files should never be trusted.
-
----
-
-# Stage 12 — Security Validation
-
-Protect against
-
-SQL Injection
-
-NoSQL Injection
-
-Command Injection
-
-XSS
-
-Template Injection
-
-Path Traversal
-
-Prototype Pollution
-
-Validation is the first security layer.
-
----
-
-# Stage 13 — API Validation
-
-Validate
-
-Headers
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Request body
-
-↓
-
-Query parameters
-
-↓
-
-Path parameters
-
-↓
-
-Content type
-
-Every API request requires validation.
-
----
-
-# Stage 14 — Error Messages
-
-Errors should
-
-Be clear
-
-↓
-
-Be actionable
-
-↓
-
-Remain consistent
-
-↓
-
-Avoid sensitive details
-
-↓
-
-Support debugging
-
-Developers should immediately understand validation failures.
-
----
-
-# Stage 15 — Performance
-
-Review
-
-Validation cost
-
-↓
-
-Large payloads
-
-↓
-
-Streaming
-
-↓
-
-Caching
-
-↓
-
-Nested structures
-
-↓
-
-Memory usage
-
-Validation should remain efficient.
-
----
-
-# Stage 16 — Reusability
-
-Validation rules should be
-
-Reusable
-
-↓
-
-Composable
-
-↓
-
-Modular
-
-↓
-
-Independent
-
-↓
-
-Testable
-
-Avoid duplicated validation logic.
-
----
-
-# Stage 17 — Testing
-
-Verify
-
-Valid input
-
-↓
-
-Invalid input
-
-↓
-
-Boundary values
-
-↓
-
-Missing fields
-
-↓
-
-Large payloads
-
-↓
-
-Unexpected values
-
-↓
-
-Security attacks
-
-Validation requires extensive negative testing.
-
----
-
-# Stage 18 — Documentation
-
-Document
-
-Required fields
-
-↓
-
-Optional fields
-
-↓
-
-Allowed values
-
-↓
-
-Formats
-
-↓
-
-Limits
-
-↓
-
-Examples
-
-↓
-
-Validation errors
-
-Documentation reduces integration mistakes.
-
----
-
-# Stage 19 — Monitoring
-
-Track
-
-Validation failures
-
-↓
-
-Common mistakes
-
-↓
-
-Abuse patterns
-
-↓
-
-Unexpected inputs
-
-↓
-
-Performance impact
-
-Monitoring improves validation over time.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Business rules
-
-↓
-
-Security threats
-
-↓
-
-Validation libraries
-
-↓
-
-Developer feedback
-
-↓
-
-Production incidents
-
-↓
-
-Schema evolution
-
-Validation should evolve with the application.
-
----
-
-# Validation Quality Attributes
-
-Evaluate
-
-Correctness
-
-Security
-
-Reliability
-
-Consistency
-
-Maintainability
-
-Performance
-
-Scalability
-
-Developer Experience
-
----
-
-# Validation Questions
-
-Before approval ask
-
-Can every external input be validated?
-
-↓
-
-Can malicious input bypass validation?
-
-↓
-
-Are business rules enforced separately from schema rules?
-
-↓
-
-Can invalid data reach business logic?
-
-↓
-
-Are validation errors helpful?
-
-↓
-
-Can validation rules be reused?
-
-↓
-
-Would another engineer trust this validation system?
-
----
-
-# Severity Levels
-
-Critical
-
-Validation bypass
-
-Injection vulnerability
-
-Invalid business state
-
-Missing required validation
-
-Major
-
-Weak schemas
-
-Poor sanitization
-
-Inconsistent validation
-
-Weak error handling
-
-Medium
-
-Documentation improvements
-
-Performance optimizations
-
-Rule simplification
-
-Minor
-
-Formatting
-
-Examples
-
-Naming improvements
-
-Future validation enhancements
-
----
-
-# Validation Checklist
-
-✓ All inputs identified
-
-✓ Schema validation implemented
-
-✓ Type validation complete
-
-✓ Format validation implemented
-
-✓ Length limits defined
-
-✓ Range validation reviewed
-
-✓ Enum validation implemented
-
-✓ Business rules validated
-
-✓ Cross-field validation implemented
-
-✓ File validation reviewed
-
-✓ Security validation completed
-
-✓ Error responses standardized
-
-✓ Validation reusable
-
-✓ Testing completed
-
-✓ Documentation complete
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Trusting client input
-
-Implicit type conversion
-
-Duplicated validation
-
-Business logic inside schemas
-
-Skipping file validation
-
-Weak sanitization
-
-Silent validation failures
-
-Returning sensitive error details
-
-Validating only frontend input
-
-Scattered validation rules
-
-Ignoring boundary conditions
-
-Overly permissive schemas
-
----
-
-# Definition of Done
-
-Validation review is complete when
-
-- Every external input is validated before reaching application logic.
-- Schema, type, format, range, and business validations are clearly separated and consistently enforced.
-- Invalid or malicious data is rejected immediately with clear, standardized error messages.
-- Sanitization complements validation without replacing it.
-- Security validation protects against common injection and input-based attacks.
-- Validation rules remain reusable, testable, and easy to maintain.
-- Documentation accurately describes validation requirements and error responses.
-- Comprehensive testing covers valid, invalid, boundary, and malicious inputs.
-- Monitoring provides visibility into validation failures and evolving attack patterns.
-- The application processes only trusted, validated data throughout its lifecycle.
-
-Exceptional validation systems are invisible.
-
-Correct data flows effortlessly, invalid data never reaches business logic, attackers encounter multiple defensive layers, and developers can confidently build on a foundation of trusted input.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Every request body, query and path parameter is parsed against a schema
+- [ ] Parsing produces a typed value used downstream
+- [ ] Unknown fields are rejected, not ignored
+- [ ] No request object is spread into a database write
+- [ ] Every string, array and number has explicit bounds
+- [ ] Enumerations are closed sets
+- [ ] Body size, decompressed size and upload size are capped
+- [ ] Upload types are detected from content, not from the filename
+- [ ] Allowlists are used throughout; no denylist filtering
+- [ ] Shape validation is at the edge; business rules are in the domain layer
+- [ ] Uniqueness and invariants are enforced by database constraints
+- [ ] Output encoding is applied per context, independently of validation
+- [ ] Client-supplied URLs are SSRF-guarded before any fetch
+- [ ] Validation errors list every failure with a field path and a stable code
+- [ ] Rejected values are not echoed when they may be sensitive
+</checklist>

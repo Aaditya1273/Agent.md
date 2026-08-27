@@ -1,754 +1,188 @@
-# pagination.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: pagination
+category: API
+description: Cursor and offset pagination — which to use, how to encode a cursor, and why deep OFFSET pages get slower and skip rows.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, review, implement, document, and optimize API pagination.
-
-Pagination is not simply dividing large datasets into smaller pages.
-
-Pagination is a strategy for delivering scalable, predictable, performant, and user-friendly access to large collections of data while minimizing server load, network usage, and client complexity.
-
-The objective is to design pagination systems that remain stable under growth, support efficient navigation, and provide a consistent developer experience.
-
-Every collection should remain performant regardless of its size.
+<purpose>
+Rules for paginating list endpoints. Every collection endpoint paginates, from
+the first release — retrofitting pagination onto an endpoint that returned
+everything is a breaking change, and the endpoint will fall over first.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Choose the strategy deliberately
 
-Understand Data
+<rules>
+| Strategy | Deep-page cost | Stable under writes | Jump to page N | Total count |
+| --- | --- | --- | --- | --- |
+| Cursor (keyset) | Constant | Yes | No | Not free |
+| Offset/limit | O(offset) | **No** | Yes | Yes |
 
-↓
+**Cursor pagination is the default.** Use offset only when the client genuinely
+needs numbered pages over a small, slow-changing set — an admin table, not a feed.
 
-Choose Pagination Strategy
+Two failures make offset unsuitable for large or active collections:
 
-↓
-
-Optimize Data Retrieval
-
-↓
-
-Provide Navigation
-
-↓
-
-Maintain Consistency
-
-↓
-
-Scale Efficiently
-
-↓
-
-Approve
-
-Pagination should make large datasets feel small.
+1. **It gets slower with depth.** `OFFSET 100000` makes the database produce and
+   discard 100,000 rows before returning 20.
+2. **It skips and duplicates rows.** If a row is inserted before your position
+   between page 2 and page 3, one row shifts across the boundary and you never
+   see it. This is silent — clients report "missing data" months later.
 
 ---
+</rules>
 
-# Primary Objective
+# Cursor pagination
 
-Every pagination implementation should answer one question.
+<rules>
+```
+GET /v1/orders?limit=20&cursor=eyJjIjoiMjAyNi0wOC0yM1QxNDozMjo1OVoiLCJpIjoib3JkXzhmZDIifQ
+```
 
-"Can this API efficiently return millions of records while remaining predictable for clients?"
+```json
+{
+  "data": [ … ],
+  "pageInfo": {
+    "nextCursor": "eyJjIjoiMjAyNi0wOC0yM1QxMjowMDowMFoiLCJpIjoib3JkXzRhMWIifQ",
+    "hasMore": true
+  }
+}
+```
 
-If the answer is uncertain,
+The query behind it:
 
-the pagination strategy requires redesign.
+```sql
+SELECT * FROM orders
+WHERE tenant_id = $1
+  AND (created_at, id) < ($2, $3)     -- the cursor, as a row comparison
+ORDER BY created_at DESC, id DESC
+LIMIT $4;
+```
 
----
+Three requirements:
 
-# Pagination Principles
+1. **A total sort order.** `created_at` alone is not unique; two rows sharing a
+   timestamp make the boundary ambiguous and rows are skipped. Always append a
+   unique tiebreaker — the primary key.
+2. **An index matching the sort.** `(tenant_id, created_at DESC, id DESC)`.
+   Without it the database sorts the whole table for every page.
+   → `Database/indexes`
+3. **An opaque cursor.** Base64url of a small JSON object. Clients must treat it
+   as a blob — document that, and change its internal shape freely.
 
-Every implementation should maximize
+**Never** expose the sort key as a raw cursor value (`?after=2026-08-23`). Clients
+will construct their own, and you can never change the ordering again.
 
-Performance
-
-↓
-
-Consistency
-
-↓
-
-Scalability
-
-↓
-
-Predictability
-
-↓
-
-Reliability
-
-↓
-
-Developer Experience
-
-↓
-
-User Experience
-
-Choose the simplest strategy that scales with expected growth.
-
----
-
-# Pagination Workflow
-
-Understand Dataset
-
-↓
-
-Estimate Growth
-
-↓
-
-Select Strategy
-
-↓
-
-Define Parameters
-
-↓
-
-Design Response
-
-↓
-
-Optimize Queries
-
-↓
-
-Validate Performance
-
-↓
-
-Approve
+If a cursor must not be forgeable — because it encodes a filter or a tenant —
+sign it (HMAC) or store it server-side. An unsigned base64 cursor is decodable and
+editable by anyone. → `Security/authorization`
 
 ---
+</rules>
 
-# Stage 1 — Dataset Analysis
+# Limits
 
-Before implementing determine
+<rules>
+- Always a **default** (`20`) and a **maximum** (`100`). An unbounded `limit` is a
+  denial-of-service primitive against your own database.
+- Clamp rather than error on an over-large limit, and say so in the docs.
+- Validate that `limit` is a positive integer before it reaches SQL.
 
-How many records exist?
-
-↓
-
-How quickly does the dataset grow?
-
-↓
-
-How frequently does data change?
-
-↓
-
-How often do users browse sequentially?
-
-↓
-
-What are the expected access patterns?
-
-Pagination begins with understanding data.
+```ts
+const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
+```
 
 ---
+</rules>
 
-# Stage 2 — Strategy Selection
+# Totals
 
-Choose the appropriate strategy.
+<rules>
+`hasMore` is cheap: fetch `limit + 1` rows and report whether the extra one
+existed. Do that by default.
 
-Offset Pagination
+An exact `totalCount` requires a second aggregate query that scans the matching
+set. On a large filtered collection it costs more than the page itself.
 
-Best for
-
-Small datasets
-
-Admin dashboards
-
-Reporting
-
-Cursor Pagination
-
-Best for
-
-Large datasets
-
-Real-time feeds
-
-Infinite scrolling
-
-Keyset Pagination
-
-Best for
-
-High-performance databases
-
-Large ordered datasets
-
-Page-Based Pagination
-
-Best for
-
-Simple applications
-
-Human-friendly navigation
-
-Choose based on scalability, not familiarity.
+- Return `totalCount` only when the client asked for it (`?include=total`).
+- For large sets, an estimate is usually enough — `pg_class.reltuples` for
+  unfiltered counts, or a capped count (`LIMIT 1000` then "1000+").
 
 ---
+</rules>
 
-# Stage 3 — Request Parameters
+# Ordering and filtering
 
-Review
+<rules>
+Ordering must be **explicit and stable**. Without `ORDER BY`, the database may
+return rows in any order, and the order may differ between pages of the same
+query — so the pagination is meaningless even when it looks correct in testing.
 
-page
+Allow sorting only on an allowlist of fields that are indexed:
 
-limit
+```ts
+const SORTABLE = { createdAt: "created_at", total: "total_cents" } as const;
+const column = SORTABLE[query.sort] ?? "created_at";   // never interpolate input
+```
 
-offset
+Interpolating a client-supplied column name into SQL is injection.
+→ `Security/sql-injection`, `API/sorting`, `API/filtering`
 
-cursor
-
-before
-
-after
-
-Direction
-
-Sort order
-
-Parameters should remain intuitive.
-
----
-
-# Stage 4 — Response Design
-
-Responses should contain
-
-Data
-
-Pagination metadata
-
-Navigation information
-
-Consistency
-
-Example
-
-data
-
-pagination
-
-hasNext
-
-hasPrevious
-
-nextCursor
-
-previousCursor
-
-totalCount (when practical)
-
-Clients should never guess pagination state.
+Filters must be part of the cursor's contract: a cursor is only valid for the
+filter and sort it was issued with. Either encode them into the cursor and
+validate on use, or document that changing filters resets pagination.
 
 ---
+</rules>
 
-# Stage 5 — Ordering
+# Anti-patterns
 
-Every paginated resource must define
-
-Stable ordering
-
-Default sorting
-
-Deterministic results
-
-Tie-breaking strategy
-
-Changing order breaks pagination.
-
----
-
-# Stage 6 — Cursor Design
-
-Cursors should be
-
-Opaque
-
-Stable
-
-Immutable
-
-Secure
-
-Efficient
-
-Never expose internal database identifiers unless intentional.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No pagination at all | Endpoint dies as the table grows | Paginate from day one |
+| Offset for feeds and large lists | Slower with depth; skips rows on insert | Cursor pagination |
+| Sort key without a tiebreaker | Ties make the boundary ambiguous; rows skipped | Append the primary key |
+| No index matching the sort | Full sort per page | Composite index on the sort keys |
+| Transparent cursor values | Clients build their own; ordering is frozen | Opaque base64 blob |
+| Unsigned cursor encoding a tenant | Editable; horizontal privilege escalation | HMAC or server-side storage |
+| Unbounded `limit` | Self-inflicted DoS | Default 20, maximum 100 |
+| `totalCount` on every request | Doubles the cost of every page | Opt-in, or estimate |
+| No explicit `ORDER BY` | Order is undefined; pages overlap | Always order explicitly |
+| Client-supplied sort column in SQL | Injection | Allowlist mapping |
+| Cursor reused across a filter change | Meaningless position | Bind filters to the cursor |
 
 ---
-
-# Stage 7 — Offset Pagination
-
-Review
-
-Offset value
-
-Limit
-
-Maximum page size
-
-Database cost
-
-Performance degradation
-
-Offset pagination becomes expensive on very large datasets.
-
----
-
-# Stage 8 — Cursor Pagination
-
-Verify
-
-Unique cursor
-
-Forward navigation
-
-Backward navigation
-
-Duplicate prevention
-
-Missing record handling
-
-Cursor pagination should remain stable during inserts and deletes.
-
----
-
-# Stage 9 — Keyset Pagination
-
-Review
-
-Indexed fields
-
-Sorting columns
-
-Unique ordering
-
-Composite keys
-
-Query optimization
-
-Keyset pagination provides excellent scalability.
-
----
-
-# Stage 10 — Page Size
-
-Determine
-
-Default limit
-
-Maximum limit
-
-Minimum limit
-
-Server protection
-
-Large responses increase latency and memory usage.
-
-Choose sensible defaults.
-
----
-
-# Stage 11 — Performance
-
-Inspect
-
-Query execution
-
-Indexes
-
-Sorting
-
-Memory usage
-
-Network size
-
-Serialization
-
-Response latency
-
-Performance should remain predictable as data grows.
-
----
-
-# Stage 12 — Database Optimization
-
-Review
-
-Indexes
-
-Execution plans
-
-Joins
-
-Filtering
-
-Sorting
-
-Covering indexes
-
-Pagination should leverage database strengths.
-
----
-
-# Stage 13 — Filtering Integration
-
-Filtering should occur
-
-Before pagination.
-
-Example
-
-Products
-
-↓
-
-Category Filter
-
-↓
-
-Price Filter
-
-↓
-
-Sort
-
-↓
-
-Paginate
-
-Filtering after pagination produces inconsistent results.
-
----
-
-# Stage 14 — Sorting Integration
-
-Sorting should be
-
-Deterministic
-
-Indexed
-
-Stable
-
-Consistent
-
-Every page should preserve ordering.
-
----
-
-# Stage 15 — Concurrency
-
-Review
-
-New records
-
-Deleted records
-
-Updated records
-
-Duplicate entries
-
-Skipped records
-
-Pagination should tolerate concurrent changes gracefully.
-
----
-
-# Stage 16 — Error Handling
-
-Validate
-
-Invalid cursor
-
-Negative page
-
-Oversized limit
-
-Malformed requests
-
-Expired cursor
-
-Errors should clearly explain recovery.
-
----
-
-# Stage 17 — Security
-
-Review
-
-Maximum limits
-
-Cursor validation
-
-Input validation
-
-Rate limiting
-
-Authorization
-
-Pagination endpoints should remain protected.
-
----
-
-# Stage 18 — Documentation
-
-Document
-
-Supported strategy
-
-Parameters
-
-Examples
-
-Limits
-
-Metadata
-
-Error responses
-
-Developers should understand navigation immediately.
-
----
-
-# Stage 19 — Scalability
-
-Evaluate
-
-Millions of records
-
-High concurrency
-
-Large traffic
-
-Distributed databases
-
-Caching
-
-Future growth
-
-Pagination should improve as the system scales.
-
----
-
-# Stage 20 — Developer Experience
-
-Review
-
-Consistency
-
-Predictable parameters
-
-Readable responses
-
-Easy navigation
-
-Clear documentation
-
-Pagination should require minimal learning.
-
----
-
-# Pagination Quality Attributes
-
-Evaluate
-
-Performance
-
-Consistency
-
-Reliability
-
-Scalability
-
-Predictability
-
-Maintainability
-
-Developer Experience
-
-User Experience
-
----
-
-# Pagination Questions
-
-Before approval ask
-
-Can this scale to millions of records?
-
-↓
-
-Will records be skipped?
-
-↓
-
-Can duplicates appear?
-
-↓
-
-Is ordering deterministic?
-
-↓
-
-Can developers understand navigation immediately?
-
-↓
-
-Does pagination remain efficient under heavy traffic?
-
-↓
-
-Would this strategy still work in five years?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken ordering
-
-Duplicate records
-
-Missing records
-
-Unbounded responses
-
-Major
-
-Poor performance
-
-Weak cursor design
-
-Incorrect metadata
-
-Large offsets
-
-Medium
-
-Documentation gaps
-
-Parameter inconsistencies
-
-Minor optimization opportunities
-
-Minor
-
-Formatting
-
-Examples
-
-Metadata improvements
-
-Suggestion
-
-Future scalability improvements
-
-Alternative pagination strategies
-
----
-
-# Pagination Checklist
-
-✓ Strategy selected appropriately
-
-✓ Stable ordering
-
-✓ Efficient queries
-
-✓ Indexed sorting
-
-✓ Safe page size
-
-✓ Metadata included
-
-✓ Filtering integrated
-
-✓ Sorting integrated
-
-✓ Error handling implemented
-
-✓ Security reviewed
-
-✓ Documentation complete
-
-✓ Scalability verified
-
-✓ Developer-friendly interface
-
-✓ Performance validated
-
-✓ Consistent navigation
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Unlimited responses
-
-Unstable sorting
-
-Pagination after filtering
-
-Large offsets on huge datasets
-
-Exposing database implementation
-
-Missing metadata
-
-Changing cursor formats
-
-Inconsistent limits
-
-Duplicate records
-
-Skipping records
-
-Client-side pagination for massive datasets
-
-Ignoring concurrent updates
-
----
-
-# Definition of Done
-
-Pagination review is complete when
-
-- The appropriate pagination strategy has been selected.
-- Ordering is deterministic and stable.
-- Responses include sufficient navigation metadata.
-- Filtering and sorting integrate correctly.
-- Queries remain efficient as datasets grow.
-- Cursor or page parameters are intuitive and secure.
-- Performance has been validated under realistic workloads.
-- Documentation clearly explains navigation and limits.
-- The implementation supports future scalability without redesign.
-- Developers can navigate large collections confidently and predictably.
-
-Excellent pagination is almost invisible.
-
-Users simply continue exploring data, while the underlying system remains fast, efficient, and scalable regardless of dataset size.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Every collection endpoint paginates
+- [ ] Cursor pagination is used unless numbered pages are a stated requirement
+- [ ] The sort order is total — a unique tiebreaker is always appended
+- [ ] A composite index matches the sort order exactly
+- [ ] Cursors are opaque, and documented as opaque
+- [ ] Cursors encoding authorization-relevant state are signed
+- [ ] `limit` has a default and an enforced maximum
+- [ ] `hasMore` is computed with a `limit + 1` fetch
+- [ ] `totalCount` is opt-in, or an estimate on large sets
+- [ ] `ORDER BY` is always explicit
+- [ ] Sortable and filterable fields come from an allowlist
+- [ ] Cursor validity across filter changes is defined and documented
+</checklist>

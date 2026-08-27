@@ -1,1135 +1,216 @@
-# nextjs.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: nextjs
+category: Frontend
+description: Next.js App Router frontend rules — routing and layouts, rendering strategy per route, images and fonts, streaming, and the client boundary.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural standards, rendering strategies, routing conventions, performance expectations, deployment considerations, and long-term best practices for building production-grade applications with Next.js.
+<purpose>
+Rules for the frontend side of a Next.js App Router application: file
+conventions, where each route renders, and the built-in components that exist
+because the naive version is slow.
 
-It applies to
-
-- SaaS Applications
-- AI Platforms
-- Enterprise Dashboards
-- E-Commerce Platforms
-- Marketing Websites
-- Documentation Portals
-- Internal Tools
-- Full-Stack Applications
-- Production Web Systems
-
-Next.js is not simply a React framework.
-
-It is an application platform that integrates routing, rendering, data fetching, server execution, caching, optimization, and deployment into a unified architecture.
-
-Pages deliver interfaces.
-
-Architecture delivers scalable software.
+Server-side concerns — route handlers, Server Actions, caching semantics — are
+`Backend/nextjs`.
 
 ---
+</purpose>
 
-# Core Philosophy
+# File conventions do real work
 
-Understand Requirements
+<rules>
+```
+app/
+  layout.tsx            # root shell — <html>, <body>, providers. Never re-renders on navigation
+  page.tsx              # /
+  loading.tsx           # automatic Suspense boundary for this segment
+  error.tsx             # client error boundary; must be a client component
+  not-found.tsx         # 404 for this subtree
+  products/
+    layout.tsx          # persists across /products/* navigations
+    page.tsx            # /products
+    [slug]/page.tsx     # /products/:slug
+    @modal/…            # parallel route — intercepted modals
+```
 
-↓
+- A layout **preserves state** across navigation within its subtree. Put the
+  navigation, sidebar and providers there, not in each page.
+- `loading.tsx` is a Suspense fallback the framework wires for you. Without it the
+  navigation blocks until data resolves and nothing tells the user anything.
+- `error.tsx` must be `"use client"` and receives a `reset()` function — offer a
+  retry rather than a dead end.
+- `not-found.tsx` plus `notFound()` returns a real `404` for a missing record.
+  → `Frontend/routing`
 
-Design Application Architecture
-
-↓
-
-Choose Rendering Strategy
-
-↓
-
-Organize Routes
-
-↓
-
-Build Features
-
-↓
-
-Optimize Performance
-
-↓
-
-Deploy Safely
-
-↓
-
-Continuously Improve
-
-Every architectural decision should improve both developer experience and user experience.
+Route groups `(marketing)` organise without affecting the URL; private folders
+`_components` are excluded from routing entirely.
 
 ---
+</rules>
 
-# Primary Objective
+# Decide rendering per route
 
-Every Next.js application should maximize
+<rules>
+Next.js infers static or dynamic from what a route uses. Reading `cookies()`,
+`headers()`, `searchParams` or an uncached `fetch` makes it dynamic.
 
-Performance
+```bash
+next build      # ○ Static   ● SSG   ƒ Dynamic — read this output every release
+```
 
-+
+| Route | Should be |
+| --- | --- |
+| Marketing, docs, blog | Static |
+| Product catalogue | Static with revalidation (`revalidate`) |
+| Personalised dashboard | Dynamic |
+| Anything authenticated | Dynamic, uncached |
 
-Scalability
+A page you expected to be dynamic rendering statically is a **correctness** bug —
+it means one user's data was baked into a shared HTML file. Check the build output
+rather than assuming.
 
-+
-
-Maintainability
-
-+
-
-SEO
-
-+
-
-Security
-
-+
-
-Reliability
-
-+
-
-Developer Experience
-
-+
-
-Long-Term Sustainability
-
-The framework should simplify complexity without hiding architectural decisions.
+`generateStaticParams` pre-renders known dynamic paths at build time; combine it
+with `revalidate` for a large catalogue rather than generating every page on every
+build. → `Backend/nextjs`
 
 ---
+</rules>
 
-# Engineering Principles
+# Push the client boundary down
 
-Always prioritize
+<rules>
+`"use client"` marks an entry point: everything it imports, transitively, ships to
+the browser.
 
-Server Execution
+```tsx
+// The page stays on the server; only the interactive control is a client component
+export default async function ProductPage({ params }) {
+  const product = await getProduct(params.slug);
+  return (<article><ProductDetails product={product} /><AddToCart id={product.id} /></article>);
+}
+```
 
-↓
-
-Minimal Client JavaScript
-
-↓
-
-Component Composition
-
-↓
-
-Predictable Routing
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Move computation closer to the server whenever practical.
+- Never put `"use client"` at the top of a layout or page.
+- Pass server-rendered content into interactive shells as `children`, so heavy
+  content stays out of the bundle.
+- Props crossing the boundary are serialised into the HTML — project explicit
+  fields, never a whole database row. → `Frontend/server-components`
 
 ---
+</rules>
 
-# Next.js Development Lifecycle
+# Use the built-in components
 
-Understand Requirements
+<rules>
+```tsx
+import Image from "next/image";
+import Link from "next/link";
+import { Inter } from "next/font/google";
 
-↓
+const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-sans" });
 
-Design Routes
+<Image src={product.image} alt={product.name} width={800} height={600}
+       priority sizes="(max-width: 768px) 100vw, 800px" />
+<Link href={`/products/${slug}`} prefetch>…</Link>
+```
 
-↓
+| Component | What it does that plain HTML does not |
+| --- | --- |
+| `next/image` | Format negotiation, responsive `srcset`, reserved space, lazy by default |
+| `next/link` | Client navigation plus prefetch on viewport entry |
+| `next/font` | Self-hosts, subsets, and applies `size-adjust` so the swap does not shift layout |
+| `next/script` | Loading strategies (`afterInteractive`, `lazyOnload`, `worker`) |
 
-Define Rendering Strategy
+Rules that are easy to get wrong:
 
-↓
-
-Separate Server and Client Logic
-
-↓
-
-Implement Features
-
-↓
-
-Optimize Performance
-
-↓
-
-Validate
-
-↓
-
-Continuously Improve
-
-Architecture should be intentional before implementation begins.
-
----
-
-# Stage 1 — Requirements Analysis
-
-Understand
-
-Business Goals
-
-↓
-
-User Journeys
-
-↓
-
-SEO Requirements
-
-↓
-
-Performance Targets
-
-↓
-
-Authentication Needs
-
-↓
-
-Scalability Goals
-
-↓
-
-Deployment Constraints
-
-↓
-
-Future Evolution
-
-Architecture should solve business problems before technical ones.
+- `priority` on the LCP image, and **never** lazy-load it.
+- Always supply `sizes` for a responsive image, or the browser downloads the
+  largest candidate.
+- `next/font` eliminates the third-party font request entirely — a Google Fonts
+  `<link>` costs a connection and a round trip before any text renders.
+- Third-party scripts through `next/script` with an explicit strategy; a bare
+  `<script>` in the head blocks rendering. → `Frontend/performance`
 
 ---
+</rules>
 
-# Stage 2 — Application Architecture
+# Stream instead of blocking
 
-Design
+<rules>
+```tsx
+export default async function Page() {
+  return (
+    <>
+      <Header />                                   {/* renders immediately */}
+      <Suspense fallback={<OrdersSkeleton />}>
+        <Orders />                                 {/* streams when its query resolves */}
+      </Suspense>
+    </>
+  );
+}
+```
 
-Feature Modules
+Wrap slow sections so the fast part of the page is visible immediately. Size the
+skeleton to match the content, or streaming trades a slow page for a shifting one.
 
-↓
-
-Route Hierarchy
-
-↓
-
-Layouts
-
-↓
-
-Shared Components
-
-↓
-
-Server Components
-
-↓
-
-Client Components
-
-↓
-
-API Boundaries
-
-↓
-
-Application Structure
-
-The application should remain understandable as it grows.
+Start independent fetches together (`Promise.all`) — sequential `await`s in a
+server component create a server-side waterfall that streaming does not fix.
 
 ---
+</rules>
 
-# Stage 3 — Routing Strategy
+# Anti-patterns
 
-Design
-
-Nested Routes
-
-↓
-
-Dynamic Routes
-
-↓
-
-Parallel Routes
-
-↓
-
-Route Groups
-
-↓
-
-Loading States
-
-↓
-
-Error Boundaries
-
-↓
-
-Navigation
-
-↓
-
-Future Expansion
-
-Routing defines the structure of the application.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `"use client"` on a layout or page | The whole subtree ships to the browser | Mark interactive leaves |
+| Whole database rows as client props | Serialised into the HTML | Explicit projection |
+| Not checking `next build` output | Personalised routes rendered statically | Read static/dynamic per route |
+| Providers in every page | State lost on navigation | Providers in a layout |
+| No `loading.tsx` | Navigation blocks with no feedback | Add the boundary |
+| `error.tsx` without `reset()` | Users hit a dead end | Offer a retry |
+| Missing `not-found` handling | Deleted records render an empty page | `notFound()` plus the file |
+| `<img>` instead of `next/image` | No responsive sizes, no reserved space | Use the component |
+| Lazy-loading the LCP image | Delays the metric it defines | `priority` |
+| `next/image` without `sizes` | Largest candidate downloaded on mobile | Provide `sizes` |
+| Google Fonts via `<link>` | Extra connection before text renders | `next/font` |
+| Bare third-party `<script>` | Blocks rendering | `next/script` with a strategy |
+| No `<Suspense>` around slow data | The page waits for the slowest query | Stream |
+| Sequential independent `await`s | Server-side waterfall | `Promise.all` |
+| Mis-sized skeletons | Layout shift on resolve | Match content dimensions |
 
 ---
-
-# Stage 4 — Rendering Strategy
-
-Select
-
-Static Rendering
-
-↓
-
-Dynamic Rendering
-
-↓
-
-Streaming
-
-↓
-
-Incremental Regeneration
-
-↓
-
-Partial Prerendering
-
-↓
-
-Server Rendering
-
-↓
-
-Client Rendering
-
-↓
-
-Hybrid Rendering
-
-Every page should use the simplest rendering strategy that satisfies its requirements.
-
----
-
-# Stage 5 — Server Components
-
-Use for
-
-Data Fetching
-
-↓
-
-Business Logic
-
-↓
-
-Database Access
-
-↓
-
-Authentication
-
-↓
-
-Rendering
-
-↓
-
-Caching
-
-↓
-
-Security
-
-↓
-
-Performance
-
-Server Components should perform work that never needs to execute inside the browser.
-
----
-
-# Stage 6 — Client Components
-
-Use for
-
-Interactivity
-
-↓
-
-Browser APIs
-
-↓
-
-Local State
-
-↓
-
-Animations
-
-↓
-
-Forms
-
-↓
-
-User Events
-
-↓
-
-Real-Time Updates
-
-↓
-
-Rich User Experience
-
-Only ship JavaScript required for interaction.
-
----
-
-# Stage 7 — Data Fetching
-
-Design
-
-Server Fetching
-
-↓
-
-Caching
-
-↓
-
-Revalidation
-
-↓
-
-Error Recovery
-
-↓
-
-Loading States
-
-↓
-
-Streaming
-
-↓
-
-Concurrency
-
-↓
-
-Consistency
-
-Fetching strategy directly influences scalability.
-
----
-
-# Stage 8 — Performance
-
-Optimize
-
-Bundle Size
-
-↓
-
-Code Splitting
-
-↓
-
-Images
-
-↓
-
-Fonts
-
-↓
-
-Caching
-
-↓
-
-Streaming
-
-↓
-
-Network Requests
-
-↓
-
-Rendering
-
-Performance should be designed rather than optimized later.
-
----
-
-# Stage 9 — SEO
-
-Ensure
-
-Metadata
-
-↓
-
-Semantic HTML
-
-↓
-
-Canonical URLs
-
-↓
-
-Structured Data
-
-↓
-
-Open Graph
-
-↓
-
-Sitemaps
-
-↓
-
-Robots
-
-↓
-
-Search Visibility
-
-Search engines should understand every public page.
-
----
-
-# Stage 10 — Security
-
-Protect
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Server Secrets
-
-↓
-
-Environment Variables
-
-↓
-
-Input Validation
-
-↓
-
-Headers
-
-↓
-
-Cookies
-
-↓
-
-Attack Surface
-
-Sensitive logic belongs on the server.
-
----
-
-# Stage 11 — Error Handling
-
-Handle
-
-Rendering Errors
-
-↓
-
-API Failures
-
-↓
-
-Unexpected States
-
-↓
-
-Network Problems
-
-↓
-
-Recovery
-
-↓
-
-Logging
-
-↓
-
-Fallback UI
-
-↓
-
-Observability
-
-Applications should fail predictably.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Feature Modules
-
-↓
-
-Components
-
-↓
-
-Hooks
-
-↓
-
-Utilities
-
-↓
-
-Services
-
-↓
-
-Assets
-
-↓
-
-Shared Libraries
-
-↓
-
-Naming Standards
-
-Organization reduces engineering complexity.
-
----
-
-# Stage 13 — Deployment
-
-Prepare
-
-Environment Variables
-
-↓
-
-Production Builds
-
-↓
-
-Caching
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Rollback
-
-↓
-
-Scaling
-
-↓
-
-Operational Readiness
-
-Deployment is part of application architecture.
-
----
-
-# Stage 14 — Observability
-
-Monitor
-
-Performance
-
-↓
-
-Errors
-
-↓
-
-Tracing
-
-↓
-
-Logs
-
-↓
-
-Metrics
-
-↓
-
-User Experience
-
-↓
-
-Infrastructure
-
-↓
-
-Application Health
-
-Visibility improves operational confidence.
-
----
-
-# Stage 15 — Scalability
-
-Design for
-
-Growing Teams
-
-↓
-
-Growing Features
-
-↓
-
-Growing Traffic
-
-↓
-
-Regional Expansion
-
-↓
-
-Caching
-
-↓
-
-Background Processing
-
-↓
-
-Independent Modules
-
-↓
-
-Future Evolution
-
-Scalability begins with architecture.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Architecture
-
-↓
-
-Rendering Decisions
-
-↓
-
-Caching Strategy
-
-↓
-
-Routing
-
-↓
-
-Performance Decisions
-
-↓
-
-Deployment
-
-↓
-
-Known Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves architectural intent.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Accessibility
-
-↓
-
-SEO
-
-↓
-
-Consistency
-
-↓
-
-Engineering Standards
-
-Reviews improve systems rather than implementations.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Rendering Complexity
-
-↓
-
-Caching Risks
-
-↓
-
-Hydration Issues
-
-↓
-
-Performance Bottlenecks
-
-↓
-
-Security Risks
-
-↓
-
-Technical Debt
-
-↓
-
-Architecture Drift
-
-↓
-
-Operational Risks
-
-Every optimization introduces trade-offs.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-SEO
-
-↓
-
-Developer Experience
-
-↓
-
-Deployment
-
-↓
-
-Caching
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-Applications should improve incrementally.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Consistency
-
-↓
-
-Software Longevity
-
-Exceptional Next.js applications remain easy to evolve long after their initial release.
-
----
-
-# Next.js Quality Attributes
-
-Evaluate
-
-Performance
-
-Maintainability
-
-Scalability
-
-Reliability
-
-SEO
-
-Security
-
-Developer Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Is the rendering strategy appropriate for every route?
-
-↓
-
-Can more logic execute on the server?
-
-↓
-
-Is unnecessary client-side JavaScript avoided?
-
-↓
-
-Are caching decisions intentional?
-
-↓
-
-Is routing scalable?
-
-↓
-
-Is SEO fully supported?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken rendering architecture
-
-Security vulnerabilities
-
-Hydration failures
-
-Server/client responsibility violations
-
-Major
-
-Poor routing design
-
-Performance bottlenecks
-
-Caching inconsistencies
-
-Architecture duplication
-
-Medium
-
-Large client bundles
-
-Weak organization
-
-Documentation gaps
-
-Naming inconsistencies
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Next.js Checklist
-
-✓ Requirements understood
-
-✓ Application architecture designed
-
-✓ Routing planned
-
-✓ Rendering strategy selected
-
-✓ Server Components appropriately used
-
-✓ Client Components minimized
-
-✓ Data fetching optimized
-
-✓ Performance validated
-
-✓ SEO implemented
-
-✓ Security reviewed
-
-✓ Error handling implemented
-
-✓ Code organized
-
-✓ Deployment prepared
-
-✓ Observability configured
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Making everything a Client Component
-
-Using client-side fetching unnecessarily
-
-Duplicating server logic
-
-Ignoring caching strategy
-
-Large client bundles
-
-Overusing dynamic rendering
-
-Mixing business logic into UI
-
-Ignoring streaming opportunities
-
-Poor route organization
-
-Leaking secrets to the client
-
-Optimizing before measurement
-
-Treating Next.js as only a React router
-
-Ignoring long-term architecture
-
----
-
-# Definition of Done
-
-A Next.js application is considered production-ready when
-
-- Rendering strategies are intentionally selected for every route based on business requirements, performance characteristics, caching behavior, search engine visibility, and operational scalability rather than implementation convenience.
-- Server Components, Client Components, routing, layouts, data fetching, caching, streaming, and deployment architecture work together as a cohesive system that minimizes client-side JavaScript while maximizing responsiveness and maintainability.
-- Application architecture clearly separates presentation, business logic, server execution, browser interactivity, infrastructure concerns, and operational responsibilities, allowing the codebase to evolve without introducing unnecessary coupling.
-- Performance, SEO, accessibility, security, observability, scalability, and reliability are treated as first-class architectural requirements throughout the development lifecycle.
-- Engineering reviews validate architectural consistency, rendering correctness, security boundaries, caching strategies, deployment readiness, documentation quality, and long-term maintainability before production deployment.
-- The application preserves engineering knowledge through documented architectural decisions, predictable organizational patterns, reusable design principles, and consistent engineering standards.
-- The resulting system demonstrates engineering discipline, operational maturity, architectural clarity, developer productivity, software quality, and long-term sustainability.
-
-Exceptional Next.js applications are distinguished not by the number of features they contain, but by the clarity of their architecture, the intentionality of their rendering strategies, the efficiency of the software delivered to users, and the confidence with which future engineers can extend the platform while preserving its architectural integrity.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Shared shell, navigation and providers live in layouts, not pages
+- [ ] Every segment has `loading.tsx`, `error.tsx` and a `not-found` path
+- [ ] `error.tsx` offers a working retry
+- [ ] `next build` output is reviewed; each route's static/dynamic status is intended
+- [ ] No authenticated or personalised route renders statically
+- [ ] `generateStaticParams` is used for known dynamic paths
+- [ ] `"use client"` appears only at interactive leaves
+- [ ] Props crossing to client components are explicitly projected
+- [ ] Server content is passed into client shells as `children`
+- [ ] Images use `next/image` with dimensions and `sizes`
+- [ ] The LCP image is `priority` and never lazy-loaded
+- [ ] Fonts use `next/font` with `display: swap`
+- [ ] Third-party scripts use `next/script` with an explicit strategy
+- [ ] Slow sections are wrapped in `<Suspense>` with correctly sized fallbacks
+- [ ] Independent data fetches run in parallel
+</checklist>

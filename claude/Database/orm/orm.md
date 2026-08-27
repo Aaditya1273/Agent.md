@@ -1,1151 +1,239 @@
-# orm.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: orm
+category: Database
+description: Using an ORM without losing control of the SQL it emits — N+1 prevention, transaction scoping, migrations, and knowing when to drop to raw SQL.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, implementing, optimizing, and maintaining applications using Object-Relational Mapping (ORM).
+<purpose>
+Rules for working with an ORM (Prisma, Drizzle, TypeORM, SQLAlchemy, ActiveRecord,
+Ent). An ORM removes boilerplate and gives you types. It does not remove the need
+to understand the SQL — it hides it, which is the problem this package addresses.
 
-It applies to
-
-- Prisma
-- TypeORM
-- Sequelize
-- Drizzle ORM
-- MikroORM
-- Hibernate
-- Entity Framework
-- SQLAlchemy
-- Django ORM
-- Active Record
-
-An ORM is not a replacement for understanding databases.
-
-An ORM is an abstraction layer that simplifies data access while preserving correctness, maintainability, and business consistency.
-
-Developers should master databases first.
-
-Then use an ORM to improve productivity.
+Working rule: **you must be able to see the SQL for any query you ship.** If you
+cannot, you are not in a position to say whether it is correct or fast.
 
 ---
+</purpose>
 
-# Core Philosophy
+# See the SQL
 
-Understand the Database
+<rules>
+Turn on query logging in development, permanently:
 
-↓
+```js
+// Prisma
+new PrismaClient({ log: [{ emit: "event", level: "query" }] })
+  .$on("query", (e) => console.log(e.query, e.params, `${e.duration}ms`));
+```
 
-Model the Business
+```py
+</rules>
 
-↓
+# SQLAlchemy
 
-Design Clean Entities
+<rules>
+create_engine(url, echo=True)
+```
 
-↓
+```rb
+</rules>
 
-Generate Predictable Queries
+# ActiveRecord — already on in development; make it visible
 
-↓
+<rules>
+ActiveRecord::Base.logger = Logger.new($stdout)
+```
 
-Optimize Performance
-
-↓
-
-Maintain Consistency
-
-↓
-
-Observe Continuously
-
-↓
-
-Continuously Improve
-
-The ORM should simplify development.
-
-Never hide architectural mistakes.
+Two things become obvious immediately: the number of queries per request, and any
+query the ORM built that you would never have written.
 
 ---
+</rules>
 
-# Primary Objective
+# N+1 is the default failure
 
-Every ORM architecture should maximize
+<rules>
+Lazy loading turns a property access into a query. It is invisible in the code
+and catastrophic under load.
 
-Correctness
+```js
+// N+1 — one query, then one per row
+const posts = await db.post.findMany();
+for (const p of posts) p.author = await db.user.findUnique({ where: { id: p.authorId } });
 
-+
+// Eager — one query
+const posts = await db.post.findMany({ include: { author: true } });
+```
 
-Developer Productivity
+| ORM | Eager loading |
+| --- | --- |
+| Prisma | `include` / `select` |
+| Drizzle | `with: { author: true }` |
+| SQLAlchemy | `selectinload()` / `joinedload()` |
+| ActiveRecord | `includes(:author)` |
+| TypeORM | `relations: ["author"]` |
 
-+
+Assert query counts in integration tests. Code review does not catch N+1
+reliably; a failing test does.
 
-Maintainability
+```js
+// Fails the moment someone adds a lazy relation to this endpoint
+expect(queryCount(() => getFeed(userId))).toBeLessThan(5);
+```
 
-+
-
-Performance
-
-+
-
-Scalability
-
-+
-
-Consistency
-
-+
-
-Observability
-
-+
-
-Long-Term Sustainability
-
-The ORM exists to simplify software.
-
-Not database architecture.
+**Never** access a relation inside a loop. → `Database/query-optimization`
 
 ---
+</rules>
 
-# Engineering Principles
+# Select only what you need
 
-Always prioritize
+<rules>
+An ORM's default is to hydrate every column into an object.
 
-Business Model
+```js
+// Moves password hashes, blobs and audit columns you never read
+const users = await db.user.findMany();
 
-↓
+// Explicit projection — smaller payload, enables index-only scans
+const users = await db.user.findMany({ select: { id: true, email: true } });
+```
 
-Database Integrity
-
-↓
-
-Simple Entities
-
-↓
-
-Predictable Queries
-
-↓
-
-Minimal Abstraction
-
-↓
-
-Performance
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
-
-Use abstraction responsibly.
-
-Not blindly.
+Projection is also a security control: a default `findMany()` that reaches a JSON
+response is how password hashes and internal flags leak. Serialise from an
+explicit shape, never from the ORM entity directly.
 
 ---
+</rules>
 
-# ORM Lifecycle
+# Transactions
 
-Business Requirements
+<rules>
+Scope a transaction to one unit of work, and keep everything slow outside it.
 
-↓
+```js
+await db.$transaction(async (tx) => {
+  await tx.account.update({ where: { id: from }, data: { balance: { decrement: amt } } });
+  await tx.account.update({ where: { id: to   }, data: { balance: { increment: amt } } });
+});
+```
 
-Domain Modeling
-
-↓
-
-Entity Design
-
-↓
-
-Relationship Mapping
-
-↓
-
-Query Development
-
-↓
-
-Optimization
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
+- **Never** make an HTTP call, send an email, or await user input inside a
+  transaction. It holds locks and a connection for the duration of someone else's
+  latency.
+- Use `{ decrement: n }`-style atomic operators rather than read-then-write in
+  application code — the read-modify-write loses updates under concurrency.
+- Handle serialization failures and deadlocks with a bounded retry.
+  → `Database/transactions`
 
 ---
+</rules>
 
-# Stage 1 — Business Modeling
+# Migrations
 
-Understand
+<rules>
+Use the ORM's migration tool, but read the generated SQL before applying it.
+Generators routinely produce a table rewrite or a blocking index build where a
+safe equivalent exists.
 
-Business Rules
-
-↓
-
-Entities
-
-↓
-
-Relationships
-
-↓
-
-Ownership
-
-↓
-
-Lifecycle
-
-↓
-
-Validation Rules
-
-↓
-
-Compliance
-
-↓
-
-Growth Expectations
-
-ORM models should represent business concepts.
+- Review every generated migration as code, in the pull request.
+- Add `CREATE INDEX CONCURRENTLY` by hand — most generators do not emit it.
+- Never edit an applied migration; write a new one.
+- Verify the migration is reversible, or state explicitly that it is not.
+  → `Database/migration`
 
 ---
+</rules>
 
-# Stage 2 — Entity Design
+# Connection handling
 
-Design
+<rules>
+The ORM owns the pool. Misconfiguring it is the most common ORM-caused outage,
+and it looks like a slow query rather than what it is: waiting for a connection.
 
-Entities
+| Setting | Typical | Note |
+| --- | --- | --- |
+| `connection_limit` (Prisma) | `(cores * 2) + 1` per instance | Multiply by instance count against `max_connections` |
+| `pool_size` / `max_overflow` (SQLAlchemy) | `5` / `10` | `pool_pre_ping=True` to survive dropped connections |
+| `pool` (ActiveRecord) | matches thread count | A pool smaller than the thread pool serialises requests |
+| `pool_timeout` | `10s` | Fail fast rather than queue forever |
+| `idle_timeout` | below the server's `idle_in_transaction_session_timeout` | Avoid using a connection the server already closed |
 
-↓
+In serverless, a per-invocation `PrismaClient`/`create_engine` opens a new pool on
+every cold start. Instantiate once at module scope and route through a pooler.
+→ `Database/postgres`
 
-Properties
-
-↓
-
-Identifiers
-
-↓
-
-Relationships
-
-↓
-
-Constraints
-
-↓
-
-Validation
-
-↓
-
-Ownership
-
-↓
-
-Lifecycle
-
-Each entity should have one responsibility.
+Instrument `pool.wait_time` or the equivalent. If p99 request latency is high
+while the database is idle, the queue is in the pool, not in the engine.
 
 ---
+</rules>
 
-# Stage 3 — Relationship Mapping
+# When to drop to SQL
 
-Define
+<rules>
+Use raw SQL, parameterised, when the ORM's generated query is wrong or slow:
 
-One-to-One
+```js
+await db.$queryRaw`SELECT tenant_id, count(*) FROM orders
+                   WHERE created_at > ${since} GROUP BY tenant_id`;
+```
 
-↓
+Legitimate cases: window functions, recursive CTEs, bulk upserts, complex
+aggregation, and anything where `EXPLAIN` shows the ORM's plan is unusable.
 
-One-to-Many
-
-↓
-
-Many-to-Many
-
-↓
-
-Self Relationships
-
-↓
-
-Cascade Rules
-
-↓
-
-Ownership
-
-↓
-
-Foreign Keys
-
-↓
-
-Referential Integrity
-
-Relationships should mirror the database.
+**Never** build SQL by string concatenation, even inside an ORM's raw escape
+hatch. `$queryRaw` with a tagged template parameterises; `$queryRawUnsafe` with an
+interpolated string does not. → `Security/sql-injection`
 
 ---
+</rules>
 
-# Stage 4 — Schema Synchronization
+# Anti-patterns
 
-Maintain
-
-Schema Definitions
-
-↓
-
-Migration History
-
-↓
-
-Database Compatibility
-
-↓
-
-Version Consistency
-
-↓
-
-Deployment Safety
-
-↓
-
-Rollback Planning
-
-↓
-
-Review Process
-
-↓
-
-Operational Stability
-
-The ORM should never silently change production schemas.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No query logging in development | The SQL is invisible until production | Log every query with duration |
+| Relation access inside a loop | N+1; latency multiplied | Eager load |
+| No query-count assertions | N+1 regressions ship unnoticed | Assert counts in tests |
+| Default full-entity fetch | Moves unused and sensitive columns | Explicit `select` |
+| Serialising the entity to JSON | Leaks hashes and internal fields | Map to an explicit DTO |
+| HTTP call inside a transaction | Holds locks for external latency | Do it before or after |
+| Read-then-write for counters | Lost updates | Atomic increment operators |
+| Applying generated migrations unread | Table rewrites, blocking index builds | Review the SQL in the PR |
+| Editing an applied migration | Environments diverge | New migration |
+| `queryRawUnsafe` with interpolation | SQL injection | Parameterised tagged template |
+| Repository abstraction over the ORM | The ORM already is one | Use it directly |
 
 ---
-
-# Stage 5 — Query Design
-
-Build
-
-Simple Queries
-
-↓
-
-Reusable Queries
-
-↓
-
-Filtering
-
-↓
-
-Sorting
-
-↓
-
-Pagination
-
-↓
-
-Aggregation
-
-↓
-
-Transactions
-
-↓
-
-Business Logic
-
-Readable queries are maintainable queries.
-
----
-
-# Stage 6 — Performance
-
-Optimize
-
-Query Count
-
-↓
-
-N+1 Prevention
-
-↓
-
-Batch Operations
-
-↓
-
-Lazy Loading
-
-↓
-
-Eager Loading
-
-↓
-
-Indexes
-
-↓
-
-Execution Plans
-
-↓
-
-Caching
-
-Every generated query should be understood.
-
----
-
-# Stage 7 — Transactions
-
-Protect
-
-Atomicity
-
-↓
-
-Consistency
-
-↓
-
-Rollback
-
-↓
-
-Concurrency
-
-↓
-
-Isolation
-
-↓
-
-Error Recovery
-
-↓
-
-Business Rules
-
-↓
-
-Operational Reliability
-
-Business operations should remain transactional.
-
----
-
-# Stage 8 — Validation
-
-Validate
-
-Input
-
-↓
-
-Business Rules
-
-↓
-
-Relationships
-
-↓
-
-Entity State
-
-↓
-
-Constraints
-
-↓
-
-Consistency
-
-↓
-
-Data Integrity
-
-↓
-
-Operational Safety
-
-Validation belongs at multiple layers.
-
----
-
-# Stage 9 — Error Handling
-
-Handle
-
-Validation Errors
-
-↓
-
-Database Errors
-
-↓
-
-Constraint Violations
-
-↓
-
-Connection Failures
-
-↓
-
-Timeouts
-
-↓
-
-Transaction Failures
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-Every failure should be predictable.
-
----
-
-# Stage 10 — Concurrency
-
-Design for
-
-Parallel Requests
-
-↓
-
-Locking
-
-↓
-
-Optimistic Concurrency
-
-↓
-
-Pessimistic Locking
-
-↓
-
-Conflict Detection
-
-↓
-
-Retry Logic
-
-↓
-
-Consistency
-
-↓
-
-Reliability
-
-Concurrency should preserve correctness.
-
----
-
-# Stage 11 — Scalability
-
-Prepare for
-
-Growing Tables
-
-↓
-
-Growing Users
-
-↓
-
-Read Scaling
-
-↓
-
-Write Scaling
-
-↓
-
-Caching
-
-↓
-
-Replication
-
-↓
-
-Partitioning
-
-↓
-
-Infrastructure Growth
-
-ORM architecture should scale naturally.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Generated Queries
-
-↓
-
-Execution Time
-
-↓
-
-Connection Usage
-
-↓
-
-Error Rate
-
-↓
-
-Slow Queries
-
-↓
-
-Transactions
-
-↓
-
-Memory Usage
-
-↓
-
-Application Health
-
-Generated SQL should never be invisible.
-
----
-
-# Stage 13 — Security
-
-Protect
-
-SQL Injection
-
-↓
-
-Authorization
-
-↓
-
-Authentication
-
-↓
-
-Secrets
-
-↓
-
-Encryption
-
-↓
-
-Sensitive Fields
-
-↓
-
-Audit Logs
-
-↓
-
-Compliance
-
-Security is not provided automatically by an ORM.
-
----
-
-# Stage 14 — Testing
-
-Validate
-
-Entities
-
-↓
-
-Relationships
-
-↓
-
-Queries
-
-↓
-
-Transactions
-
-↓
-
-Performance
-
-↓
-
-Concurrency
-
-↓
-
-Migrations
-
-↓
-
-Recovery
-
-Test business behavior.
-
-Not ORM behavior.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Entities
-
-↓
-
-Relationships
-
-↓
-
-Architecture Decisions
-
-↓
-
-Business Rules
-
-↓
-
-Migration Strategy
-
-↓
-
-Performance Decisions
-
-↓
-
-Operational Procedures
-
-↓
-
-Future Improvements
-
-Documentation preserves maintainability.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Schema Versions
-
-↓
-
-Migration History
-
-↓
-
-ORM Versions
-
-↓
-
-Database Compatibility
-
-↓
-
-Release History
-
-↓
-
-Review Records
-
-↓
-
-Rollback Procedures
-
-↓
-
-Evolution
-
-ORM upgrades should be predictable.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Entity Design
-
-↓
-
-Generated SQL
-
-↓
-
-Relationships
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Business Alignment
-
-Review generated SQL.
-
-Not only application code.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-N+1 Queries
-
-↓
-
-Slow Queries
-
-↓
-
-Migration Risks
-
-↓
-
-Schema Drift
-
-↓
-
-Performance Risks
-
-↓
-
-Security Risks
-
-↓
-
-Scaling Risks
-
-↓
-
-Operational Risks
-
-Hidden abstractions create hidden risks.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Queries
-
-↓
-
-Entity Design
-
-↓
-
-Caching
-
-↓
-
-Indexes
-
-↓
-
-Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Automation
-
-↓
-
-Developer Experience
-
-ORM maturity grows continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Correctness
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Engineering Excellence
-
-Exceptional ORM architectures remain predictable for years.
-
----
-
-# ORM Quality Attributes
-
-Evaluate
-
-Correctness
-
-Maintainability
-
-Performance
-
-Scalability
-
-Reliability
-
-Observability
-
-Developer Experience
-
-Business Alignment
-
----
-
-# ORM Questions
-
-Before production ask
-
-Does every entity accurately represent the business?
-
-↓
-
-Can every generated query be explained?
-
-↓
-
-Are relationships correctly modeled?
-
-↓
-
-Can the application scale without rewriting the ORM layer?
-
-↓
-
-Are migrations predictable?
-
-↓
-
-Is every critical query monitored?
-
-↓
-
-Would experienced software and database engineers confidently approve this ORM architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Schema corruption
-
-Data corruption
-
-Broken relationships
-
-Failed migrations
-
-SQL injection vulnerabilities
-
-Major
-
-N+1 queries
-
-Slow generated SQL
-
-Broken transactions
-
-Schema drift
-
-Performance degradation
-
-Medium
-
-Entity refactoring
-
-Relationship improvements
-
-Documentation gaps
-
-Caching improvements
-
-Minor
-
-Naming consistency
-
-Formatting
-
-Comments
-
-Code organization
-
----
-
-# ORM Checklist
-
-✓ Business model understood
-
-✓ Entities designed
-
-✓ Relationships mapped
-
-✓ Schema synchronized
-
-✓ Queries reviewed
-
-✓ Performance optimized
-
-✓ Transactions validated
-
-✓ Validation implemented
-
-✓ Error handling completed
-
-✓ Concurrency reviewed
-
-✓ Scalability planned
-
-✓ Monitoring enabled
-
-✓ Security implemented
-
-✓ Testing completed
-
-✓ Documentation updated
-
-✓ Version management established
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Treating ORM as the database
-
-Ignoring generated SQL
-
-Using lazy loading everywhere
-
-Creating massive entities
-
-Business logic inside entities
-
-Skipping indexes
-
-Ignoring execution plans
-
-Automatic schema synchronization in production
-
-Deep nested relationships
-
-Overusing abstraction
-
-Writing ORM code without understanding SQL
-
-Optimizing without measuring
-
----
-
-# Definition of Done
-
-An ORM architecture is considered production-ready when
-
-- Business entities, relationships, ownership, lifecycle rules, and validation accurately represent the real-world domain while remaining independent of framework-specific implementation details.
-- Generated SQL consistently demonstrates efficient execution plans, predictable performance, proper index utilization, and minimal unnecessary database operations.
-- Entity relationships, transactions, concurrency handling, validation, and business rules preserve data integrity across all supported workflows.
-- Schema evolution is managed through reviewed, version-controlled migrations with rollback strategies, compatibility planning, and production-safe deployment procedures.
-- Performance considerations such as query optimization, N+1 prevention, batching, eager loading, lazy loading, connection pooling, and caching are intentionally designed and continuously measured.
-- Security controls prevent injection attacks, protect sensitive data, enforce authorization boundaries, secure credentials, and maintain auditability throughout the data lifecycle.
-- Monitoring provides complete visibility into generated SQL, query latency, connection utilization, transaction health, migration status, resource consumption, and operational risks.
-- Documentation preserves entity models, architectural decisions, relationship design, migration history, performance considerations, operational procedures, and future evolution plans.
-- Engineering reviews continuously validate correctness, maintainability, scalability, observability, and operational simplicity as business requirements evolve.
-- The ORM architecture consistently demonstrates correctness, reliability, maintainability, scalability, performance, developer productivity, and long-term engineering excellence.
-
-Exceptional ORM architectures never attempt to replace database expertise.
-
-Instead, they provide a disciplined abstraction that enables developers to model business domains clearly, generate predictable database interactions, evolve schemas safely, optimize performance intentionally, and maintain a system where both the application code and the underlying database remain understandable, observable, and trustworthy throughout the lifetime of the product.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Query logging with durations is enabled in development
+- [ ] Relations are eager-loaded; no relation access inside a loop
+- [ ] Query counts are asserted in integration tests for key endpoints
+- [ ] Queries project explicit columns rather than whole entities
+- [ ] API responses are built from explicit shapes, not ORM entities
+- [ ] Transactions contain no network calls and no user interaction
+- [ ] Counters use atomic operators, not read-then-write
+- [ ] Deadlock and serialization retries are implemented
+- [ ] Generated migrations are reviewed as SQL before merge
+- [ ] Index creation on large tables is concurrent
+- [ ] Raw SQL is parameterised; no string concatenation anywhere
+</checklist>

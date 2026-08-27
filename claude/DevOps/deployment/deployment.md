@@ -1,1149 +1,201 @@
-# deployment.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: deployment
+category: DevOps
+description: Shipping without downtime — rolling, blue/green and canary strategies, graceful shutdown, backward-compatible changes, and verifying before declaring success.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, executing, validating, monitoring, and continuously improving software deployments.
+<purpose>
+Rules for getting a build into production safely. The measure of a good deployment
+process is not that it never fails — it is that a failure is **detected quickly
+and reversed quickly**.
 
-It applies to
-
-- Web Applications
-- Backend APIs
-- Frontend Applications
-- AI Applications
-- Mobile Backends
-- SaaS Platforms
-- Enterprise Systems
-- Cloud Infrastructure
-- Kubernetes
-- Serverless Platforms
-
-Deployment is not copying code to a server.
-
-Deployment is the controlled transition of validated software into a production environment while preserving availability, reliability, security, and business continuity.
-
-Deployment should be routine.
-
-Not an emergency.
+Optimise for mean time to recovery over mean time between failures. Small, frequent
+deploys are safer than large, rare ones: less changed, so less to bisect.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Pick a strategy, and know its failure mode
 
-Develop
+<rules>
+| Strategy | Downtime | Rollback | Cost | Note |
+| --- | --- | --- | --- | --- |
+| Recreate | Yes | Redeploy | Low | Only acceptable for internal tools |
+| Rolling | No | Roll forward or back gradually | Low | **Both versions run simultaneously** |
+| Blue/green | No | Instant traffic switch | 2× infrastructure | Database must serve both |
+| Canary | No | Shift traffic back | Medium | Needs per-version metrics |
 
-↓
+Rolling is the sensible default. The consequence people forget: during a rolling
+deploy, **old and new code run at the same time**, against the same database and
+the same queues. Every change must tolerate that.
 
-Validate
+Concretely, in Kubernetes terms: `maxSurge: 25%` adds capacity before removing
+any, and `maxUnavailable: 0` guarantees no reduction in serving capacity during
+the roll. Set `minReadySeconds` above your slowest warm-up so a pod that becomes
+ready and then crashes does not take traffic.
 
-↓
-
-Build
-
-↓
-
-Verify
-
-↓
-
-Deploy Safely
-
-↓
-
-Observe
-
-↓
-
-Recover Quickly
-
-↓
-
-Continuously Improve
-
-Every deployment should increase confidence.
-
-Not operational anxiety.
+Canary is worth the machinery when a bad deploy is expensive: route 5% of traffic
+to the new version, compare error rate and latency against the old, and promote or
+abort automatically on the comparison rather than on a human watching a dashboard.
 
 ---
+</rules>
 
-# Primary Objective
+# Every change must be backward compatible
 
-Every deployment strategy should maximize
+<rules>
+Because both versions run together, a deploy is only safe if the new code works
+with the old data and the old code survives the new schema.
 
-Reliability
+```
+Expand   → add the new column/field/endpoint, nullable and optional. Deploy.
+Migrate  → backfill; write to both old and new. Deploy.
+Contract → stop reading the old; drop it. Deploy.
+```
 
-+
+Three deploys, not one. Renaming a column in a single step breaks every pod still
+running the old code. → `Database/migration`
 
-Availability
+The same applies to:
 
-+
-
-Predictability
-
-+
-
-Recoverability
-
-+
-
-Security
-
-+
-
-Observability
-
-+
-
-Automation
-
-+
-
-Maintainability
-
-Deployment exists to deliver business value safely.
+- **Queue payloads** — consumers deploy at a different time from producers, so a
+  new required field breaks in-flight messages. → `Backend/queues`
+- **API responses** — clients cache and retry; removing a field breaks them.
+- **Feature flags** — decouple deploy from release. Ship the code dark, enable it
+  separately, and roll back by flipping the flag rather than redeploying.
 
 ---
+</rules>
 
-# Engineering Principles
+# Graceful shutdown, or every deploy drops requests
 
-Always prioritize
+<rules>
+```
+SIGTERM → fail readiness → wait for the load balancer to stop sending traffic
+        → finish in-flight requests → close pools → exit 0
+```
 
-Business Continuity
+The subtlety that causes most "deploys cause 502s" reports: **failing readiness
+and closing the listener are not simultaneous.** The load balancer takes seconds to
+notice. Fail readiness first, keep serving for a few seconds, *then* stop
+accepting connections.
 
-↓
+```yaml
+lifecycle:
+  preStop: { exec: { command: ["sleep", "10"] } }    # LB deregistration window
+terminationGracePeriodSeconds: 60                     # > preStop + longest request
+```
 
-Automation
+- The grace period must exceed the drain time, or the platform `SIGKILL`s mid-request.
+- Workers drain differently: stop fetching, finish in-flight jobs.
+  → `Backend/workers`
 
-↓
-
-Repeatability
-
-↓
-
-Progressive Delivery
-
-↓
-
-Fast Recovery
-
-↓
-
-Observability
-
-↓
-
-Security
-
-↓
-
-Continuous Improvement
-
-Successful deployments are boring.
-
-Unexpected deployments indicate process failures.
+| Setting | Platform | Purpose |
+| --- | --- | --- |
+| `terminationGracePeriodSeconds` | Kubernetes | Hard ceiling before `SIGKILL` |
+| `lifecycle.preStop` | Kubernetes | Deregistration window before `SIGTERM` |
+| `maxSurge` / `maxUnavailable` | Kubernetes | Capacity during a rolling update |
+| `minReadySeconds` | Kubernetes | Guards against a pod that crashes right after readiness |
+| `PodDisruptionBudget` | Kubernetes | Stops node drains taking every replica |
+| `deregistration_delay` | AWS ALB | Must be under the grace period |
+| `stopTimeout` | ECS | The equivalent ceiling |
+| `keepAliveTimeout` | Node/nginx | Above the LB idle timeout, or `502`s appear |
 
 ---
+</rules>
 
-# Deployment Lifecycle
+# Health checks that mean the right thing
 
-Plan
+<rules>
+| Probe | Question | May check dependencies |
+| --- | --- | --- |
+| Startup | Has it finished booting? | Yes |
+| Readiness | Can it serve traffic **now**? | Yes |
+| Liveness | Is the process wedged? | **No** |
 
-↓
+A liveness probe that checks the database will restart every pod during a database
+incident, turning a degradation into a full outage. This is the single most
+damaging health-check mistake.
 
-Validate
-
-↓
-
-Build
-
-↓
-
-Verify
-
-↓
-
-Deploy
-
-↓
-
-Monitor
-
-↓
-
-Recover
-
-↓
-
-Continuously Improve
+Readiness should fail during shutdown and during a dependency outage, so traffic
+routes elsewhere without the pod being killed. → `Backend/monitoring`
 
 ---
+</rules>
 
-# Stage 1 — Deployment Planning
+# Verify, then declare success
 
-Understand
+<rules>
+A deploy is not finished when the rollout completes.
 
-Business Objectives
+- **Smoke test** the critical path against the deployed environment.
+- **Watch** error rate, latency and saturation for a bake period before promoting
+  further. Automate the comparison; do not rely on someone remembering to look.
+- **Automate rollback** on an error-budget breach during the bake window.
+  → `DevOps/rollback`
+- Record the deployed commit SHA per environment and annotate dashboards with
+  deploy markers — the first question in an incident is "what changed?"
 
-↓
-
-Deployment Window
-
-↓
-
-User Impact
-
-↓
-
-Risk Assessment
-
-↓
-
-Rollback Strategy
-
-↓
-
-Infrastructure Readiness
-
-↓
-
-Compliance
-
-↓
-
-Success Criteria
-
-Deployment begins before code reaches production.
+Deploy during working hours, when the people who wrote the change are available.
+A Friday-evening deploy is a Saturday-morning incident with fewer responders.
 
 ---
+</rules>
 
-# Stage 2 — Release Preparation
+# Anti-patterns
 
-Prepare
-
-Versioning
-
-↓
-
-Release Notes
-
-↓
-
-Artifacts
-
-↓
-
-Dependencies
-
-↓
-
-Configuration
-
-↓
-
-Environment Variables
-
-↓
-
-Infrastructure
-
-↓
-
-Validation
-
-Every release should be reproducible.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Large, infrequent releases | Huge blast radius; hard to bisect | Small, frequent deploys |
+| Assuming one version at a time | Rolling deploys run both | Backward-compatible changes |
+| Schema rename in one step | Breaks pods running old code | Expand-migrate-contract |
+| Migrations coupled to app deploy | Rollback becomes impossible | Separate, ordered step |
+| New required queue field | In-flight messages fail | Additive payload evolution |
+| No `SIGTERM` handling | Every deploy drops requests | Graceful drain |
+| Closing the listener immediately | LB still routing; `502`s | Fail readiness, then wait |
+| Grace period shorter than drain | `SIGKILL` mid-request | Grace exceeds drain time |
+| Liveness probe checking dependencies | Mass restarts during a blip | Process-local liveness |
+| No post-deploy verification | Users report the outage | Smoke test and bake |
+| Manual dashboard watching | Nobody watches at 2am | Automated rollback on budget breach |
+| No record of the deployed SHA | Incident response starts blind | Record and annotate |
+| Deploy and release coupled | Cannot disable a bad feature quickly | Feature flags |
+| Friday-evening deploys | Fewest responders available | Deploy in working hours |
+| Different artefact per environment | Staging proves nothing | Promote one digest → `DevOps/cicd` |
 
 ---
-
-# Stage 3 — Environment Validation
-
-Verify
-
-Infrastructure
-
-↓
-
-Networking
-
-↓
-
-Databases
-
-↓
-
-Secrets
-
-↓
-
-Storage
-
-↓
-
-Dependencies
-
-↓
-
-Capacity
-
-↓
-
-Health
-
-Never deploy into an unhealthy environment.
-
----
-
-# Stage 4 — Artifact Verification
-
-Validate
-
-Build Integrity
-
-↓
-
-Checksums
-
-↓
-
-Version Consistency
-
-↓
-
-Container Images
-
-↓
-
-Packages
-
-↓
-
-Dependencies
-
-↓
-
-Compatibility
-
-↓
-
-Supply Chain
-
-Only verified artifacts should reach production.
-
----
-
-# Stage 5 — Deployment Strategy
-
-Choose
-
-Rolling Deployment
-
-↓
-
-Blue-Green Deployment
-
-↓
-
-Canary Deployment
-
-↓
-
-Progressive Delivery
-
-↓
-
-Feature Flags
-
-↓
-
-Shadow Deployment
-
-↓
-
-A/B Releases
-
-↓
-
-Controlled Rollout
-
-Strategy should minimize business risk.
-
----
-
-# Stage 6 — Configuration Management
-
-Manage
-
-Environment Variables
-
-↓
-
-Secrets
-
-↓
-
-Feature Flags
-
-↓
-
-Runtime Configuration
-
-↓
-
-Service Discovery
-
-↓
-
-Certificates
-
-↓
-
-External Configuration
-
-↓
-
-Version Control
-
-Configuration should remain independent from code.
-
----
-
-# Stage 7 — Database Coordination
-
-Coordinate
-
-Schema Changes
-
-↓
-
-Migrations
-
-↓
-
-Backward Compatibility
-
-↓
-
-Transactions
-
-↓
-
-Data Validation
-
-↓
-
-Rollback Planning
-
-↓
-
-Recovery
-
-↓
-
-Operational Safety
-
-Database deployment deserves independent planning.
-
----
-
-# Stage 8 — Traffic Management
-
-Control
-
-Load Balancing
-
-↓
-
-Traffic Shifting
-
-↓
-
-Routing
-
-↓
-
-Session Management
-
-↓
-
-Regional Rollout
-
-↓
-
-Health Routing
-
-↓
-
-User Segmentation
-
-↓
-
-Availability
-
-Traffic should move gradually.
-
-Not instantly.
-
----
-
-# Stage 9 — Security
-
-Protect
-
-Credentials
-
-↓
-
-Secrets
-
-↓
-
-Certificates
-
-↓
-
-Permissions
-
-↓
-
-Infrastructure
-
-↓
-
-Supply Chain
-
-↓
-
-Compliance
-
-↓
-
-Audit Logging
-
-Deployment pipelines are security systems.
-
----
-
-# Stage 10 — Validation
-
-Verify
-
-Application Health
-
-↓
-
-API Availability
-
-↓
-
-User Authentication
-
-↓
-
-Critical Workflows
-
-↓
-
-Business Transactions
-
-↓
-
-Performance
-
-↓
-
-Monitoring
-
-↓
-
-Operational Readiness
-
-Deployment is incomplete until validated.
-
----
-
-# Stage 11 — Monitoring
-
-Observe
-
-Application Health
-
-↓
-
-Infrastructure
-
-↓
-
-Logs
-
-↓
-
-Metrics
-
-↓
-
-Error Rates
-
-↓
-
-Latency
-
-↓
-
-Resource Usage
-
-↓
-
-Business Metrics
-
-Deployments should immediately become observable.
-
----
-
-# Stage 12 — Reliability
-
-Ensure
-
-Graceful Startup
-
-↓
-
-Health Checks
-
-↓
-
-Automatic Recovery
-
-↓
-
-Retry Logic
-
-↓
-
-Failure Isolation
-
-↓
-
-Rollback Readiness
-
-↓
-
-High Availability
-
-↓
-
-Business Continuity
-
-Recovery planning begins before deployment.
-
----
-
-# Stage 13 — Performance
-
-Measure
-
-Response Time
-
-↓
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Storage
-
-↓
-
-Network
-
-↓
-
-Scalability
-
-↓
-
-Infrastructure Cost
-
-↓
-
-Operational Efficiency
-
-Deployments should preserve performance.
-
----
-
-# Stage 14 — Scalability
-
-Prepare for
-
-Growing Traffic
-
-↓
-
-Regional Expansion
-
-↓
-
-Auto Scaling
-
-↓
-
-Load Distribution
-
-↓
-
-Infrastructure Growth
-
-↓
-
-Container Scaling
-
-↓
-
-Future Capacity
-
-↓
-
-Business Growth
-
-Deployment architecture should support future growth.
-
----
-
-# Stage 15 — Automation
-
-Automate
-
-Validation
-
-↓
-
-Deployment
-
-↓
-
-Verification
-
-↓
-
-Monitoring
-
-↓
-
-Rollback
-
-↓
-
-Notifications
-
-↓
-
-Reporting
-
-↓
-
-Recovery
-
-Automation reduces operational mistakes.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Release Process
-
-↓
-
-Architecture
-
-↓
-
-Deployment Strategy
-
-↓
-
-Rollback Procedures
-
-↓
-
-Recovery Plans
-
-↓
-
-Operational Decisions
-
-↓
-
-Known Risks
-
-↓
-
-Future Improvements
-
-Documentation preserves operational knowledge.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Deployment Process
-
-↓
-
-Reliability
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Automation
-
-↓
-
-Operational Simplicity
-
-↓
-
-Business Alignment
-
-Every deployment strategy deserves architectural review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Deployment Failure
-
-↓
-
-Rollback Failure
-
-↓
-
-Infrastructure Failure
-
-↓
-
-Configuration Drift
-
-↓
-
-Security Risks
-
-↓
-
-Performance Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Impact
-
-Every deployment introduces controlled risk.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Automation
-
-↓
-
-Deployment Speed
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Security
-
-↓
-
-Documentation
-
-↓
-
-Developer Experience
-
-↓
-
-Engineering Maturity
-
-Deployment excellence evolves continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Reliability
-
-↓
-
-Availability
-
-↓
-
-Automation
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Security
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional deployment platforms become invisible.
-
----
-
-# Deployment Quality Attributes
-
-Evaluate
-
-Reliability
-
-Availability
-
-Recoverability
-
-Automation
-
-Security
-
-Observability
-
-Scalability
-
-Maintainability
-
----
-
-# Deployment Questions
-
-Before production ask
-
-Can this deployment be reproduced exactly?
-
-↓
-
-Can deployment complete without downtime?
-
-↓
-
-Can rollback happen immediately?
-
-↓
-
-Can infrastructure survive deployment failures?
-
-↓
-
-Can deployment health be verified automatically?
-
-↓
-
-Can failures be detected within minutes?
-
-↓
-
-Would experienced platform engineers confidently approve this deployment architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Production outage
-
-Failed rollback
-
-Data corruption
-
-Security compromise
-
-Infrastructure failure
-
-Major
-
-Deployment failure
-
-Configuration drift
-
-Traffic routing failure
-
-Health check failures
-
-Performance degradation
-
-Medium
-
-Deployment optimization
-
-Automation improvements
-
-Monitoring gaps
-
-Documentation improvements
-
-Minor
-
-Naming consistency
-
-Pipeline organization
-
-Formatting
-
-Comments
-
----
-
-# Deployment Checklist
-
-✓ Deployment planned
-
-✓ Release prepared
-
-✓ Environment validated
-
-✓ Artifacts verified
-
-✓ Deployment strategy selected
-
-✓ Configuration managed
-
-✓ Database coordination completed
-
-✓ Traffic management configured
-
-✓ Security implemented
-
-✓ Validation automated
-
-✓ Monitoring enabled
-
-✓ Reliability verified
-
-✓ Performance validated
-
-✓ Scalability reviewed
-
-✓ Automation completed
-
-✓ Documentation updated
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Deploying directly to production
-
-Manual production deployments
-
-Skipping health validation
-
-Ignoring rollback planning
-
-Bundling schema changes with breaking code
-
-Hardcoding configuration
-
-Ignoring monitoring
-
-Deploying untested artifacts
-
-Big-bang deployments
-
-Skipping release verification
-
-Optimizing deployment speed before reliability
-
-Treating deployment as the end of the release process
-
-Ignoring business impact during rollout
-
----
-
-# Definition of Done
-
-A deployment platform is considered production-ready when
-
-- Every deployment follows a deterministic, automated, and reproducible process that consistently delivers verified software across development, testing, staging, and production environments.
-- Deployment strategies intentionally minimize business risk through progressive delivery techniques including rolling deployments, blue-green deployments, canary releases, traffic shifting, and feature flag management where appropriate.
-- Infrastructure, networking, configuration, secrets, certificates, storage, dependencies, and external services are validated before deployment begins to prevent avoidable production failures.
-- Database migrations, schema evolution, backward compatibility, data validation, and rollback procedures are coordinated independently from application deployment while preserving data integrity.
-- Health validation automatically verifies application availability, critical business workflows, API functionality, infrastructure health, security posture, and operational readiness immediately after deployment.
-- Monitoring continuously observes application health, infrastructure metrics, resource utilization, latency, error rates, business KPIs, deployment events, and operational risks throughout the deployment lifecycle.
-- Recovery capabilities include immediate rollback procedures, failure isolation, automated recovery workflows, incident response guidance, and business continuity planning.
-- Documentation preserves deployment architecture, operational procedures, release workflows, rollback strategies, recovery plans, infrastructure decisions, and future platform evolution.
-- Engineering reviews continuously validate reliability, availability, security, scalability, automation quality, maintainability, observability, and operational excellence.
-- The deployment platform consistently demonstrates deterministic releases, predictable recovery, secure software delivery, business continuity, engineering discipline, and long-term operational maturity.
-
-Exceptional deployment platforms are rarely noticed by users.
-
-Software evolves continuously without interrupting business operations, deployments become routine engineering events instead of organizational emergencies, infrastructure adapts automatically, failures are detected and recovered before customers are affected, and engineering teams deliver new capabilities with confidence because every deployment has been designed around predictability, resilience, automation, and operational excellence.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] A deployment strategy is chosen and its failure mode understood
+- [ ] Deploys are small and frequent
+- [ ] Every change works with both the previous and current version running
+- [ ] Schema changes follow expand-migrate-contract across separate deploys
+- [ ] Migrations run as their own ordered step, independent of the app deploy
+- [ ] Queue and API payload changes are additive
+- [ ] Risky changes ship behind feature flags
+- [ ] `SIGTERM` fails readiness, waits for deregistration, then drains
+- [ ] The termination grace period exceeds the maximum drain time
+- [ ] Startup, readiness and liveness probes are distinct
+- [ ] Liveness checks nothing external
+- [ ] A smoke test runs against the deployed environment
+- [ ] Error rate and latency are watched for a bake period before promotion
+- [ ] Rollback is automated on an error-budget breach
+- [ ] The deployed commit SHA is recorded and dashboards are annotated
+- [ ] The same artefact is promoted across environments
+</checklist>

@@ -1,784 +1,208 @@
-# sdk.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: sdk
+category: API
+description: Publishing client SDKs that stay correct — generation from the spec, retries and idempotency, typed errors, versioning, and release automation.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, review, generate, document, and maintain Software Development Kits (SDKs).
+<purpose>
+Rules for shipping client libraries for your API. An SDK is a second public
+contract with a second deprecation cycle, so the only sustainable approach is to
+**generate it from the specification** and hand-write as little as possible.
 
-An SDK is not merely a wrapper around HTTP requests.
-
-An SDK is the developer-facing interface of an API.
-
-Its purpose is to make integrations intuitive, type-safe, reliable, and productive while hiding protocol complexity and implementation details.
-
-The objective is to build SDKs that feel native to each programming language while remaining consistent with the underlying API.
-
-Developers should think about solving business problems—not HTTP requests.
+An SDK's job is to remove work the caller would otherwise repeat badly: auth,
+retries, pagination, error typing, and idempotency. It is not a place for
+business logic. → `API/open-api`
 
 ---
+</purpose>
 
-# Core Philosophy
+# Generate, do not maintain
 
-Understand API
+<rules>
+```bash
+</rules>
 
-↓
+# Types only — smallest surface, no runtime dependency
 
-Understand Developers
+<rules>
+npx openapi-typescript spec/openapi.json -o src/schema.d.ts
+</rules>
 
-↓
+# Full typed client
 
-Design SDK Interface
+<rules>
+npx orval --config orval.config.ts
+```
 
-↓
+| Language | Generator |
+| --- | --- |
+| TypeScript | `openapi-typescript`, `orval`, `@hey-api/openapi-ts` |
+| Python | `openapi-python-client`, `datamodel-code-generator` |
+| Go | `oapi-codegen` |
+| Java / Kotlin | `openapi-generator` |
+| Rust | `progenitor` |
+| Multi-language, commercial | Stainless, Speakeasy, Fern |
 
-Simplify Integration
+The hand-written layer is a thin wrapper: transport, auth, retries, pagination
+helpers, error classes. Everything shaped by the API is generated.
 
-↓
-
-Hide Complexity
-
-↓
-
-Maintain Consistency
-
-↓
-
-Validate Experience
-
-↓
-
-Approve
-
-Great SDKs expose capabilities.
-
-They hide implementation.
-
----
-
-# Primary Objective
-
-Every SDK should answer one question.
-
-"Can a developer become productive within minutes without reading the API implementation?"
-
-If the answer is uncertain,
-
-the SDK requires improvement.
+- Regenerate in CI on every spec change, and fail if the committed output differs.
+- **Never** hand-edit generated files. The next regeneration discards the edit;
+  fix the spec or the generator template.
+- Method names come from `operationId`, so renaming one is a breaking SDK change.
+  → `API/versioning`
 
 ---
+</rules>
 
-# SDK Principles
+# What the SDK must handle
 
-Every SDK should maximize
+<rules>
+```ts
+const client = new Acme({
+  apiKey: process.env.ACME_API_KEY,   // never a hard-coded default
+  baseUrl: process.env.ACME_BASE_URL ?? "https://api.acme.com",
+  timeout: 30_000,
+  maxRetries: 3,
+});
+```
 
-Developer Experience
+| Concern | Behaviour |
+| --- | --- |
+| Retries | `429`, `5xx`, connection errors and timeouts only. Exponential backoff **with jitter**, honouring `Retry-After` |
+| Idempotency | Generate and attach an `Idempotency-Key` on every retryable write, **stable across retries of the same call** |
+| Timeouts | A default request timeout, overridable per call |
+| Pagination | An async iterator, so callers never hand-roll cursor loops |
+| Errors | Typed classes carrying status, machine code and `requestId` |
+| Auth | From the environment by default; never logged, never in a URL |
+| User agent | `acme-node/2.3.1 node/22.4` — makes support and deprecation outreach possible |
 
-↓
+```ts
+// The auto-generated idempotency key must not change between retries, or a
+// timeout-then-retry creates two charges.
+for await (const order of client.orders.list({ status: "paid" })) { … }
+```
 
-Consistency
+**Never** retry a non-idempotent request without an idempotency key. The default
+retry policy plus a `POST /payments` is how a customer is charged twice.
 
-↓
-
-Reliability
-
-↓
-
-Type Safety
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Discoverability
-
-The SDK should feel natural in its language ecosystem.
+**Never** retry `4xx` other than `429` and `408` — the request is wrong, not late.
 
 ---
+</rules>
 
-# SDK Workflow
+# Errors
 
-Understand API
+<rules>
+```ts
+try {
+  await client.payments.create({ amountCents: 5000, currency: "EUR" });
+} catch (e) {
+  if (e instanceof InsufficientFundsError) { … }        // typed, branchable
+  if (e instanceof RateLimitError) { await sleep(e.retryAfterMs); }
+  if (e instanceof AcmeApiError) console.error(e.requestId, e.code, e.status);
+}
+```
 
-↓
-
-Model Resources
-
-↓
-
-Design Interfaces
-
-↓
-
-Handle Errors
-
-↓
-
-Implement Authentication
-
-↓
-
-Optimize Performance
-
-↓
-
-Validate Usability
-
-↓
-
-Approve
+- One base error class, with subclasses per category (auth, validation, rate
+  limit, server, network).
+- Always expose `status`, `code` and `requestId`. The `requestId` is what makes a
+  support ticket resolvable.
+- Never swallow an error into a `null` return. The caller cannot distinguish
+  "absent" from "failed".
+- Never include the API key in an error message or a serialised request dump.
 
 ---
+</rules>
 
-# Stage 1 — API Understanding
+# Versioning and release
 
-Before building determine
-
-Available resources
-
-↓
-
-Authentication methods
-
-↓
-
-Operations
-
-↓
-
-Response structures
-
-↓
-
-Error models
-
-↓
-
-Rate limits
-
-The SDK should reflect the API.
-
-Not reinterpret it.
+<rules>
+- **SemVer**, judged from the SDK consumer's perspective: a new optional API field
+  is a minor bump; a renamed method is a major one even if the API call is
+  unchanged.
+- Record the API version the SDK targets, and send it as a header.
+- Publish a changelog with every release, generated from Conventional Commits.
+- Automate publishing (`semantic-release`, `changesets`) — a manual release
+  process produces skipped versions and unpublished fixes.
+- Support the runtime versions your users actually run, declare them in
+  `engines`/`python_requires`, and test the oldest in CI.
+- Ship provenance/attestation (`npm publish --provenance`) so consumers can verify
+  the artefact came from your repository.
 
 ---
+</rules>
 
-# Stage 2 — Language Design
+# Packaging and ergonomics
 
-Respect language conventions.
-
-Examples
-
-Python
-
-snake_case
-
-JavaScript
-
-camelCase
-
-Java
-
-PascalCase Classes
-
-Go
-
-Idiomatic Go
-
-Rust
-
-Ownership patterns
-
-Swift
-
-Protocol-oriented APIs
-
-An SDK should feel native.
-
-Never translated.
+<rules>
+- Zero or near-zero runtime dependencies. Every dependency is a supply-chain
+  surface and a version conflict for the consumer.
+- Ship ESM **and** CJS with correct `exports` conditions; ship type definitions.
+- Support cancellation (`AbortSignal`, `context`) on every call.
+- Allow injecting a custom `fetch`/transport for proxies and instrumentation.
+- Make the first call work in under five minutes: install, set one environment
+  variable, copy one runnable example from the README.
+- Ship a runnable example per major workflow, tested in CI so it cannot rot.
+  → `Documentation/api-docs`
 
 ---
+</rules>
 
-# Stage 3 — Client Design
+# Anti-patterns
 
-Provide a central client.
-
-Examples
-
-ApiClient
-
-PaymentClient
-
-StorageClient
-
-UserClient
-
-The client should manage
-
-Authentication
-
-Configuration
-
-Retries
-
-Connections
-
-Timeouts
-
-Logging
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Hand-written client for a large API | Drifts from the spec immediately | Generate from OpenAPI |
+| Hand-edited generated files | Lost on regeneration | Fix the spec or template |
+| Generated output not committed | No diff, no review | Commit and check freshness in CI |
+| Retrying non-idempotent writes | Duplicate charges | Idempotency key, stable across retries |
+| Retrying all `4xx` | Hammering a permanently invalid request | `429`/`408` only |
+| Fixed-interval retries | Synchronised thundering herd | Backoff with jitter |
+| Ignoring `Retry-After` | Fights the server's own guidance | Honour it |
+| No request timeout | Hangs forever on a stalled connection | Default timeout |
+| Untyped errors | Callers parse message strings | Error class hierarchy |
+| No `requestId` on errors | Support tickets unresolvable | Expose it |
+| Manual cursor loops left to callers | Everyone implements it differently, some wrongly | Async iterator |
+| API key in the user agent or URL | Leaks into logs | `Authorization` header only |
+| Heavy dependency tree | Supply-chain surface and version conflicts | Near-zero dependencies |
+| Manual publishing | Skipped versions, unpublished fixes | Automated release |
+| No deprecation signalling | Users discover removal at runtime | Warn on deprecated methods |
 
 ---
-
-# Stage 4 — Resource Organization
-
-Group functionality logically.
-
-Example
-
-client.users
-
-client.projects
-
-client.payments
-
-client.analytics
-
-client.storage
-
-Avoid exposing hundreds of flat methods.
-
----
-
-# Stage 5 — Authentication
-
-Support
-
-Bearer Tokens
-
-OAuth
-
-JWT
-
-API Keys
-
-Refresh Tokens
-
-Mutual TLS
-
-Authentication should require minimal setup.
-
----
-
-# Stage 6 — Configuration
-
-Allow developers to configure
-
-Base URL
-
-Timeout
-
-Retries
-
-Headers
-
-User Agent
-
-Proxy
-
-Logging
-
-Configuration should remain centralized.
-
----
-
-# Stage 7 — Request Execution
-
-Every request should support
-
-Validation
-
-Serialization
-
-Compression
-
-Retries
-
-Timeouts
-
-Cancellation
-
-Connection reuse
-
-Requests should remain predictable.
-
----
-
-# Stage 8 — Response Handling
-
-Return
-
-Strong types
-
-Collections
-
-Metadata
-
-Pagination helpers
-
-Streaming support
-
-Avoid exposing raw HTTP unless explicitly requested.
-
----
-
-# Stage 9 — Error Handling
-
-Provide structured errors.
-
-Include
-
-Status Code
-
-Error Code
-
-Message
-
-Details
-
-Request ID
-
-Recovery information
-
-Errors should be actionable.
-
----
-
-# Stage 10 — Type Safety
-
-Prefer
-
-Strong models
-
-Enums
-
-Typed responses
-
-Typed requests
-
-Validation
-
-Avoid
-
-Generic dictionaries
-
-Dynamic objects
-
-Unchecked values
-
-Type safety improves developer confidence.
-
----
-
-# Stage 11 — Pagination Helpers
-
-Support
-
-Automatic iteration
-
-Cursor navigation
-
-Page navigation
-
-Collection helpers
-
-Developers should not manually implement pagination.
-
----
-
-# Stage 12 — Retry Strategy
-
-Implement configurable retries.
-
-Review
-
-Retryable errors
-
-Exponential backoff
-
-Timeouts
-
-Circuit breakers
-
-Idempotent requests
-
-Retries should improve reliability.
-
----
-
-# Stage 13 — Performance
-
-Review
-
-Connection pooling
-
-Compression
-
-Streaming
-
-Caching
-
-Serialization
-
-Lazy loading
-
-Performance should improve without sacrificing simplicity.
-
----
-
-# Stage 14 — Security
-
-Review
-
-Secret storage
-
-TLS
-
-Certificate validation
-
-Sensitive logging
-
-Token rotation
-
-Secure defaults
-
-Security should be automatic whenever possible.
-
----
-
-# Stage 15 — Async Support
-
-When appropriate support
-
-Async APIs
-
-Awaitable operations
-
-Streaming
-
-Cancellation
-
-Concurrency
-
-Modern SDKs should embrace asynchronous programming.
-
----
-
-# Stage 16 — Documentation
-
-Every SDK should provide
-
-Quick Start
-
-Installation
-
-Authentication
-
-Examples
-
-Common Workflows
-
-Error Handling
-
-Configuration
-
-API Reference
-
-Developers should succeed quickly.
-
----
-
-# Stage 17 — Examples
-
-Provide examples for
-
-Authentication
-
-CRUD
-
-Pagination
-
-Filtering
-
-Sorting
-
-Uploads
-
-Downloads
-
-Streaming
-
-Webhooks
-
-Examples teach faster than documentation.
-
----
-
-# Stage 18 — Testing
-
-Review
-
-Unit tests
-
-Integration tests
-
-Mock APIs
-
-Contract tests
-
-Regression tests
-
-Every public feature should be tested.
-
----
-
-# Stage 19 — Versioning
-
-Support
-
-Semantic Versioning
-
-Backward Compatibility
-
-Deprecation
-
-Migration Guides
-
-Release Notes
-
-SDK versions should align with API evolution.
-
----
-
-# Stage 20 — Developer Experience
-
-Evaluate
-
-Ease of installation
-
-Ease of configuration
-
-Readability
-
-Discoverability
-
-IDE autocomplete
-
-Error clarity
-
-Documentation quality
-
-The SDK should reduce development time.
-
----
-
-# SDK Quality Attributes
-
-Evaluate
-
-Correctness
-
-Reliability
-
-Performance
-
-Security
-
-Maintainability
-
-Scalability
-
-Usability
-
-Developer Experience
-
----
-
-# SDK Questions
-
-Before approval ask
-
-Can a new developer integrate within minutes?
-
-↓
-
-Does the SDK hide protocol complexity?
-
-↓
-
-Are errors actionable?
-
-↓
-
-Does the SDK feel native to the language?
-
-↓
-
-Can developers discover features through autocomplete?
-
-↓
-
-Will the SDK remain maintainable as the API evolves?
-
-↓
-
-Would another engineering team recommend using this SDK?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken authentication
-
-Incorrect request generation
-
-Data corruption
-
-Security vulnerability
-
-Major
-
-Poor API design
-
-Weak typing
-
-Missing retries
-
-Incomplete documentation
-
-Medium
-
-Naming inconsistencies
-
-Performance improvements
-
-Missing helpers
-
-Minor
-
-Examples
-
-Formatting
-
-Documentation improvements
-
-Suggestion
-
-Future language features
-
-Developer tooling enhancements
-
----
-
-# SDK Checklist
-
-✓ Native language conventions
-
-✓ Centralized client
-
-✓ Authentication implemented
-
-✓ Configuration centralized
-
-✓ Strong typing
-
-✓ Structured errors
-
-✓ Pagination helpers
-
-✓ Retry support
-
-✓ Async support
-
-✓ Performance optimized
-
-✓ Security reviewed
-
-✓ Documentation complete
-
-✓ Examples included
-
-✓ Testing completed
-
-✓ Versioning strategy defined
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Exposing raw HTTP everywhere
-
-Weak typing
-
-Hidden network calls
-
-Hardcoded configuration
-
-Inconsistent naming
-
-Leaking transport details
-
-Ignoring language conventions
-
-Poor error messages
-
-Missing documentation
-
-No retry support
-
-SDKs that mirror REST endpoints without abstraction
-
-Breaking compatibility unnecessarily
-
----
-
-# Definition of Done
-
-SDK review is complete when
-
-- The SDK provides an intuitive, language-native developer experience.
-- Authentication, configuration, and request execution are simple and consistent.
-- Strong typing improves correctness and IDE support.
-- Errors are structured, actionable, and easy to diagnose.
-- Performance features such as retries, connection reuse, and async execution are implemented where appropriate.
-- Documentation and examples enable rapid onboarding.
-- Testing validates every public capability.
-- Versioning supports long-term compatibility with the underlying API.
-- The SDK hides implementation complexity while exposing business capabilities clearly.
-- Developers can integrate with the API efficiently, confidently, and with minimal boilerplate.
-
-Exceptional SDKs are rarely praised for their implementation.
-
-They are praised because developers stop thinking about the API and focus entirely on building great software.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] The API-shaped surface is generated from the OpenAPI/proto specification
+- [ ] Generated output is committed and CI fails when it is stale
+- [ ] No generated file is hand-edited
+- [ ] Retries cover only `429`, `408`, `5xx`, timeouts and connection errors
+- [ ] Backoff is exponential with jitter and honours `Retry-After`
+- [ ] Retryable writes carry an idempotency key that is stable across retries
+- [ ] A default request timeout exists and is overridable per call
+- [ ] Pagination is exposed as an async iterator
+- [ ] Errors are typed and expose `status`, `code` and `requestId`
+- [ ] Credentials are read from the environment, never logged or placed in URLs
+- [ ] A descriptive user agent identifies SDK and runtime versions
+- [ ] Cancellation is supported on every call
+- [ ] Runtime dependencies are minimal and declared support ranges are tested
+- [ ] SemVer is applied from the consumer's perspective, with a published changelog
+- [ ] Releases are automated, with provenance attestation
+- [ ] A runnable quickstart example is tested in CI
+</checklist>

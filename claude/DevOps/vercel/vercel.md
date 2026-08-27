@@ -1,1150 +1,208 @@
-# vercel.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: vercel
+category: DevOps
+description: Deploying to Vercel — environment configuration, serverless and edge constraints, connection pooling, caching, preview deployments and cost control.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, deploying, securing, monitoring, and operating applications on Vercel.
+<purpose>
+Rules for running an application on Vercel. The platform removes most deployment
+work; what remains is the set of constraints its execution model imposes —
+statelessness, cold starts, connection limits, and a build step that inlines
+values you may not want inlined.
 
-It applies to
-
-- Next.js Applications
-- React Applications
-- Static Websites
-- Full-Stack Applications
-- Serverless APIs
-- AI Applications
-- SaaS Platforms
-- Enterprise Web Applications
-- Edge Applications
-
-Vercel is not simply a hosting provider.
-
-Vercel is a deployment platform designed to transform source code into globally distributed, highly available, observable, and scalable web applications.
-
-Infrastructure should disappear.
-
-Developer productivity should not.
+Framework specifics are `Backend/nextjs` and `Frontend/nextjs`.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Environment variables: build-time versus runtime
 
-Develop
+<rules>
+| Prefix | Available in | Baked into the client bundle |
+| --- | --- | --- |
+| `NEXT_PUBLIC_*` | Browser and server | **Yes**, at build time |
+| Everything else | Server only | No |
 
-↓
-
-Commit
-
-↓
-
-Deploy Automatically
-
-↓
-
-Validate
-
-↓
-
-Distribute Globally
-
-↓
-
-Observe
-
-↓
-
-Optimize
-
-↓
-
-Continuously Improve
-
-Deployment should happen automatically.
-
-Reliability should remain intentional.
+- **Never** prefix a secret with `NEXT_PUBLIC_`. It is inlined into JavaScript
+  served to every visitor, and rotating it requires a rebuild.
+- `NEXT_PUBLIC_*` values are captured at **build** time. Changing one in the
+  dashboard does nothing until a redeploy — a recurring source of "I changed it and
+  nothing happened".
+- Scope variables per environment (Production, Preview, Development). A preview
+  deployment holding production credentials means every pull request can write to
+  production.
+- Validate all variables at startup and fail the build or boot on a missing one.
+  → `DevOps/environments`
 
 ---
+</rules>
 
-# Primary Objective
+# Serverless constraints
 
-Every Vercel deployment should maximize
+<rules>
+Every request may hit a cold instance. There is **no shared process state**.
 
-Availability
+| Assumption that breaks | Reality | Fix |
+| --- | --- | --- |
+| In-memory cache | Per-instance, discarded constantly | Redis / KV |
+| In-memory rate limiter | Resets per instance | Shared store → `API/rate-limiting` |
+| Background work after the response | Instance is frozen | `waitUntil`, or a queue |
+| Long-running request | Hard execution limit | Background job → `Backend/background-jobs` |
+| Local filesystem writes | Read-only except `/tmp`, ephemeral | Object storage |
+| Cron in-process | Not running between requests | Vercel Cron |
+| WebSocket server | Not supported by functions | A managed realtime service |
 
-+
+**Database connections are the classic failure.** Each concurrent function instance
+opens its own connection, and a traffic spike exhausts `max_connections` in
+seconds:
 
-Performance
+```
+DATABASE_URL="postgres://…/db?pgbouncer=true&connection_limit=1&pool_timeout=20"
+DIRECT_URL="postgres://…/db"     # migrations bypass the pooler
+```
 
-+
-
-Reliability
-
-+
-
-Developer Productivity
-
-+
-
-Security
-
-+
-
-Scalability
-
-+
-
-Observability
-
-+
-
-Maintainability
-
-Applications should be deployable within minutes.
-
-Confidence should never be sacrificed for speed.
+Use a transaction-mode pooler (PgBouncer, Supavisor, Neon or Prisma Accelerate),
+instantiate the client once at module scope, and never inside a handler.
+→ `Database/prisma`
 
 ---
+</rules>
 
-# Engineering Principles
+# Node runtime or Edge runtime
 
-Always prioritize
+<rules>
+| | Node | Edge |
+| --- | --- | --- |
+| APIs | Full Node standard library | Web APIs only |
+| Cold start | Higher | Very low |
+| Location | Region-pinned | Distributed |
+| Database drivers | Work | Mostly do not (no TCP) |
+| Size limit | Larger | Small bundle required |
 
-Automation
+```ts
+export const runtime = "nodejs";     // declare it; do not rely on the default
+```
 
-↓
+Edge suits middleware, redirects, geolocation, header rewriting and auth checks.
+Anything using a database driver, a Node built-in, or a large dependency belongs
+on Node.
 
-Global Performance
-
-↓
-
-Immutable Deployments
-
-↓
-
-Security
-
-↓
-
-Observability
-
-↓
-
-Progressive Delivery
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Every deployment should be reproducible.
-
-Every rollback should be immediate.
+Place functions in the **region nearest the database**. An edge function in
+Sydney querying a database in Frankfurt pays that round trip on every query — edge
+compute helps only when the data is also close.
 
 ---
+</rules>
 
-# Vercel Lifecycle
+# Caching and revalidation
 
-Develop
-
-↓
-
-Build
-
-↓
-
-Deploy
-
-↓
-
-Validate
-
-↓
-
-Distribute
-
-↓
-
-Observe
-
-↓
-
-Optimize
-
-↓
-
-Continuously Improve
+<rules>
+- Static and ISR pages are served from the edge; dynamic ones execute per request.
+  Read the `next build` output and confirm each route's mode is what you intended.
+  A personalised route rendered statically is a data-leak bug, not a performance
+  note.
+- Use `revalidateTag`/`revalidatePath` after mutations; stale content after a
+  successful write is what users report as "it didn't save".
+- Set `Cache-Control: no-store` on authenticated responses. A cached authenticated
+  response served to another visitor is the worst failure mode here.
+- Static assets are content-hashed and cached immutably by the platform — do not
+  fight it with custom headers.
 
 ---
+</rules>
 
-# Stage 1 — Application Analysis
+# Previews, protection and cost
 
-Understand
+<rules>
+- Every pull request gets a preview deployment. Treat them as **publicly reachable
+  unless protected**: enable Deployment Protection (Vercel Authentication or a
+  password) for anything containing real data.
+- Give previews their own database, or a seeded branch database. Pointing previews
+  at production means an untested migration runs against real data.
+- Deployments are immutable, so rollback is instant: promote a previous
+  deployment rather than redeploying. → `DevOps/rollback`
+- Cost drivers, in order: function invocation and duration, edge middleware
+  running on **every** request including assets, image optimisation on
+  uncontrolled sources, and bandwidth.
+  - Scope `middleware.ts` with a tight `matcher` — an unscoped middleware runs on
+    every asset request and is frequently the largest single line item.
+  - Restrict `next/image` `remotePatterns` to domains you control; an open
+    configuration is an open image-optimisation proxy.
+  - Set spend limits and usage alerts.
 
-Business Requirements
-
-↓
-
-Application Architecture
-
-↓
-
-Framework
-
-↓
-
-Rendering Strategy
-
-↓
-
-Traffic Patterns
-
-↓
-
-Geographic Distribution
-
-↓
-
-Performance Goals
-
-↓
-
-Operational Requirements
-
-Platform architecture should follow application requirements.
+```ts
+// middleware.ts — an unscoped matcher runs on every asset request.
+// This one runs on pages only, and is frequently a 10× cost difference.
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|svg|woff2)$).*)"],
+};
+```
 
 ---
+</rules>
 
-# Stage 2 — Project Configuration
+# Anti-patterns
 
-Configure
-
-Project Structure
-
-↓
-
-Framework Detection
-
-↓
-
-Build Commands
-
-↓
-
-Output Configuration
-
-↓
-
-Environment Variables
-
-↓
-
-Domains
-
-↓
-
-Deployment Settings
-
-↓
-
-Repository Integration
-
-Configuration should remain predictable.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Secret in `NEXT_PUBLIC_*` | Inlined into client JavaScript | Server-only variable |
+| Expecting a public variable change to apply | Baked at build time | Redeploy |
+| Preview using production credentials | Any pull request writes to production | Per-environment variables |
+| Database client per request | Connection exhaustion under load | Module-scope client + pooler |
+| No connection pooler | `max_connections` hit in seconds | Transaction-mode pooler |
+| Migrations through the pooler | Fails or corrupts | `DIRECT_URL` |
+| In-memory cache or rate limiter | Per-instance; resets constantly | Shared store |
+| Work after the response returns | Instance frozen; work lost | `waitUntil` or a queue |
+| Long-running request handler | Execution limit exceeded | Background job |
+| Writing to the filesystem | Read-only and ephemeral | Object storage |
+| Edge runtime with a database driver | No TCP support | Node runtime |
+| Functions far from the database | Round-trip cost per query | Co-locate regions |
+| Runtime not declared | Defaults change; surprises | Declare it explicitly |
+| Personalised route rendered statically | One user's data served to all | Check the build output |
+| Caching authenticated responses | Cross-user data exposure | `no-store` |
+| Unscoped middleware matcher | Runs on every asset; dominates cost | Tight `matcher` |
+| Open `remotePatterns` | Free image proxy for anyone | Restrict to your domains |
+| Unprotected previews with real data | Publicly reachable | Deployment Protection |
+| No spend limits | Cost discovered on the invoice | Limits and alerts |
 
 ---
-
-# Stage 3 — Build System
-
-Build
-
-Dependencies
-
-↓
-
-Compilation
-
-↓
-
-Static Generation
-
-↓
-
-Server Components
-
-↓
-
-API Routes
-
-↓
-
-Asset Optimization
-
-↓
-
-Output Validation
-
-↓
-
-Deployment Artifacts
-
-Builds should remain deterministic.
-
----
-
-# Stage 4 — Rendering Strategy
-
-Choose
-
-Static Rendering
-
-↓
-
-Server Rendering
-
-↓
-
-Incremental Rendering
-
-↓
-
-Edge Rendering
-
-↓
-
-Streaming
-
-↓
-
-Hybrid Rendering
-
-↓
-
-Caching
-
-↓
-
-Performance Optimization
-
-Rendering strategy should follow user needs.
-
-Not framework defaults.
-
----
-
-# Stage 5 — Deployment
-
-Deploy
-
-Preview Environments
-
-↓
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Production
-
-↓
-
-Domain Assignment
-
-↓
-
-Health Validation
-
-↓
-
-Traffic Routing
-
-↓
-
-Release Completion
-
-Every deployment should be immutable.
-
----
-
-# Stage 6 — Edge Network
-
-Optimize
-
-Global Distribution
-
-↓
-
-Edge Functions
-
-↓
-
-CDN Caching
-
-↓
-
-Regional Performance
-
-↓
-
-Request Routing
-
-↓
-
-Latency Reduction
-
-↓
-
-Availability
-
-↓
-
-Scalability
-
-Users should experience consistent performance worldwide.
-
----
-
-# Stage 7 — Configuration Management
-
-Manage
-
-Environment Variables
-
-↓
-
-Secrets
-
-↓
-
-Runtime Configuration
-
-↓
-
-Feature Flags
-
-↓
-
-Domain Settings
-
-↓
-
-Redirects
-
-↓
-
-Headers
-
-↓
-
-Version Control
-
-Configuration should remain external.
-
----
-
-# Stage 8 — Performance
-
-Optimize
-
-Core Web Vitals
-
-↓
-
-Asset Optimization
-
-↓
-
-Image Optimization
-
-↓
-
-Code Splitting
-
-↓
-
-Caching
-
-↓
-
-Compression
-
-↓
-
-Bundle Size
-
-↓
-
-Runtime Performance
-
-Performance is a product feature.
-
----
-
-# Stage 9 — Security
-
-Protect
-
-Environment Secrets
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Headers
-
-↓
-
-TLS
-
-↓
-
-Rate Limiting
-
-↓
-
-Supply Chain
-
-↓
-
-Compliance
-
-Security should be automated.
-
----
-
-# Stage 10 — Monitoring
-
-Observe
-
-Deployments
-
-↓
-
-Errors
-
-↓
-
-Functions
-
-↓
-
-Logs
-
-↓
-
-Performance
-
-↓
-
-Availability
-
-↓
-
-Usage
-
-↓
-
-Operational Health
-
-Every deployment should be observable.
-
----
-
-# Stage 11 — Reliability
-
-Ensure
-
-Immutable Deployments
-
-↓
-
-Automatic Rollbacks
-
-↓
-
-Health Validation
-
-↓
-
-Error Recovery
-
-↓
-
-Redundancy
-
-↓
-
-Availability
-
-↓
-
-Deployment Consistency
-
-↓
-
-Business Continuity
-
-Reliable deployments create reliable products.
-
----
-
-# Stage 12 — Scalability
-
-Prepare for
-
-Traffic Growth
-
-↓
-
-Serverless Scaling
-
-↓
-
-Edge Scaling
-
-↓
-
-Global Expansion
-
-↓
-
-API Growth
-
-↓
-
-Content Growth
-
-↓
-
-Infrastructure Evolution
-
-↓
-
-Future Demand
-
-Scalability should occur automatically.
-
----
-
-# Stage 13 — Developer Experience
-
-Improve
-
-Preview Deployments
-
-↓
-
-Collaboration
-
-↓
-
-Rapid Feedback
-
-↓
-
-Testing
-
-↓
-
-Branch Isolation
-
-↓
-
-Review Process
-
-↓
-
-Automation
-
-↓
-
-Engineering Velocity
-
-Developer productivity directly impacts product quality.
-
----
-
-# Stage 14 — Automation
-
-Automate
-
-Deployments
-
-↓
-
-Validation
-
-↓
-
-Preview Generation
-
-↓
-
-Rollback
-
-↓
-
-Monitoring
-
-↓
-
-Notifications
-
-↓
-
-Performance Checks
-
-↓
-
-Operational Workflows
-
-Automation removes operational friction.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Deployment Architecture
-
-↓
-
-Project Configuration
-
-↓
-
-Environment Variables
-
-↓
-
-Domains
-
-↓
-
-Operational Procedures
-
-↓
-
-Recovery Plans
-
-↓
-
-Performance Decisions
-
-↓
-
-Future Evolution
-
-Documentation scales engineering knowledge.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Deployment History
-
-↓
-
-Release History
-
-↓
-
-Rollback Records
-
-↓
-
-Configuration Evolution
-
-↓
-
-Framework Updates
-
-↓
-
-Dependency Versions
-
-↓
-
-Review History
-
-↓
-
-Compatibility
-
-Every deployment should remain traceable.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Deployment Strategy
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Business Alignment
-
-Platform configuration deserves continuous review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Deployment Failures
-
-↓
-
-Configuration Drift
-
-↓
-
-Performance Regression
-
-↓
-
-Traffic Surges
-
-↓
-
-Dependency Risks
-
-↓
-
-Security Risks
-
-↓
-
-Operational Complexity
-
-↓
-
-Business Impact
-
-Fast deployment should never increase operational risk.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Performance
-
-↓
-
-Deployment Speed
-
-↓
-
-Caching
-
-↓
-
-Developer Experience
-
-↓
-
-Monitoring
-
-↓
-
-Automation
-
-↓
-
-Security
-
-↓
-
-Engineering Maturity
-
-Modern deployment platforms evolve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Availability
-
-↓
-
-Performance
-
-↓
-
-Automation
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional deployment platforms become invisible.
-
----
-
-# Vercel Quality Attributes
-
-Evaluate
-
-Availability
-
-Performance
-
-Reliability
-
-Developer Productivity
-
-Scalability
-
-Security
-
-Observability
-
-Maintainability
-
----
-
-# Vercel Questions
-
-Before production ask
-
-Can deployments be reproduced consistently?
-
-↓
-
-Can production be rolled back immediately?
-
-↓
-
-Are environment variables managed securely?
-
-↓
-
-Are global users receiving acceptable performance?
-
-↓
-
-Are Core Web Vitals consistently healthy?
-
-↓
-
-Can the application scale automatically?
-
-↓
-
-Would experienced platform engineers confidently approve this Vercel architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Production outage
-
-Deployment failure
-
-Credential exposure
-
-Broken production routing
-
-Data loss
-
-Major
-
-Performance degradation
-
-Configuration errors
-
-Function failures
-
-Domain issues
-
-Cache inconsistencies
-
-Medium
-
-Performance optimization
-
-Deployment improvements
-
-Monitoring gaps
-
-Documentation improvements
-
-Minor
-
-Naming consistency
-
-Configuration organization
-
-Metadata
-
-Formatting
-
----
-
-# Vercel Checklist
-
-✓ Business requirements understood
-
-✓ Project configured
-
-✓ Build pipeline validated
-
-✓ Rendering strategy selected
-
-✓ Deployments automated
-
-✓ Edge network optimized
-
-✓ Configuration externalized
-
-✓ Performance optimized
-
-✓ Security implemented
-
-✓ Monitoring enabled
-
-✓ Reliability validated
-
-✓ Scalability reviewed
-
-✓ Developer workflow optimized
-
-✓ Automation completed
-
-✓ Documentation updated
-
-✓ Version history maintained
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Hardcoding environment variables
-
-Deploying directly without preview environments
-
-Ignoring Core Web Vitals
-
-Large JavaScript bundles
-
-Disabling caching unnecessarily
-
-Ignoring edge capabilities
-
-Treating preview deployments as production
-
-Skipping monitoring
-
-Ignoring deployment history
-
-Using production for testing
-
-Deploying without rollback planning
-
-Optimizing deployment speed before reliability
-
-Ignoring global performance
-
----
-
-# Definition of Done
-
-A Vercel platform is considered production-ready when
-
-- Every deployment is fully automated, deterministic, immutable, reproducible, and traceable from source control through production release.
-- Project configuration clearly separates build behavior, runtime configuration, environment variables, secrets, deployment environments, domains, redirects, and infrastructure concerns.
-- Rendering strategies intentionally balance static generation, server-side rendering, incremental rendering, streaming, edge execution, and caching according to business and user requirements.
-- Global delivery consistently provides low-latency experiences through intelligent edge distribution, optimized asset delivery, efficient caching, image optimization, and regional request routing.
-- Security protects credentials, environment variables, authentication, authorization, deployment permissions, application integrity, and infrastructure through automated operational controls.
-- Monitoring continuously observes deployment health, runtime behavior, serverless execution, performance metrics, Core Web Vitals, infrastructure status, user experience, and operational risks.
-- Deployment workflows support preview environments, automated validation, release verification, rapid rollback, collaborative review, and predictable production releases.
-- Documentation preserves deployment architecture, configuration decisions, operational workflows, recovery procedures, performance strategies, security practices, and future platform evolution.
-- Engineering reviews continuously validate availability, reliability, scalability, maintainability, observability, automation quality, developer productivity, and operational excellence.
-- The Vercel platform consistently demonstrates predictable deployments, exceptional user performance, secure operations, engineering discipline, maintainability, and long-term platform sustainability.
-
-Exceptional Vercel deployments feel effortless.
-
-Developers push code with confidence, preview environments enable rapid collaboration, production deployments complete without interruption, users experience consistently fast applications regardless of location, infrastructure scales automatically with demand, and operational complexity fades into the background because deployment has become a disciplined engineering system rather than a manual operational task.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] No secret is exposed through a `NEXT_PUBLIC_` variable
+- [ ] Build-time inlining of public variables is understood; changes trigger redeploys
+- [ ] Environment variables are scoped per environment
+- [ ] Preview deployments use non-production credentials and data
+- [ ] Environment variables are validated at startup
+- [ ] One module-scope database client behind a transaction-mode pooler
+- [ ] Migrations use a direct, unpooled connection
+- [ ] No in-memory cache, rate limiter or session state is relied upon
+- [ ] Post-response work uses `waitUntil` or a queue
+- [ ] Long-running work runs as a background job
+- [ ] Nothing writes to the filesystem outside `/tmp`
+- [ ] Runtime (`nodejs`/`edge`) is declared per route
+- [ ] Functions are co-located with the database region
+- [ ] `next build` output is reviewed; no personalised route is static
+- [ ] Authenticated responses set `no-store`
+- [ ] Mutations trigger revalidation
+- [ ] `middleware.ts` has a tight matcher
+- [ ] `next/image` `remotePatterns` are restricted to controlled domains
+- [ ] Preview deployments are protected
+- [ ] Spend limits and usage alerts are configured
+</checklist>

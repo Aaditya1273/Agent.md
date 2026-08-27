@@ -1,1144 +1,196 @@
-# mongodb.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: mongodb
+category: Database
+description: MongoDB document modelling and operational rules — embed versus reference, indexes, write concern, transactions, and the failure modes of a schemaless store.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, operating, optimizing, and scaling applications using MongoDB.
+<purpose>
+Rules for MongoDB. "Schemaless" means the schema lives in application code
+instead of the database — it does not mean there isn't one. Every rule here
+exists because the database will not stop you.
 
-It applies to
-
-- SaaS Platforms
-- AI Applications
-- Content Management Systems
-- Event-Driven Systems
-- Analytics Platforms
-- E-Commerce Platforms
-- IoT Systems
-- Mobile Applications
-- Cloud-Native Services
-
-MongoDB is not simply a document database.
-
-It is a flexible data platform designed to model evolving business domains while preserving consistency, performance, and operational reliability.
-
-Flexibility should never become an excuse for poor data design.
+Choose MongoDB for genuinely document-shaped data with varying structure. If the
+data is relational and you are joining it with `$lookup` on every read, you chose
+wrong. → `Database/schema-design`
 
 ---
+</purpose>
 
-# Core Philosophy
+# Embed or reference
 
-Model the Business
+<rules>
+The single most consequential modelling decision.
 
-↓
+| Embed when | Reference when |
+| --- | --- |
+| Read together, always | Read independently |
+| The child has no life of its own | The child is queried on its own |
+| Bounded cardinality (tens, not thousands) | Unbounded growth |
+| Updated together | Updated at different rates |
 
-Embed When Appropriate
+```js
+// Embed — an order's line items are never read without the order
+{ _id, customerId, items: [{ sku, qty, priceCents }], totalCents }
 
-↓
+// Reference — a customer's orders are unbounded and queried alone
+{ _id, orderId, customerId, ... }
+```
 
-Reference When Necessary
+**Never** embed an unbounded array. A document has a **16 MB hard limit**, and a
+growing array forces document relocation and rewrites the whole document on every
+push. An array that grows with user activity — comments, events, log lines —
+belongs in its own collection.
 
-↓
-
-Validate Data
-
-↓
-
-Optimize Queries
-
-↓
-
-Observe Continuously
-
-↓
-
-Scale Predictably
-
-↓
-
-Maintain Simplicity
-
-Schema flexibility should improve development.
-
-Not reduce data quality.
+Where you need the last N of an unbounded set, use the **subset pattern**: embed
+the most recent few for fast reads and keep the full set in a separate
+collection.
 
 ---
+</rules>
 
-# Primary Objective
+# Indexes
 
-Every MongoDB system should maximize
+<rules>
+```js
+db.orders.createIndex({ tenantId: 1, createdAt: -1 });
+db.orders.find({ tenantId: t }).sort({ createdAt: -1 }).explain("executionStats");
+```
 
-Correctness
+Read `executionStats` and check:
 
-+
+| Field | Want |
+| --- | --- |
+| `stage` | `IXSCAN`, not `COLLSCAN` |
+| `totalKeysExamined` vs `nReturned` | Close to 1:1 |
+| `totalDocsExamined` | Zero for a covered query |
+| `hasSortStage` | Absent — an in-memory sort fails above 32 MB |
 
-Flexibility
+The ESR rule orders compound index keys: **Equality**, then **Sort**, then
+**Range**. A compound index serves any prefix of its keys, so `{a:1, b:1, c:1}`
+also serves queries on `{a}` and `{a,b}` — do not create those separately.
 
-+
-
-Consistency
-
-+
-
-Performance
-
-+
-
-Scalability
-
-+
-
-Reliability
-
-+
-
-Observability
-
-+
-
-Maintainability
-
-Good document design eliminates unnecessary complexity.
+**Never** leave an in-memory sort in a hot query. Above 32 MB it errors outright
+rather than degrading. → `Database/indexes`
 
 ---
+</rules>
 
-# Engineering Principles
+# Write concern and durability
 
-Always prioritize
+<rules>
+The defaults are not what most teams assume.
 
-Business Modeling
+```js
+// Acknowledged by a majority, and durable on disk
+await coll.insertOne(doc, { writeConcern: { w: "majority", j: true } });
+```
 
-↓
+| Concern | Meaning |
+| --- | --- |
+| `w: 1` | Primary acknowledged only — lost on failover |
+| `w: "majority"` | Committed to a majority; survives an election |
+| `j: true` | Written to the journal, survives a crash |
+| `readConcern: "majority"` | Never reads data that could be rolled back |
 
-Data Consistency
+**Never** use `w: 1` for data whose loss matters. An election after a `w: 1`
+write can roll it back with no error ever reaching the client.
 
-↓
+For read-after-write in the same session, use a **causally consistent session**
+rather than reading from the primary by convention:
 
-Document Simplicity
-
-↓
-
-Efficient Queries
-
-↓
-
-Predictable Performance
-
-↓
-
-Operational Reliability
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Optimization
-
-Collections should represent business concepts.
-
-Not application convenience.
+```js
+const session = client.startSession({ causalConsistency: true });
+```
 
 ---
+</rules>
 
-# MongoDB Lifecycle
+# Transactions
 
-Requirements
+<rules>
+Multi-document transactions exist (replica sets and sharded clusters) but are far
+more expensive than in a relational engine, and they have a default 60-second
+limit.
 
-↓
-
-Domain Modeling
-
-↓
-
-Document Design
-
-↓
-
-Implementation
-
-↓
-
-Validation
-
-↓
-
-Optimization
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
+Prefer a document model where the atomic unit **is** one document — that is the
+point of embedding. Reach for a transaction only when a genuine invariant spans
+collections. → `Database/transactions`
 
 ---
+</rules>
 
-# Stage 1 — Requirements Analysis
+# Schema validation
 
-Understand
+<rules>
+The database will happily store `{ price: "twelve" }`. Add validation:
 
-Business Domain
+```js
+db.createCollection("orders", {
+  validator: { $jsonSchema: {
+    bsonType: "object",
+    required: ["tenantId", "totalCents", "createdAt"],
+    properties: {
+      totalCents: { bsonType: "long", minimum: 0 },
+      createdAt:  { bsonType: "date" },
+    },
+  }},
+  validationLevel: "strict",
+  validationAction: "error",
+});
+```
 
-↓
-
-Entities
-
-↓
-
-Relationships
-
-↓
-
-Query Patterns
-
-↓
-
-Write Patterns
-
-↓
-
-Growth Expectations
-
-↓
-
-Availability
-
-↓
-
-Retention Policies
-
-Database design begins with understanding how data changes.
+Store money as integer minor units (`long`), never `double`. Store dates as BSON
+`date`, never as a string — string dates sort lexicographically and cannot use
+date operators.
 
 ---
+</rules>
 
-# Stage 2 — Document Modeling
+# Anti-patterns
 
-Identify
-
-Collections
-
-↓
-
-Documents
-
-↓
-
-Fields
-
-↓
-
-Embedded Objects
-
-↓
-
-Arrays
-
-↓
-
-Relationships
-
-↓
-
-Ownership
-
-↓
-
-Lifecycle
-
-Every document should represent a meaningful business object.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Unbounded embedded array | 16 MB document cap; full rewrite per push | Separate collection, or subset pattern |
+| Using MongoDB for relational data | `$lookup` on every read | Use a relational database |
+| No schema validation | Type drift reaches production silently | `$jsonSchema` validator |
+| `w: 1` for important writes | Silently rolled back on failover | `w: "majority", j: true` |
+| Dates as strings | Lexicographic sort; no date operators | BSON `date` |
+| Money as `double` | Binary rounding error | `long` minor units |
+| Index per query | Write amplification; RAM pressure | Compound indexes by ESR |
+| Duplicate index and its prefix | Redundant maintenance cost | Prefix is served by the compound index |
+| In-memory sort in a hot path | Hard 32 MB failure | Index covering the sort |
+| Transactions used as the default | Far costlier than relational | Model so one document is atomic |
+| `$where` / unindexed `$regex` | Full collection scan | Anchored regex on an indexed field |
 
 ---
-
-# Stage 3 — Schema Design
-
-Design
-
-Collections
-
-↓
-
-Document Structure
-
-↓
-
-Field Types
-
-↓
-
-Validation Rules
-
-↓
-
-Naming Standards
-
-↓
-
-References
-
-↓
-
-Embedding Strategy
-
-↓
-
-Indexes
-
-Flexible schemas still require discipline.
-
----
-
-# Stage 4 — Data Validation
-
-Protect through
-
-Schema Validation
-
-↓
-
-Required Fields
-
-↓
-
-Field Types
-
-↓
-
-Unique Constraints
-
-↓
-
-Application Validation
-
-↓
-
-Business Rules
-
-↓
-
-Document Consistency
-
-↓
-
-Reference Integrity
-
-Schema flexibility should not compromise correctness.
-
----
-
-# Stage 5 — Relationships
-
-Choose between
-
-Embedding
-
-↓
-
-Referencing
-
-↓
-
-Hybrid Models
-
-↓
-
-Aggregation
-
-↓
-
-Lookup Collections
-
-↓
-
-Denormalization
-
-↓
-
-Ownership
-
-↓
-
-Consistency
-
-Model relationships based on access patterns.
-
-Not theory.
-
----
-
-# Stage 6 — Query Design
-
-Optimize for
-
-Readability
-
-↓
-
-Selective Queries
-
-↓
-
-Index Usage
-
-↓
-
-Aggregation Efficiency
-
-↓
-
-Projection
-
-↓
-
-Pagination
-
-↓
-
-Minimal Complexity
-
-↓
-
-Stable Performance
-
-Design queries around business workflows.
-
----
-
-# Stage 7 — Consistency
-
-Ensure
-
-Atomic Operations
-
-↓
-
-Document Integrity
-
-↓
-
-Transaction Boundaries
-
-↓
-
-Concurrency
-
-↓
-
-Conflict Handling
-
-↓
-
-Retry Logic
-
-↓
-
-Recovery
-
-↓
-
-Reliability
-
-Consistency is more important than convenience.
-
----
-
-# Stage 8 — Performance
-
-Continuously evaluate
-
-Indexes
-
-↓
-
-Query Plans
-
-↓
-
-Aggregation Pipelines
-
-↓
-
-Working Set
-
-↓
-
-Memory Usage
-
-↓
-
-Storage
-
-↓
-
-Latency
-
-↓
-
-Throughput
-
-Measure before optimizing.
-
----
-
-# Stage 9 — Security
-
-Protect
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Encryption
-
-↓
-
-Secrets
-
-↓
-
-Network Isolation
-
-↓
-
-Audit Logging
-
-↓
-
-Role-Based Access
-
-↓
-
-Compliance
-
-Security protects customer trust.
-
----
-
-# Stage 10 — Reliability
-
-Prepare for
-
-Hardware Failure
-
-↓
-
-Node Failure
-
-↓
-
-Replica Sets
-
-↓
-
-Automatic Recovery
-
-↓
-
-Backups
-
-↓
-
-Disaster Recovery
-
-↓
-
-Operational Continuity
-
-↓
-
-Monitoring
-
-Reliable databases assume failure.
-
----
-
-# Stage 11 — Scalability
-
-Plan for
-
-Growing Collections
-
-↓
-
-Increasing Users
-
-↓
-
-Higher Throughput
-
-↓
-
-Replica Sets
-
-↓
-
-Sharding
-
-↓
-
-Storage Expansion
-
-↓
-
-Infrastructure Growth
-
-↓
-
-Global Distribution
-
-Scalability should be intentional.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Slow Queries
-
-↓
-
-Replication
-
-↓
-
-Storage
-
-↓
-
-Memory
-
-↓
-
-Connections
-
-↓
-
-Errors
-
-↓
-
-Latency
-
-↓
-
-Availability
-
-Healthy systems are observable systems.
-
----
-
-# Stage 13 — Maintenance
-
-Regularly perform
-
-Index Review
-
-↓
-
-Backup Verification
-
-↓
-
-Storage Optimization
-
-↓
-
-Statistics Review
-
-↓
-
-Capacity Planning
-
-↓
-
-Configuration Review
-
-↓
-
-Health Checks
-
-↓
-
-Performance Review
-
-Maintenance preserves reliability.
-
----
-
-# Stage 14 — Testing
-
-Validate
-
-Document Structure
-
-↓
-
-Queries
-
-↓
-
-Aggregations
-
-↓
-
-Transactions
-
-↓
-
-Replication
-
-↓
-
-Recovery
-
-↓
-
-Performance
-
-↓
-
-Migration
-
-Testing protects production.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Collections
-
-↓
-
-Relationships
-
-↓
-
-Indexes
-
-↓
-
-Validation Rules
-
-↓
-
-Business Rules
-
-↓
-
-Architecture Decisions
-
-↓
-
-Operational Procedures
-
-↓
-
-Recovery Plans
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Migration History
-
-↓
-
-Schema Evolution
-
-↓
-
-Compatibility
-
-↓
-
-Rollback Plans
-
-↓
-
-Release Notes
-
-↓
-
-Review Records
-
-↓
-
-Audit History
-
-↓
-
-Operational Changes
-
-Schemas evolve continuously.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Document Design
-
-↓
-
-Relationships
-
-↓
-
-Indexes
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Scalability
-
-↓
-
-Maintainability
-
-↓
-
-Business Alignment
-
-Every collection deserves architectural review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Data Loss
-
-↓
-
-Performance Risks
-
-↓
-
-Scaling Risks
-
-↓
-
-Replication Risks
-
-↓
-
-Migration Risks
-
-↓
-
-Security Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Recovery Risks
-
-Understand risks before production.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Indexes
-
-↓
-
-Queries
-
-↓
-
-Aggregations
-
-↓
-
-Document Design
-
-↓
-
-Configuration
-
-↓
-
-Monitoring
-
-↓
-
-Automation
-
-↓
-
-Developer Experience
-
-Optimization never stops.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Correctness
-
-↓
-
-Flexibility
-
-↓
-
-Performance
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Database Excellence
-
-Well-designed MongoDB systems remain understandable as they grow.
-
----
-
-# MongoDB Quality Attributes
-
-Evaluate
-
-Correctness
-
-Flexibility
-
-Consistency
-
-Performance
-
-Reliability
-
-Scalability
-
-Observability
-
-Maintainability
-
----
-
-# MongoDB Questions
-
-Before production ask
-
-Does every collection represent a clear business concept?
-
-↓
-
-Have embedding and referencing decisions been justified?
-
-↓
-
-Will queries remain efficient as data grows?
-
-↓
-
-Are validation rules sufficient?
-
-↓
-
-Can failures be recovered safely?
-
-↓
-
-Is operational monitoring comprehensive?
-
-↓
-
-Would experienced MongoDB architects confidently approve this design?
-
----
-
-# Severity Levels
-
-Critical
-
-Data corruption
-
-Data loss
-
-Broken replication
-
-Security compromise
-
-Operational failure
-
-Major
-
-Slow queries
-
-Poor document modeling
-
-Missing indexes
-
-Replication lag
-
-Migration failure
-
-Medium
-
-Aggregation optimization
-
-Schema refinement
-
-Configuration tuning
-
-Documentation improvements
-
-Minor
-
-Naming consistency
-
-Formatting
-
-Comments
-
-Operational refinements
-
----
-
-# MongoDB Checklist
-
-✓ Requirements understood
-
-✓ Domain modeled
-
-✓ Collections designed
-
-✓ Validation implemented
-
-✓ Relationships reviewed
-
-✓ Queries optimized
-
-✓ Consistency verified
-
-✓ Performance evaluated
-
-✓ Security configured
-
-✓ Reliability ensured
-
-✓ Scalability planned
-
-✓ Monitoring enabled
-
-✓ Maintenance scheduled
-
-✓ Testing completed
-
-✓ Documentation updated
-
-✓ Versioning established
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using MongoDB as a relational database
-
-Deeply nested documents
-
-Excessive document growth
-
-Overusing references
-
-Duplicating uncontrolled data
-
-Ignoring schema validation
-
-Creating indexes without measurement
-
-Ignoring aggregation performance
-
-Skipping backups
-
-Ignoring replica health
-
-Designing around application shortcuts
-
-Optimizing before understanding workloads
-
----
-
-# Definition of Done
-
-A MongoDB architecture is considered production-ready when
-
-- Collections, documents, and relationships accurately represent the business domain while supporting expected access patterns.
-- Embedding, referencing, denormalization, and aggregation strategies are chosen intentionally based on query efficiency, consistency requirements, and maintainability.
-- Schema validation, application validation, and operational safeguards preserve data quality despite flexible document structures.
-- Indexes, queries, aggregation pipelines, and storage strategies provide predictable performance under current and future workloads.
-- Authentication, authorization, encryption, auditing, backups, replication, and disaster recovery protect operational continuity and customer trust.
-- Monitoring continuously provides visibility into query performance, storage utilization, replication health, latency, resource usage, and operational risks.
-- Schema evolution, migrations, documentation, reviews, and version management support long-term maintainability without disrupting production systems.
-- Scalability planning accounts for future increases in users, documents, infrastructure, and global availability while maintaining operational simplicity.
-- Documentation preserves collection design, architectural decisions, validation rules, operational procedures, and recovery processes for future engineering teams.
-- The database consistently demonstrates correctness, flexibility, reliability, performance, scalability, operational excellence, and long-term sustainability.
-
-Exceptional MongoDB systems balance flexibility with discipline.
-
-They evolve naturally as business requirements change, preserve data quality through thoughtful modeling and validation, deliver predictable performance under growing workloads, recover gracefully from failures, and remain understandable to future engineers because every document, collection, and architectural decision reflects a deliberate understanding of the business rather than the convenience of implementation.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Embed/reference decided per relationship, with cardinality stated
+- [ ] No embedded array grows without bound
+- [ ] Every hot query verified with `explain("executionStats")` showing `IXSCAN`
+- [ ] Compound indexes follow Equality → Sort → Range
+- [ ] No redundant indexes that duplicate a compound prefix
+- [ ] No in-memory sorts on hot paths
+- [ ] Important writes use `w: "majority", j: true`
+- [ ] Read-after-write uses a causally consistent session
+- [ ] `$jsonSchema` validation is enabled with `validationAction: "error"`
+- [ ] Money stored as integer minor units; dates stored as BSON dates
+- [ ] Transactions used only for invariants that genuinely span documents
+</checklist>

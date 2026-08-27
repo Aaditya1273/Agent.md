@@ -1,1153 +1,200 @@
-# prisma.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: prisma
+category: Database
+description: Prisma-specific rules — schema modelling, connection pooling in serverless, migration workflow, and the query patterns that generate bad SQL.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, implementing, optimizing, and maintaining applications using Prisma ORM.
-
-It applies to
-
-- PostgreSQL
-- MySQL
-- MariaDB
-- SQLite
-- SQL Server
-- MongoDB
-- PlanetScale
-- Cloud Databases
-- Serverless Applications
-- Enterprise SaaS Platforms
-
-Prisma is not a replacement for database engineering.
-
-Prisma is a type-safe data access layer that simplifies development while preserving correctness, maintainability, performance, and operational reliability.
-
-Prisma should improve developer productivity.
-
-It should never replace understanding of SQL, database design, or system architecture.
+<purpose>
+Rules for Prisma specifically. General ORM discipline is `Database/orm`; this
+covers Prisma's own sharp edges — the client lifecycle, `prisma migrate`, and the
+places where the generated SQL differs from what the schema implies.
 
 ---
+</purpose>
 
-# Core Philosophy
+# One client, module scope
 
-Understand the Database
+<rules>
+```ts
+// src/lib/prisma.ts
+import { PrismaClient } from "@prisma/client";
 
-↓
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-Model the Business
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({ log: ["warn", "error"] });
 
-↓
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+```
 
-Design the Schema
+The `globalThis` cache is not a hack — Next.js and most dev servers hot-reload
+modules, and a fresh `PrismaClient` per reload exhausts `max_connections` within
+minutes.
 
-↓
+**Never** construct a `PrismaClient` inside a request handler or a serverless
+function body. Each instance opens its own pool.
 
-Generate Safe Queries
+In serverless, additionally set a pooled connection string and a small limit:
 
-↓
+```
+DATABASE_URL="postgresql://…/db?pgbouncer=true&connection_limit=1&pool_timeout=20"
+DIRECT_URL="postgresql://…/db"     # migrations bypass the pooler
+```
 
-Measure Performance
-
-↓
-
-Observe Continuously
-
-↓
-
-Scale Predictably
-
-↓
-
-Continuously Improve
-
-Prisma should abstract repetitive work.
-
-Not hide database behavior.
-
----
-
-# Primary Objective
-
-Every Prisma architecture should maximize
-
-Type Safety
-
-+
-
-Correctness
-
-+
-
-Developer Productivity
-
-+
-
-Performance
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Observability
-
-+
-
-Long-Term Sustainability
-
-Type safety prevents bugs.
-
-Database knowledge prevents outages.
+`pgbouncer=true` disables prepared statements, which transaction-mode pooling
+cannot support. `directUrl` in the datasource block is what `prisma migrate` uses
+— migrations must not go through a transaction pooler.
+→ `Database/postgres`
 
 ---
+</rules>
 
-# Engineering Principles
+# Schema modelling
 
-Always prioritize
+<rules>
+```prisma
+model Order {
+  id        String      @id @default(uuid(7)) @db.Uuid
+  tenantId  String      @map("tenant_id") @db.Uuid
+  status    OrderStatus @default(PENDING)
+  totalCents BigInt     @map("total_cents")
+  currency  String      @db.Char(3)
+  createdAt DateTime    @default(now())    @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt         @map("updated_at") @db.Timestamptz(3)
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-Business Model
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("orders")
+}
+```
 
-↓
+| Rule | Why |
+| --- | --- |
+| `@db.Timestamptz` explicitly | Prisma's `DateTime` maps to `timestamp(3)` on some connectors — no time zone |
+| `BigInt` for money in minor units | `Float` is binary floating point |
+| `@map` / `@@map` for snake_case | Keeps SQL conventional while the client stays idiomatic |
+| `onDelete` stated on every relation | Prisma's default is `SetNull`/`Restrict` depending on optionality |
+| `@@index` in the schema | An index created outside the schema is dropped by the next migration diff |
 
-Database Integrity
+**Never** create an index manually in the database without also declaring it in
+`schema.prisma`. `prisma migrate dev` diffs against the schema and will generate a
+`DROP INDEX`.
 
-↓
-
-Schema Clarity
-
-↓
-
-Migration Safety
-
-↓
-
-Predictable Queries
-
-↓
-
-Performance
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
-
-Prisma should simplify development.
-
-Not encourage poor database design.
+Prisma does not support `CREATE INDEX CONCURRENTLY`. On a large table, edit the
+generated migration SQL by hand. → `Database/migration`
 
 ---
+</rules>
 
-# Prisma Lifecycle
+# Migration workflow
 
-Business Requirements
+<rules>
+| Command | Use |
+| --- | --- |
+| `prisma migrate dev` | Local only. Creates the migration and may **reset the database** |
+| `prisma migrate deploy` | The only command that touches staging or production |
+| `prisma migrate diff` | Generate SQL to review or hand-edit |
+| `prisma db push` | Prototyping only — no migration history |
 
-↓
+**Never** run `prisma migrate dev` against a shared or production database. It can
+drop and recreate the schema when it detects drift.
 
-Schema Modeling
+**Never** use `prisma db push` on anything with data you care about. It has no
+history and no rollback path.
 
-↓
-
-Migration Design
-
-↓
-
-Client Generation
-
-↓
-
-Application Development
-
-↓
-
-Optimization
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
+Review the generated `migration.sql` in the pull request. Prisma will emit a
+column drop or a type change that rewrites the table without flagging the cost.
 
 ---
+</rules>
 
-# Stage 1 — Business Modeling
+# Queries
 
-Understand
+<rules>
+```ts
+// Explicit projection — never return the whole entity to an API caller
+const users = await prisma.user.findMany({
+  where: { tenantId },
+  select: { id: true, email: true },
+  orderBy: { createdAt: "desc" },
+  take: 20,
+});
+```
 
-Business Rules
+- **`include` and `select` are mutually exclusive** at one level. Nest `select`
+  inside `include` to project a relation.
+- Prisma issues **separate queries per relation** by default and joins in the
+  client. Use `relationJoinType: "query"` vs `"join"` (`relationJoins` preview /
+  GA depending on version) deliberately, and read the logged SQL either way.
+- `findMany` with no `take` will happily return the whole table. Always paginate.
+- Deep pagination: use `cursor` + `take`, not `skip`.
 
-↓
+```ts
+// Keyset pagination — constant cost at any depth
+prisma.order.findMany({ take: 20, skip: 1, cursor: { id: lastId }, orderBy: { id: "asc" } });
+```
 
-Entities
+Nested writes are a single transaction — use them rather than hand-rolling one:
 
-↓
+```ts
+await prisma.order.create({ data: { tenantId, items: { create: lineItems } } });
+```
 
-Relationships
-
-↓
-
-Ownership
-
-↓
-
-Validation
-
-↓
-
-Lifecycle
-
-↓
-
-Compliance
-
-↓
-
-Growth Expectations
-
-Prisma models should represent the business.
-
-Not application shortcuts.
-
----
-
-# Stage 2 — Schema Design
-
-Design
-
-Models
-
-↓
-
-Fields
-
-↓
-
-Relationships
-
-↓
-
-Constraints
-
-↓
-
-Identifiers
-
-↓
-
-Indexes
-
-↓
-
-Enums
-
-↓
-
-Naming Standards
-
-Schema quality determines long-term maintainability.
+`$transaction([...])` with an array runs sequentially in one transaction;
+`$transaction(async (tx) => …)` gives you the interactive form. Keep network calls
+out of both. → `Database/transactions`
 
 ---
+</rules>
 
-# Stage 3 — Relationship Modeling
+# Anti-patterns
 
-Define
-
-One-to-One
-
-↓
-
-One-to-Many
-
-↓
-
-Many-to-Many
-
-↓
-
-Optional Relationships
-
-↓
-
-Cascade Rules
-
-↓
-
-Ownership
-
-↓
-
-Referential Integrity
-
-↓
-
-Business Constraints
-
-Relationships should mirror the underlying database.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `new PrismaClient()` per request | Pool per instance; connection exhaustion | Module-scope singleton |
+| No `globalThis` cache in dev | Hot reload leaks clients | Cache on `globalThis` |
+| Serverless without `pgbouncer=true` | Prepared statements break through the pooler | Set the flag and `directUrl` |
+| `migrate dev` against production | Can reset the database | `migrate deploy` only |
+| `db push` on real data | No history, no rollback | `migrate deploy` |
+| Index created outside the schema | Dropped by the next diff | Declare `@@index` |
+| `DateTime` without `@db.Timestamptz` | Time zone lost | Annotate explicitly |
+| `Float` for money | Rounding errors | `BigInt` minor units |
+| `findMany` with no `take` | Returns the entire table | Always paginate |
+| `skip` for deep pages | Produces and discards rows | `cursor` pagination |
+| Returning the model straight to JSON | Leaks hashes and internal fields | `select` an explicit shape |
+| Unread generated migration | Silent table rewrite | Review the SQL in the PR |
 
 ---
-
-# Stage 4 — Migration Strategy
-
-Maintain
-
-Version Control
-
-↓
-
-Migration History
-
-↓
-
-Backward Compatibility
-
-↓
-
-Rollback Planning
-
-↓
-
-Deployment Safety
-
-↓
-
-Review Process
-
-↓
-
-Production Validation
-
-↓
-
-Operational Stability
-
-Every migration should be predictable.
-
-Never automatic.
-
----
-
-# Stage 5 — Prisma Client
-
-Generate
-
-Type Safety
-
-↓
-
-Query Builder
-
-↓
-
-Transactions
-
-↓
-
-Validation
-
-↓
-
-Reusable Operations
-
-↓
-
-Consistency
-
-↓
-
-Developer Experience
-
-↓
-
-Maintainability
-
-Generated clients should improve correctness.
-
----
-
-# Stage 6 — Query Design
-
-Optimize
-
-Filtering
-
-↓
-
-Sorting
-
-↓
-
-Pagination
-
-↓
-
-Aggregation
-
-↓
-
-Projection
-
-↓
-
-Transactions
-
-↓
-
-Batch Operations
-
-↓
-
-Business Logic
-
-Every generated query should be explainable.
-
----
-
-# Stage 7 — Performance
-
-Optimize
-
-Query Count
-
-↓
-
-N+1 Prevention
-
-↓
-
-Indexes
-
-↓
-
-Connection Pooling
-
-↓
-
-Caching
-
-↓
-
-Batch Queries
-
-↓
-
-Execution Plans
-
-↓
-
-Database Load
-
-Prisma performance begins with database performance.
-
----
-
-# Stage 8 — Transactions
-
-Protect
-
-Atomicity
-
-↓
-
-Consistency
-
-↓
-
-Isolation
-
-↓
-
-Rollback
-
-↓
-
-Business Rules
-
-↓
-
-Concurrency
-
-↓
-
-Recovery
-
-↓
-
-Operational Reliability
-
-Transactions should protect business operations.
-
----
-
-# Stage 9 — Validation
-
-Validate
-
-Input
-
-↓
-
-Business Rules
-
-↓
-
-Relationships
-
-↓
-
-Required Fields
-
-↓
-
-Data Types
-
-↓
-
-Consistency
-
-↓
-
-Constraints
-
-↓
-
-Operational Safety
-
-Validation belongs in both application and database layers.
-
----
-
-# Stage 10 — Error Handling
-
-Handle
-
-Validation Errors
-
-↓
-
-Connection Failures
-
-↓
-
-Constraint Violations
-
-↓
-
-Transaction Failures
-
-↓
-
-Timeouts
-
-↓
-
-Database Errors
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-Every error should be actionable.
-
----
-
-# Stage 11 — Concurrency
-
-Design for
-
-Parallel Requests
-
-↓
-
-Connection Management
-
-↓
-
-Optimistic Concurrency
-
-↓
-
-Retry Logic
-
-↓
-
-Locking
-
-↓
-
-Consistency
-
-↓
-
-Conflict Resolution
-
-↓
-
-Reliability
-
-Concurrency should preserve correctness.
-
----
-
-# Stage 12 — Scalability
-
-Prepare for
-
-Growing Tables
-
-↓
-
-Growing Users
-
-↓
-
-Read Scaling
-
-↓
-
-Write Scaling
-
-↓
-
-Replication
-
-↓
-
-Partitioning
-
-↓
-
-Caching
-
-↓
-
-Infrastructure Growth
-
-Scalability begins with good schema design.
-
----
-
-# Stage 13 — Observability
-
-Monitor
-
-Generated Queries
-
-↓
-
-Query Latency
-
-↓
-
-Connection Pool
-
-↓
-
-Transaction Health
-
-↓
-
-Slow Queries
-
-↓
-
-Errors
-
-↓
-
-Memory Usage
-
-↓
-
-Infrastructure Health
-
-Generated SQL should never become invisible.
-
----
-
-# Stage 14 — Security
-
-Protect
-
-Credentials
-
-↓
-
-Secrets
-
-↓
-
-Authorization
-
-↓
-
-Authentication
-
-↓
-
-SQL Injection Prevention
-
-↓
-
-Sensitive Data
-
-↓
-
-Audit Logs
-
-↓
-
-Compliance
-
-Security requires engineering discipline.
-
-Not just frameworks.
-
----
-
-# Stage 15 — Testing
-
-Validate
-
-Schema
-
-↓
-
-Queries
-
-↓
-
-Relationships
-
-↓
-
-Transactions
-
-↓
-
-Performance
-
-↓
-
-Concurrency
-
-↓
-
-Migrations
-
-↓
-
-Recovery
-
-Production confidence comes from testing.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Models
-
-↓
-
-Relationships
-
-↓
-
-Migration Strategy
-
-↓
-
-Architecture Decisions
-
-↓
-
-Business Rules
-
-↓
-
-Performance Decisions
-
-↓
-
-Operational Procedures
-
-↓
-
-Future Evolution
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Schema Design
-
-↓
-
-Generated SQL
-
-↓
-
-Performance
-
-↓
-
-Relationships
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Business Alignment
-
-Every schema deserves architectural review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Migration Risks
-
-↓
-
-Schema Drift
-
-↓
-
-Performance Risks
-
-↓
-
-Data Loss
-
-↓
-
-Connection Failures
-
-↓
-
-Scaling Risks
-
-↓
-
-Security Risks
-
-↓
-
-Operational Risks
-
-Every abstraction introduces new risks.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Schema Design
-
-↓
-
-Queries
-
-↓
-
-Indexes
-
-↓
-
-Connection Management
-
-↓
-
-Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Automation
-
-↓
-
-Developer Experience
-
-Engineering maturity grows continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Correctness
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Engineering Excellence
-
-Prisma should remain predictable for years.
-
----
-
-# Prisma Quality Attributes
-
-Evaluate
-
-Type Safety
-
-Correctness
-
-Performance
-
-Maintainability
-
-Scalability
-
-Reliability
-
-Observability
-
-Developer Experience
-
----
-
-# Prisma Questions
-
-Before production ask
-
-Does every model accurately represent the business?
-
-↓
-
-Can every generated SQL query be explained?
-
-↓
-
-Are migrations safe for production?
-
-↓
-
-Will this architecture scale without redesign?
-
-↓
-
-Are indexes supporting every critical workload?
-
-↓
-
-Can failures recover safely?
-
-↓
-
-Would experienced Prisma and database engineers confidently approve this architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Data corruption
-
-Broken migrations
-
-Schema drift
-
-Production data loss
-
-Security compromise
-
-Major
-
-N+1 queries
-
-Slow generated SQL
-
-Connection exhaustion
-
-Migration failures
-
-Performance degradation
-
-Medium
-
-Schema improvements
-
-Index optimization
-
-Documentation gaps
-
-Caching improvements
-
-Minor
-
-Naming consistency
-
-Formatting
-
-Comments
-
-Code organization
-
----
-
-# Prisma Checklist
-
-✓ Business model understood
-
-✓ Schema designed
-
-✓ Relationships validated
-
-✓ Migration strategy defined
-
-✓ Prisma Client generated
-
-✓ Queries reviewed
-
-✓ Performance optimized
-
-✓ Transactions validated
-
-✓ Validation implemented
-
-✓ Error handling completed
-
-✓ Concurrency reviewed
-
-✓ Scalability planned
-
-✓ Monitoring enabled
-
-✓ Security implemented
-
-✓ Testing completed
-
-✓ Documentation updated
-
-✓ Version management established
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Treating Prisma as the database
-
-Ignoring generated SQL
-
-Using Prisma without understanding SQL
-
-Automatic production schema synchronization
-
-Massive nested queries
-
-Ignoring indexes
-
-Skipping migrations
-
-Skipping execution plan analysis
-
-Business logic inside database models
-
-Ignoring connection pooling
-
-Optimizing without measurement
-
-Treating type safety as database safety
-
----
-
-# Definition of Done
-
-A Prisma architecture is considered production-ready when
-
-- Business entities, relationships, ownership rules, validation logic, and lifecycle states are accurately represented through well-designed Prisma models.
-- Generated Prisma Client operations consistently produce predictable, efficient SQL that aligns with database indexing strategies, execution plans, and workload requirements.
-- Schema evolution is managed through reviewed, version-controlled migrations with rollback planning, deployment validation, and production-safe operational practices.
-- Transactions, validation, concurrency handling, connection management, and error recovery preserve data integrity across all business workflows.
-- Performance remains predictable through optimized queries, batching, pagination, selective loading, indexing, connection pooling, caching, and continuous measurement.
-- Security protects credentials, secrets, authorization boundaries, sensitive information, audit requirements, and operational integrity throughout the application lifecycle.
-- Monitoring provides complete visibility into generated SQL, query latency, connection utilization, transaction health, migration status, infrastructure resources, and operational risks.
-- Documentation preserves schema design, architectural decisions, migration history, performance considerations, operational procedures, and future evolution strategies.
-- Engineering reviews continuously validate correctness, maintainability, scalability, observability, reliability, and developer experience as the system evolves.
-- The Prisma architecture consistently demonstrates type safety, correctness, operational excellence, scalability, maintainability, performance, and long-term engineering maturity.
-
-Exceptional Prisma architectures do not succeed because they generate code automatically.
-
-They succeed because they combine strong database engineering, disciplined schema design, safe migrations, type-safe application development, predictable SQL generation, and continuous operational visibility into a single architecture that remains understandable, reliable, and maintainable as both the software and the business continue to evolve.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] A single module-scope `PrismaClient`, cached on `globalThis` in development
+- [ ] Serverless deployments use a pooled URL with `pgbouncer=true` and `directUrl`
+- [ ] `@db.Timestamptz` on every `DateTime`; `BigInt` minor units for money
+- [ ] `onDelete` declared on every relation
+- [ ] Every index is declared in `schema.prisma`
+- [ ] Concurrent index creation is hand-edited into migrations for large tables
+- [ ] `migrate deploy` is the only migration command used outside local dev
+- [ ] `db push` is not used against data that matters
+- [ ] Generated `migration.sql` is reviewed in the pull request
+- [ ] All list queries paginate; deep pagination uses `cursor`
+- [ ] Responses are projected with `select`, never the raw model
+- [ ] Transactions contain no network calls
+</checklist>

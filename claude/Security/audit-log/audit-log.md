@@ -1,1131 +1,225 @@
-# audit-log.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: audit-log
+category: Security
+description: Recording security-relevant events so a breach is detectable — what to log, what never to log, and making the record tamper-evident.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, audit logging methodologies, security event recording frameworks, accountability strategies, compliance practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready systems that provide reliable evidence of system activity throughout the software lifecycle.
+<purpose>
+Rules for the audit trail: the record of who did what, to which object, and when.
 
-It applies to
+This is distinct from application logging. Debug logs exist to fix bugs and may be
+sampled, truncated or dropped. **An audit log is evidence** — it must be complete,
+attributable, immutable and retained.
 
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Cloud Platforms
-- Microservices
-- Administrative Systems
-- Developer Platforms
-- Production Software
-
-Audit logging is not storing application logs.
-
-Audit logging is the engineering discipline of recording security-relevant activities in a trustworthy, tamper-resistant, and traceable manner that enables accountability, incident investigation, compliance, operational visibility, and long-term governance.
-
-Audit logging answers one question:
-
-**Can every important security event be reconstructed with confidence after it occurs?**
+OWASP lists insufficient logging as a Top 10 category precisely because attacks
+are typically discovered months late, and the reason is usually that nothing
+recorded them. → `Security/owasp`
 
 ---
+</purpose>
 
-# Core Philosophy
+# What to record
 
-Identify Critical Events
+<rules>
+Every entry answers: **who, what, which object, when, from where, and did it
+succeed.**
 
-↓
+```json
+{
+  "timestamp": "2026-08-23T14:32:11.482Z",
+  "actor": { "id": "usr_9f3", "type": "user", "ip": "203.0.113.9" },
+  "action": "invoice.delete",
+  "resource": { "type": "invoice", "id": "inv_44c", "tenant": "org_12" },
+  "outcome": "denied",
+  "reason": "insufficient_permission",
+  "requestId": "req_7b2e",
+  "userAgent": "Mozilla/5.0 …"
+}
+```
 
-Capture Reliable Evidence
+Name actions with a stable, hierarchical verb so the trail is queryable:
+`auth.login`, `auth.mfa_challenge`, `user.role_change`, `invoice.delete`,
+`apikey.issue`, `export.download`. Avoid free text like `"user did a thing"` —
+during an incident you need `WHERE action = 'apikey.issue'` to return in
+milliseconds.
 
-↓
+Events that must always be recorded:
 
-Protect Log Integrity
+| Category | Examples |
+| --- | --- |
+| Authentication | Login success and failure, logout, MFA enrolment and challenge |
+| Authorisation | **Denials** especially — a spike is an attack or a broken deploy |
+| Account lifecycle | Creation, deletion, password change, email change, role change |
+| Privilege | Grants, revocations, impersonation, break-glass access |
+| Sensitive data | Reads and exports of regulated records |
+| Configuration | Security settings, API key issuance and revocation, webhook changes |
+| Administrative | Anything an operator does to another user's data |
 
-↓
-
-Monitor Activity
-
-↓
-
-Detect Incidents
-
-↓
-
-Support Investigation
-
-↓
-
-Enable Accountability
-
-↓
-
-Continuously Improve
-
-Systems should always be capable of explaining what happened, when it happened, who performed it, and why it occurred.
-
----
-
-# Primary Objective
-
-Every audit logging strategy should maximize
-
-Accountability
-
-+
-
-Integrity
-
-+
-
-Traceability
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every important security event should leave trustworthy evidence.
+**Never** log only failures. A successful unauthorised action is invisible without
+the success record, and "who read this record" is the question an incident asks.
 
 ---
+</rules>
 
-# Engineering Principles
+# What never to appear
 
-Always prioritize
+<rules>
+| Never log | Why |
+| --- | --- |
+| Passwords, even failed attempts | Plaintext credentials in log storage |
+| Session tokens, API keys, JWTs | The log becomes a credential store |
+| Full card numbers, CVV | Regulatory violation |
+| Government identifiers, health data | Regulatory violation; use a reference |
+| Full request bodies on auth routes | Captures the credential |
+| `process.env` | Every secret at once → `Security/secret-management` |
 
-Evidence Preservation
+Redact at the point of writing, with an allow-list of fields to include rather
+than a deny-list of fields to strip:
 
-↓
+```js
+const AUDIT_FIELDS = ["id", "email", "role", "tenantId"];   // allow-list
 
-Integrity Protection
+function auditSafe(obj) {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([k]) => AUDIT_FIELDS.includes(k))
+  );
+}
+```
 
-↓
-
-Least Privilege
-
-↓
-
-Comprehensive Visibility
-
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Audit logs should provide evidence—not assumptions.
+A deny-list misses the field somebody adds next sprint. An allow-list fails closed.
 
 ---
+</rules>
 
-# Audit Logging Lifecycle
+# Integrity
 
-Identify Events
+<rules>
+An attacker's first move after gaining access is to remove the evidence.
 
-↓
+- **Ship logs off-host immediately.** A log that only exists on the compromised
+  machine is not evidence.
+- Write to **append-only** storage — an S3 bucket with object lock, a
+  write-once-read-many store, or a managed log service with retention locks.
+- The application's own database credentials should be able to **insert** audit
+  rows and not to `UPDATE` or `DELETE` them.
+- For high-value trails, **chain the entries** so any edit is detectable:
 
-Define Logging Policies
+```js
+// Each entry commits to its predecessor — removing or altering one breaks
+// every hash after it.
+const entryHash = crypto
+  .createHash("sha256")
+  .update(previousHash + JSON.stringify(entry))
+  .digest("hex");
+```
 
-↓
+Storage choices that make deletion hard by design:
 
-Capture Evidence
+| Store | Mechanism |
+| --- | --- |
+| S3 / GCS | `Object Lock` in `COMPLIANCE` mode with a retention period |
+| PostgreSQL | Separate role holding `INSERT` only; no `UPDATE`/`DELETE` grant |
+| CloudWatch / Stackdriver | Retention policy plus a resource policy denying `DeleteLogGroup` |
+| SIEM | Ingest-only credential; the shipper cannot read or purge |
 
-↓
+```sql
+-- The application role can add to the trail and cannot rewrite it.
+GRANT INSERT ON audit_log TO app_writer;
+REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM app_writer;
+```
 
-Protect Logs
-
-↓
-
-Monitor Activity
-
-↓
-
-Investigate Events
-
-↓
-
-Review Policies
-
-↓
-
-Continuously Improve
-
-Every critical security event should become a permanent, trustworthy record.
-
----
-
-# Stage 1 — Event Analysis
-
-Identify
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Administrative Actions
-
-↓
-
-Configuration Changes
-
-↓
-
-Data Access
-
-↓
-
-Security Events
-
-↓
-
-Infrastructure Changes
-
-↓
-
-Business-Critical Operations
-
-Not every event requires auditing, but every security-relevant event should be evaluated.
+- Use a **trusted clock**. Timestamps from an unsynchronised host make a timeline
+  unreconstructable; require NTP and record in UTC with an explicit offset.
 
 ---
+</rules>
 
-# Stage 2 — Threat Analysis
+# Making it useful
 
-Identify
+<rules>
+A log nobody reads is storage, not security.
 
-Log Tampering
+Fields worth standardising across every service, because they are the ones an
+incident query filters on: `timestamp`, `actor.id`, `actor.ip`, `action`,
+`resource.type`, `resource.id`, `resource.tenant`, `outcome`, `requestId`,
+`schemaVersion`. Emit them as structured JSON — `pino`, `zerolog`, `structlog` —
+never as an interpolated string.
 
-↓
-
-Evidence Deletion
-
-↓
-
-Unauthorized Access
-
-↓
-
-Insider Abuse
-
-↓
-
-Privilege Escalation
-
-↓
-
-Compliance Violations
-
-↓
-
-Forensic Gaps
-
-↓
-
-Emerging Threats
-
-Understanding evidence risks strengthens operational security.
+- Assign a **request id** at the edge and propagate it through every service so a
+  single action can be reconstructed across a distributed call path.
+- **Alert on patterns**, not on individual lines: a burst of authorisation
+  denials, a first login from a new country, a privilege grant outside change
+  hours, a spike in export volume.
+- **Test detection.** Perform an unauthorised action in staging and confirm the
+  alert fires. Detection that has never been exercised does not work.
+- Set retention deliberately — often 1 year, longer where regulation requires it —
+  and ensure deletion is automatic once the period lapses.
+- Give the log a **schema and a version**. Ad-hoc string messages cannot be queried
+  during the incident when queries matter most.
 
 ---
+</rules>
 
-# Stage 3 — Event Flow Analysis
+# Privacy
 
-Analyze
+<rules>
+Audit logs contain personal data and are subject to the same regulation as any
+other store.
 
-User Action
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Business Logic
-
-↓
-
-System Operation
-
-↓
-
-Audit Recording
-
-↓
-
-Storage
-
-↓
-
-Investigation
-
-Every critical operation should generate traceable evidence.
+- Restrict read access; log the reads of the audit log itself.
+- Store a **user reference**, not a copy of the user's personal details.
+- Have an answer for erasure requests before one arrives — usually pseudonymising
+  the actor reference while retaining the event record, since the legal basis for
+  keeping security records generally differs from that for the account.
 
 ---
+</rules>
 
-# Stage 4 — Audit Architecture
+# Anti-patterns
 
-Design
-
-Logging Standards
-
-↓
-
-Structured Events
-
-↓
-
-Centralized Collection
-
-↓
-
-Storage
-
-↓
-
-Integrity Protection
-
-↓
-
-Monitoring
-
-↓
-
-Retention
-
-↓
-
-Future Expansion
-
-Audit architecture should remain consistent across the entire platform.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Logging failures only | Successful unauthorised actions are invisible | Log outcome on both paths |
+| `console.log(req.body)` on login | Captures the password | Allow-list audit fields |
+| Deny-list redaction | Misses the next field added | Allow-list |
+| Logs kept only on the host | Attacker deletes the evidence | Ship off-host immediately |
+| App credentials can `DELETE` audit rows | Trail is editable by the compromise | Insert-only permissions |
+| No request id | Cannot reconstruct a distributed action | Propagate a correlation id |
+| Free-text messages | Unqueryable during an incident | Structured, versioned schema |
+| Alerts that have never fired | Detection unverified | Exercise it in staging |
+| Local time, unsynchronised clocks | Timeline cannot be reconstructed | NTP, UTC, explicit offset |
+| Indefinite retention | Regulatory exposure grows | Automatic deletion at term |
 
 ---
-
-# Stage 5 — Protection Strategy
-
-Define
-
-Immutable Storage
-
-↓
-
-Integrity Verification
-
-↓
-
-Access Control
-
-↓
-
-Centralized Collection
-
-↓
-
-Secure Retention
-
-↓
-
-Monitoring
-
-↓
-
-Backup Strategy
-
-↓
-
-Operational Controls
-
-Evidence should remain trustworthy throughout its lifecycle.
-
----
-
-# Stage 6 — Log Protection
-
-Protect
-
-Authentication Logs
-
-↓
-
-Administrative Logs
-
-↓
-
-Security Logs
-
-↓
-
-Infrastructure Logs
-
-↓
-
-Application Logs
-
-↓
-
-Compliance Records
-
-↓
-
-Retention Archives
-
-↓
-
-Operational Security
-
-Audit evidence should receive stronger protection than ordinary operational logs.
-
----
-
-# Stage 7 — Event Validation
-
-Validate
-
-Timestamp
-
-↓
-
-Identity
-
-↓
-
-Action
-
-↓
-
-Affected Resource
-
-↓
-
-Business Context
-
-↓
-
-Outcome
-
-↓
-
-Evidence Completeness
-
-↓
-
-Engineering Quality
-
-Every audit record should contain sufficient information for future investigation.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Audit Coverage
-
-↓
-
-Captured Events
-
-↓
-
-Missing Events
-
-↓
-
-Storage Reliability
-
-↓
-
-Integrity Verification
-
-↓
-
-Access Attempts
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Audit quality should remain measurable.
-
----
-
-# Stage 9 — Incident Detection
-
-Identify
-
-Suspicious Activity
-
-↓
-
-Repeated Failures
-
-↓
-
-Privilege Changes
-
-↓
-
-Unexpected Access
-
-↓
-
-Configuration Drift
-
-↓
-
-Evidence Tampering
-
-↓
-
-Administrative Abuse
-
-↓
-
-Operational Threats
-
-Detection should identify abnormal behavior before significant compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Logging Standards
-
-↓
-
-Collection Architecture
-
-↓
-
-Storage Strategy
-
-↓
-
-Integrity Controls
-
-↓
-
-Retention Policies
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Audit architecture should remain understandable and resilient.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Services
-
-↓
-
-Growing Infrastructure
-
-↓
-
-Distributed Systems
-
-↓
-
-Cloud Platforms
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Audit logging should scale without reducing evidence quality.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Log Availability
-
-↓
-
-Storage Reliability
-
-↓
-
-Timestamp Accuracy
-
-↓
-
-Operational Stability
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Evidence Integrity
-
-↓
-
-Engineering Quality
-
-Reliable evidence preserves operational trust.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Logging Standards
-
-↓
-
-Retention Policies
-
-↓
-
-Access Policies
-
-↓
-
-Evidence Requirements
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves consistent audit practices.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Evidence Risks
-
-↓
-
-Storage Risks
-
-↓
-
-Integrity Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Business Risks
-
-↓
-
-Technical Debt
-
-Audit risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Storage Cost
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every audit logging decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Audit Coverage
-
-↓
-
-Evidence Integrity
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Audit logging requires continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Audit Summary
-
-↓
-
-Coverage Metrics
-
-↓
-
-Threat Analysis
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen governance and accountability.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Logging
-
-↓
-
-Storage Protection
-
-↓
-
-Monitoring
-
-↓
-
-Retention Policies
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-↓
-
-Deployment Consistency
-
-Audit logging should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Logging Standards
-
-↓
-
-Retention Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Compliance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Audit logging requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Evidence Quality
-
-↓
-
-Operational Visibility
-
-↓
-
-Security Governance
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Audit Maturity
-
-↓
-
-Software Longevity
-
-Exceptional audit logging continuously strengthens accountability while preserving maintainability, scalability, and operational simplicity.
-
----
-
-# Audit Logging Quality Attributes
-
-Evaluate
-
-Accountability
-
-Integrity
-
-Traceability
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every security-critical event generate an audit record?
-
-↓
-
-Can every audit record be trusted as evidence?
-
-↓
-
-Are audit logs protected from unauthorized modification?
-
-↓
-
-Can security incidents be reconstructed accurately?
-
-↓
-
-Are retention and access policies clearly defined?
-
-↓
-
-Will future engineers understand the audit architecture?
-
-↓
-
-Would experienced Security Engineers, Compliance Engineers, Platform Engineers, Principal Engineers, and Engineering Leadership confidently approve this audit logging strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Missing audit logs
-
-Evidence tampering
-
-Administrative actions not logged
-
-Complete forensic failure
-
-Major
-
-Incomplete audit coverage
-
-Weak integrity protection
-
-Retention failures
-
-Unauthorized log access
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Operational improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Audit Logging Checklist
-
-✓ Critical events identified
-
-✓ Threats analyzed
-
-✓ Event flow reviewed
-
-✓ Audit architecture designed
-
-✓ Protection strategy selected
-
-✓ Logs protected
-
-✓ Events validated
-
-✓ Security measured
-
-✓ Incidents monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Logging everything without purpose
-
-Failing to log administrative actions
-
-Allowing log modification
-
-Storing audit logs with application data
-
-Ignoring timestamp consistency
-
-Missing identity information
-
-Deleting logs prematurely
-
-Ignoring retention policies
-
-Allowing unrestricted log access
-
-Treating operational logs as audit logs
-
-Disabling logging for performance
-
-Optimizing convenience over accountability
-
----
-
-# Definition of Done
-
-An audit logging strategy is considered complete when
-
-- Security-relevant events, logging architecture, evidence protection mechanisms, retention policies, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every critical security event produces trustworthy, tamper-resistant, traceable evidence while preventing evidence loss, unauthorized modification, incomplete investigations, accountability failures, compliance violations, operational blind spots, and forensic weaknesses throughout the software lifecycle.
-- The audit architecture supports scalable distributed systems, cloud platforms, maintainable engineering practices, centralized collection, continuous monitoring, operational resilience, sustainable governance, compliance requirements, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate audit coverage, evidence integrity, retention strategies, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, interoperability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains logging standards, evidence requirements, retention policies, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, investigation workflows, and future audit improvements.
-- Audit logging decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving cloud platforms, distributed architectures, compliance frameworks, operational environments, and future software engineering ecosystems.
-- The resulting system demonstrates engineering discipline, strong accountability, resilient evidence preservation, predictable operational visibility, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional audit logging is not measured by how many events are recorded.
-
-It is measured by how consistently software preserves trustworthy evidence, enables accurate investigation, protects accountability, withstands operational failures, and continuously delivers secure, maintainable, and resilient forensic visibility throughout the lifetime of the software.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Authentication, authorisation, privilege and account-lifecycle events are recorded
+- [ ] Both successful and denied outcomes are logged
+- [ ] Entries carry actor, action, resource, tenant, outcome, time and source IP
+- [ ] Redaction is an allow-list; no credential or regulated identifier is ever written
+- [ ] Logs are shipped off-host and stored append-only
+- [ ] Application credentials cannot update or delete audit records
+- [ ] High-value trails are hash-chained
+- [ ] Timestamps are UTC from an NTP-synchronised clock
+- [ ] A request id is propagated across services
+- [ ] Alerts exist for denial bursts, privilege grants and export spikes
+- [ ] At least one alert has been triggered deliberately and observed to fire
+- [ ] Retention is defined, enforced automatically, and privacy-reviewed
+</checklist>

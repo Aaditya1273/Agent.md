@@ -1,1010 +1,216 @@
-# error-handling.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: error-handling
+category: Backend
+description: Error handling in a server — the boundary that converts failures to responses, typed domain errors, retries, and what must never reach the client.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, implement, review, optimize, and maintain Error Handling systems.
+<purpose>
+Rules for handling errors in a backend service. Two categories, handled
+completely differently:
 
-Error handling is not simply catching exceptions.
+- **Expected failures** — validation, not found, insufficient funds, conflict.
+  These are part of the domain. Model them, return them, do not log them as
+  errors.
+- **Unexpected failures** — a null dereference, a dead connection, a bug. These
+  are alerts. They get a generic response and a full trace in the logs.
 
-Error handling is the systematic process of detecting, classifying, recovering from, reporting, and learning from failures while maintaining system stability, security, observability, and user trust.
-
-The objective is to build error handling systems that are predictable, resilient, maintainable, observable, and capable of recovering gracefully whenever possible.
-
-Errors are inevitable.
-
-Poor error handling is optional.
-
----
-
-# Core Philosophy
-
-Detect Failure
-
-↓
-
-Classify Error
-
-↓
-
-Contain Impact
-
-↓
-
-Recover When Possible
-
-↓
-
-Report Clearly
-
-↓
-
-Log Context
-
-↓
-
-Improve System
-
-↓
-
-Approve
-
-Failures should be expected.
-
-Systems should be designed accordingly.
+Conflating the two produces alert fatigue on one side and silent data loss on the
+other.
 
 ---
+</purpose>
 
-# Primary Objective
+# One boundary converts errors to responses
 
-Every error handling system should answer one question.
+<rules>
+Handlers throw. **One** place converts.
 
-"Can failures be detected, isolated, communicated, and recovered from without compromising users, data integrity, or system reliability?"
+```ts
+// Domain layer: throws typed errors, knows nothing about HTTP
+class AppError extends Error {
+  constructor(readonly code: string, readonly status: number, message: string,
+              readonly details?: unknown) { super(message); }
+}
+class NotFound          extends AppError { constructor(what: string) { super("not_found", 404, `${what} not found`); } }
+class ValidationFailed  extends AppError { constructor(details: unknown) { super("validation_failed", 422, "Validation failed", details); } }
+class InsufficientFunds extends AppError { constructor() { super("insufficient_funds", 422, "Insufficient funds"); } }
 
-If the answer is uncertain,
+// Edge: the single translation point
+app.use((err, req, res, _next) => {
+  const requestId = req.id;
+  if (err instanceof AppError) {
+    req.log.info({ code: err.code, requestId }, "handled failure");
+    return res.status(err.status).json({ code: err.code, message: err.message,
+                                         details: err.details, requestId });
+  }
+  req.log.error({ err, requestId }, "unhandled error");     // full stack, once
+  res.status(500).json({ code: "internal_error",
+                         message: "An unexpected error occurred.", requestId });
+});
+```
 
-the error handling strategy requires improvement.
-
----
-
-# Error Handling Principles
-
-Every implementation should maximize
-
-Reliability
-
-↓
-
-Predictability
-
-↓
-
-Recoverability
-
-↓
-
-Observability
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-User Experience
-
-Errors should be intentional.
-
-Never accidental.
+- Every response carries a `requestId`, success or failure. It is what turns a
+  support ticket into a log query. → `API/rest`
+- Expected failures log at `info`/`warn`. Only unexpected ones log at `error`, so
+  the error rate means something.
+- The handler logs **once**. Logging at every frame produces five entries for one
+  failure and makes the real trace unfindable.
 
 ---
+</rules>
 
-# Error Handling Workflow
+# Never leak internals
 
-Failure Occurs
+<rules>
+```
+❌ "ER_DUP_ENTRY: Duplicate entry 'a@b.com' for key 'users.email_unique'"
+❌ TypeError: Cannot read properties of undefined (reading 'tenantId')
+     at OrderService.load (/srv/app/dist/order.js:112:29)
+✅ { "code": "email_taken", "message": "That email is already registered.",
+     "requestId": "req_01J8Z…" }
+```
 
-↓
+Stack traces, SQL fragments, driver error codes, internal hostnames, file paths
+and library versions all go to the logs and never to the client. They map the
+system for an attacker and mean nothing to a legitimate caller.
+→ `API/api-security`
 
-Detect Error
-
-↓
-
-Classify Severity
-
-↓
-
-Recover or Fail
-
-↓
-
-Log Context
-
-↓
-
-Notify Systems
-
-↓
-
-Respond Safely
-
-↓
-
-Approve
+Be careful that framework defaults do not do this for you — many development error
+pages ship enabled if `NODE_ENV` is not set correctly in the container.
 
 ---
+</rules>
 
-# Stage 1 — Error Identification
+# Fail fast, and fail at the boundary
 
-Identify possible failures.
-
-Examples
-
-Validation failures
-
-↓
-
-Authentication failures
-
-↓
-
-Authorization failures
-
-↓
-
-Business rule violations
-
-↓
-
-Database failures
-
-↓
-
-Queue failures
-
-↓
-
-Worker failures
-
-↓
-
-External API failures
-
-↓
-
-Infrastructure failures
-
-↓
-
-Unexpected exceptions
-
-Every failure should have an owner.
+<rules>
+- **Validate input at the edge**, before any business logic. A parse that fails
+  should fail immediately with a `422` and a field list, not three layers deep.
+  → `Backend/validation`
+- **Validate configuration at startup.** A missing environment variable should
+  crash the process at boot, not produce a `500` at 3am on one code path.
+- **Never swallow an error.** `catch {}` and `catch (e) { return null }` convert a
+  failure into wrong data. If you catch, either handle it meaningfully or rethrow
+  with context.
+- Add context when rethrowing, and preserve the original:
+  `throw new AppError("charge_failed", 502, "…", { cause: err })`.
+- Prefer a returned result type over exceptions for genuinely expected outcomes
+  in hot paths — but be consistent; a codebase that does both randomly is worse
+  than either.
 
 ---
+</rules>
 
-# Stage 2 — Error Classification
+# Process-level safety
 
-Separate errors into categories.
+<rules>
+```ts
+process.on("unhandledRejection", (reason) => { log.fatal({ reason }); shutdown(1); });
+process.on("uncaughtException",  (err)    => { log.fatal({ err });    shutdown(1); });
+```
 
-Client Errors
+After an uncaught exception the process state is unknown. **Log, then exit** — let
+the supervisor restart a clean process. Continuing serves requests from corrupted
+state.
 
-↓
-
-Business Errors
-
-↓
-
-Validation Errors
-
-↓
-
-Authentication Errors
-
-↓
-
-Authorization Errors
-
-↓
-
-Dependency Errors
-
-↓
-
-Infrastructure Errors
-
-↓
-
-Unexpected System Errors
-
-Different errors require different handling strategies.
+Shutdown must be graceful: stop accepting new connections, finish in-flight
+requests with a bounded timeout, close the database pool, then exit.
+→ `DevOps/deployment`
 
 ---
+</rules>
 
-# Stage 3 — Expected vs Unexpected
+# Transient failures and retries
 
-Expected
+<rules>
+| Failure | Retry |
+| --- | --- |
+| Connection reset, DNS failure, timeout | Yes, with backoff |
+| `5xx` from a dependency | Yes, with backoff |
+| `429` | Yes, honour `Retry-After` |
+| Database deadlock / serialization failure | Yes, immediately, bounded |
+| `4xx` other than `429`/`408` | No — the request is wrong |
+| Non-idempotent write with no idempotency key | **No** |
 
-Validation failure
+Retries need exponential backoff **with jitter**, a bounded attempt count, and a
+budget so a struggling dependency is not retried into collapse. Add a circuit
+breaker for a dependency that fails persistently — retrying a dead service turns
+its outage into yours. → `System Design/resilience`
 
-↓
-
-Permission denied
-
-↓
-
-Duplicate email
-
-↓
-
-Resource not found
-
-Unexpected
-
-Null reference
-
-↓
-
-Database unavailable
-
-↓
-
-Memory exhaustion
-
-↓
-
-Programming bug
-
-Expected errors are part of normal application behavior.
-
-Unexpected errors indicate defects or infrastructure problems.
+Any operation that is retried must be idempotent, or carry an idempotency key.
+→ `API/webhooks`
 
 ---
+</rules>
 
-# Stage 4 — Error Types
+# Errors are a product surface
 
-Prefer domain-specific error types.
+<rules>
+The message a user sees is part of the product. Say what happened, and what to do
+next.
 
-Examples
+```
+❌ "Error 422"
+❌ "Invalid input"
+✅ "Card declined by your bank. Try a different card or contact your bank."
+```
 
-ValidationError
-
-AuthenticationError
-
-AuthorizationError
-
-ConflictError
-
-NotFoundError
-
-RateLimitError
-
-DependencyError
-
-InternalServerError
-
-Meaningful error types simplify recovery.
+Keep the machine `code` stable across releases — clients branch on it — while the
+human `message` stays free to improve.
 
 ---
+</rules>
 
-# Stage 5 — Fail Fast
+# Anti-patterns
 
-Detect invalid conditions early.
-
-Validate
-
-Input
-
-↓
-
-Configuration
-
-↓
-
-Dependencies
-
-↓
-
-Permissions
-
-↓
-
-Business rules
-
-Early failure reduces system complexity.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `catch {}` | Turns a failure into wrong data | Handle or rethrow |
+| Returning `null` on error | Caller cannot distinguish absent from failed | Throw, or a result type |
+| Error handling in every handler | Inconsistent responses; drifts | One boundary |
+| Logging at every catch | Five entries per failure; noise | Log once, at the boundary |
+| Expected failures logged as `error` | Alert fatigue; real errors buried | `info`/`warn` for domain failures |
+| Stack traces in responses | Maps the system for attackers | Generic message + `requestId` |
+| Driver errors surfaced verbatim | Leaks schema and constraint names | Translate to domain errors |
+| No `requestId` | Support tickets are unresolvable | Echo one on every response |
+| Continuing after `uncaughtException` | Unknown process state | Log and exit |
+| Config errors surfacing at request time | Fails at 3am, not at deploy | Validate at startup |
+| Retrying `4xx` | Hammering a permanently invalid request | Retry only transient classes |
+| Retries without jitter or a budget | Thundering herd; retry storm | Backoff, jitter, circuit breaker |
+| Machine codes changed between releases | Silently breaks client branching | Codes are contract |
 
 ---
-
-# Stage 6 — Recovery Strategy
-
-Determine whether recovery is possible.
-
-Retry
-
-↓
-
-Fallback
-
-↓
-
-Circuit breaker
-
-↓
-
-Cached response
-
-↓
-
-Graceful degradation
-
-↓
-
-Fail immediately
-
-Recovery depends on failure type.
-
----
-
-# Stage 7 — Exception Handling
-
-Catch exceptions
-
-Only where they can be handled.
-
-Avoid
-
-Catching everything
-
-↓
-
-Ignoring exceptions
-
-↓
-
-Empty catch blocks
-
-↓
-
-Silent failures
-
-Unhandled errors should propagate to centralized handlers.
-
----
-
-# Stage 8 — User Responses
-
-Return
-
-Consistent responses
-
-↓
-
-Meaningful messages
-
-↓
-
-Appropriate HTTP status
-
-↓
-
-Request ID
-
-↓
-
-Error Code
-
-↓
-
-Recovery guidance
-
-Users should understand what happened.
-
-Without exposing implementation details.
-
----
-
-# Stage 9 — Error Codes
-
-Every public error should have
-
-Stable error code
-
-↓
-
-Human-readable message
-
-↓
-
-Documentation reference
-
-↓
-
-Machine-readable structure
-
-↓
-
-Correlation ID
-
-Error codes improve debugging and support.
-
----
-
-# Stage 10 — Logging
-
-Log
-
-Error ID
-
-↓
-
-Correlation ID
-
-↓
-
-Stack trace
-
-↓
-
-Request context
-
-↓
-
-User ID (when appropriate)
-
-↓
-
-Environment
-
-↓
-
-Service
-
-↓
-
-Timestamp
-
-Never log
-
-Passwords
-
-Tokens
-
-Secrets
-
-Sensitive personal information
-
----
-
-# Stage 11 — Security
-
-Never expose
-
-Stack traces
-
-↓
-
-SQL queries
-
-↓
-
-Internal paths
-
-↓
-
-Infrastructure details
-
-↓
-
-Secrets
-
-↓
-
-Environment variables
-
-↓
-
-Configuration
-
-Internal failures should remain internal.
-
----
-
-# Stage 12 — Observability
-
-Track
-
-Error rate
-
-↓
-
-Failure trends
-
-↓
-
-Recovery rate
-
-↓
-
-Dependency failures
-
-↓
-
-Unhandled exceptions
-
-↓
-
-Service degradation
-
-↓
-
-Incident frequency
-
-Errors should become operational signals.
-
----
-
-# Stage 13 — Dependency Failures
-
-Handle
-
-Database unavailable
-
-↓
-
-Cache unavailable
-
-↓
-
-Message broker unavailable
-
-↓
-
-Email provider failure
-
-↓
-
-Payment provider failure
-
-↓
-
-External API timeout
-
-Applications should remain resilient despite dependency failures.
-
----
-
-# Stage 14 — Retry Strategy
-
-Retry only transient failures.
-
-Examples
-
-Timeout
-
-↓
-
-Temporary network failure
-
-↓
-
-Rate limiting
-
-↓
-
-Service unavailable
-
-Implement
-
-Exponential backoff
-
-↓
-
-Retry limits
-
-↓
-
-Jitter
-
-↓
-
-Circuit breaker
-
-Never retry permanent failures.
-
----
-
-# Stage 15 — Graceful Degradation
-
-When full functionality is unavailable,
-
-consider
-
-Cached responses
-
-↓
-
-Reduced functionality
-
-↓
-
-Read-only mode
-
-↓
-
-Partial results
-
-↓
-
-Feature disabling
-
-Systems should remain usable whenever possible.
-
----
-
-# Stage 16 — Monitoring & Alerting
-
-Monitor
-
-Unhandled exceptions
-
-↓
-
-High error rates
-
-↓
-
-Dependency failures
-
-↓
-
-Repeated retries
-
-↓
-
-Recovery failures
-
-↓
-
-Service outages
-
-Critical failures should trigger alerts immediately.
-
----
-
-# Stage 17 — Testing
-
-Verify
-
-Validation failures
-
-↓
-
-Business failures
-
-↓
-
-Dependency failures
-
-↓
-
-Network failures
-
-↓
-
-Timeouts
-
-↓
-
-Retries
-
-↓
-
-Recovery
-
-↓
-
-Unexpected exceptions
-
-Failure scenarios deserve as much testing as successful scenarios.
-
----
-
-# Stage 18 — Documentation
-
-Document
-
-Error types
-
-↓
-
-Error codes
-
-↓
-
-Recovery strategy
-
-↓
-
-Retry policy
-
-↓
-
-Failure examples
-
-↓
-
-Operational procedures
-
-↓
-
-Runbooks
-
-Documentation accelerates troubleshooting.
-
----
-
-# Stage 19 — Incident Learning
-
-Review
-
-Production incidents
-
-↓
-
-Root causes
-
-↓
-
-Recovery effectiveness
-
-↓
-
-Detection time
-
-↓
-
-Resolution time
-
-↓
-
-Preventive actions
-
-Every incident should improve the system.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Failure patterns
-
-↓
-
-Code quality
-
-↓
-
-Recovery strategies
-
-↓
-
-Monitoring
-
-↓
-
-Developer feedback
-
-↓
-
-Infrastructure evolution
-
-↓
-
-Architecture improvements
-
-Error handling should continuously mature.
-
----
-
-# Error Handling Quality Attributes
-
-Evaluate
-
-Reliability
-
-Recoverability
-
-Security
-
-Observability
-
-Maintainability
-
-Scalability
-
-Consistency
-
-Developer Experience
-
----
-
-# Error Handling Questions
-
-Before approval ask
-
-Can every failure be classified?
-
-↓
-
-Can users receive consistent responses?
-
-↓
-
-Can operators diagnose failures quickly?
-
-↓
-
-Can transient failures recover automatically?
-
-↓
-
-Can permanent failures fail safely?
-
-↓
-
-Is sensitive information always protected?
-
-↓
-
-Would another engineering team trust this error handling architecture during a production incident?
-
----
-
-# Severity Levels
-
-Critical
-
-Unhandled exception
-
-Data corruption
-
-Sensitive information exposure
-
-Infinite retry loop
-
-Application crash
-
-Major
-
-Poor recovery strategy
-
-Missing centralized handler
-
-Inconsistent responses
-
-Weak logging
-
-Missing monitoring
-
-Medium
-
-Documentation improvements
-
-Recovery optimization
-
-Better error classification
-
-Minor
-
-Message consistency
-
-Naming improvements
-
-Developer ergonomics
-
-Future enhancements
-
----
-
-# Error Handling Checklist
-
-✓ Error categories defined
-
-✓ Domain-specific error types implemented
-
-✓ Centralized error handler configured
-
-✓ Consistent API responses
-
-✓ Stable error codes assigned
-
-✓ Sensitive information protected
-
-✓ Logging standardized
-
-✓ Monitoring enabled
-
-✓ Retry strategy reviewed
-
-✓ Graceful degradation implemented
-
-✓ Dependency failures handled
-
-✓ Security reviewed
-
-✓ Testing completed
-
-✓ Documentation complete
-
-✓ Incident review process established
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Empty catch blocks
-
-Ignoring exceptions
-
-Generic error messages everywhere
-
-Leaking stack traces
-
-Leaking SQL errors
-
-Retrying permanent failures
-
-Infinite retry loops
-
-Duplicated error handling logic
-
-Returning different error formats
-
-Business logic inside exception handlers
-
-Logging sensitive information
-
-Swallowing dependency failures
-
-Treating all exceptions identically
-
----
-
-# Definition of Done
-
-Error handling review is complete when
-
-- All expected and unexpected failures are clearly identified and classified.
-- Domain-specific errors communicate meaningful information without exposing implementation details.
-- Centralized error handling produces consistent responses across the entire application.
-- Recovery strategies distinguish between transient and permanent failures using retries, fallbacks, circuit breakers, or graceful degradation where appropriate.
-- Logging, monitoring, and alerting provide complete visibility into application failures and recovery behavior.
-- Sensitive information is never exposed through responses, logs, or diagnostic output.
-- Error codes, recovery procedures, and operational runbooks are fully documented.
-- Comprehensive testing validates normal operation, failure scenarios, dependency outages, and recovery mechanisms.
-- Production incidents feed continuous improvements to architecture, monitoring, and operational procedures.
-- The system remains reliable, predictable, and maintainable even when failures occur.
-
-Exceptional error handling makes resilient systems.
-
-Failures are detected quickly, contained safely, communicated consistently, recovered automatically whenever possible, and transformed into opportunities for improving reliability rather than sources of operational chaos.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Expected failures are modelled as typed domain errors
+- [ ] One boundary converts errors to responses
+- [ ] Every response carries a `requestId`
+- [ ] Unexpected errors log a full trace exactly once, at `error`
+- [ ] Expected failures do not log at `error`
+- [ ] No stack traces, SQL, driver codes or paths reach the client
+- [ ] Machine-readable codes are stable; human messages are actionable
+- [ ] No empty `catch`; every catch handles or rethrows with context
+- [ ] Configuration is validated at startup and crashes on failure
+- [ ] `unhandledRejection` and `uncaughtException` log and exit
+- [ ] Shutdown drains in-flight work with a bounded timeout
+- [ ] Retries are limited to transient failures, with backoff and jitter
+- [ ] Retried operations are idempotent or carry an idempotency key
+- [ ] A circuit breaker protects persistently failing dependencies
+</checklist>

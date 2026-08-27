@@ -1,766 +1,213 @@
-# api-security.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: api-security
+category: API
+description: Securing an HTTP API — authentication at the edge, per-object authorization, input validation, transport, and the controls that stop the OWASP API Top 10.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, review, implement, audit, and continuously improve API security.
+<purpose>
+Security rules specific to APIs. An API has no HTML, no browser, and often no
+human — so browser-centric defences do not apply and the failures are different.
 
-API security is not a single feature.
-
-It is a layered engineering discipline that protects data, users, infrastructure, and business operations against unauthorized access, abuse, data leakage, manipulation, and service disruption.
-
-The objective is to build APIs that remain secure by default while maintaining usability, scalability, and developer productivity.
-
-Security is a continuous process.
-
-Not a final checklist.
+The dominant API vulnerability is not injection. It is **broken object-level
+authorization**: an endpoint that authenticates correctly and then returns
+somebody else's row. → `Security/authorization`
 
 ---
+</purpose>
 
-# Core Philosophy
+# Authorization is per object, on every request
 
-Understand Assets
+<rules>
+```ts
+// Broken (BOLA) — authenticated, and completely unauthorized
+app.get("/v1/orders/:id", auth, async (req, res) => {
+  res.json(await db.order.findUnique({ where: { id: req.params.id } }));
+});
 
-↓
+// Correct — the tenant scope is part of the query, not a check after it
+const order = await db.order.findFirst({
+  where: { id: req.params.id, tenantId: req.auth.tenantId },
+});
+if (!order) return res.sendStatus(404);
+```
 
-Identify Threats
+- Scope **inside the query**. A fetch-then-compare is one forgotten `if` away from
+  a leak, and it has already loaded the data.
+- Return `404`, not `403`, for objects the caller may not see — `403` confirms
+  existence.
+- Opaque identifiers reduce enumeration but are **not** authorization. Guessing is
+  harder; the missing check is still the bug.
+- **Property-level too**: a caller allowed to read an order is not necessarily
+  allowed to read its `costBasisCents`. Project explicit fields.
 
-↓
-
-Reduce Attack Surface
-
-↓
-
-Apply Defense in Depth
-
-↓
-
-Validate Every Request
-
-↓
-
-Monitor Continuously
-
-↓
-
-Improve Continuously
-
-↓
-
-Approve
-
-Assume every request is untrusted.
-
-Trust must always be earned.
+**Never** accept an identity field from the request body. `{"userId": …}` or a
+`role` in the payload is client-controlled; identity comes from the verified token
+only.
 
 ---
+</rules>
 
-# Primary Objective
+# Authentication
 
-Every API security review should answer one question.
+<rules>
+| Client | Mechanism |
+| --- | --- |
+| First-party browser app | Session cookie: `HttpOnly; Secure; SameSite` |
+| Third-party server | OAuth 2.0 client credentials, or a scoped API key |
+| Third-party on behalf of a user | OAuth 2.0 authorization code + PKCE |
+| Service to service, internal | mTLS or a short-lived signed token |
 
-"Can this API continue protecting users, data, and infrastructure even when every incoming request is considered potentially malicious?"
+For API keys: high entropy, a visible prefix (`ak_live_…`) so leak scanners can
+detect them, **stored hashed**, scoped, and revocable independently. Show the
+value once.
 
-If the answer is uncertain,
+For bearer tokens: verify `alg`, `iss`, `aud`, `exp` and the signature against a
+pinned JWKS. Keep lifetimes short and pair with refresh.
+→ `Security/jwt`, `Security/oauth`
 
-the security design requires improvement.
-
----
-
-# Security Principles
-
-Every implementation should maximize
-
-Confidentiality
-
-↓
-
-Integrity
-
-↓
-
-Availability
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Least Privilege
-
-↓
-
-Observability
-
-↓
-
-Resilience
-
-Security should be enabled by default.
-
-Never optional.
+**Never** accept credentials in a URL query string. They land in access logs,
+proxy logs, browser history and `Referer` headers.
 
 ---
+</rules>
 
-# Security Workflow
+# Validate everything at the boundary
 
-Identify Assets
+<rules>
+```ts
+const CreateOrder = z.object({
+  items: z.array(z.object({
+    sku: z.string().regex(/^[A-Z0-9-]{3,32}$/),
+    qty: z.number().int().min(1).max(999),
+  })).min(1).max(100),
+  note: z.string().max(500).optional(),
+}).strict();          // .strict() rejects unknown keys — this is the mass-assignment guard
+```
 
-↓
+- **Allowlist**, never denylist. Enumerate what is permitted.
+- **Reject unknown fields.** Silently ignoring them is how mass assignment
+  (`isAdmin: true`) reaches an ORM `update`.
+- Bound every array, string and number. An unbounded array is a memory
+  exhaustion vector.
+- Enforce a **body size limit** (`express.json({ limit: "100kb" })`) and reject
+  compressed bodies that expand beyond a ratio.
+- Validate `Content-Type` and reject anything unexpected.
+- Never pass a client-supplied string into SQL, a shell, a file path, a URL fetch,
+  or a template. → `Security/sql-injection`, `Security/command-injection`,
+  `Security/path-traversal`
 
-Identify Threats
-
-↓
-
-Secure Communication
-
-↓
-
-Authenticate Users
-
-↓
-
-Authorize Actions
-
-↓
-
-Validate Input
-
-↓
-
-Monitor Activity
-
-↓
-
-Approve
+Any endpoint that fetches a client-supplied URL must block private and link-local
+address ranges, and re-validate after redirects — SSRF is how cloud metadata
+credentials are stolen.
 
 ---
+</rules>
 
-# Stage 1 — Asset Identification
+# Transport and headers
 
-Identify
+<rules>
+```
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+Cache-Control: no-store
+X-Content-Type-Options: nosniff
+```
 
-Sensitive data
-
-Personal information
-
-Financial records
-
-Authentication tokens
-
-API keys
-
-Internal services
-
-Business operations
-
-Security begins by protecting valuable assets.
+- HTTPS only, TLS 1.2+, HTTP redirected or refused.
+- `Cache-Control: no-store` on any authenticated response — shared caches
+  otherwise serve one user's data to another.
+- CORS: an explicit origin allowlist. **Never** reflect the `Origin` header while
+  `Access-Control-Allow-Credentials: true` — that is equivalent to allowing every
+  origin with cookies. → `Security/cors`, `Security/headers`
 
 ---
+</rules>
 
-# Stage 2 — Threat Modeling
+# Rate limiting and abuse
 
-Review possible threats.
+<rules>
+Every endpoint is limited; authentication endpoints more strictly, keyed on both
+account and IP. Return `429` with `Retry-After`. → `API/rate-limiting`
 
-Examples
-
-Unauthorized access
-
-Credential theft
-
-Injection attacks
-
-Replay attacks
-
-Privilege escalation
-
-Data leakage
-
-Service abuse
-
-Denial of Service
-
-Threat modeling should guide every security decision.
+Bound the cost of a single request as well as the rate: maximum page size,
+maximum query depth, maximum export range. One request that scans ten million
+rows is an outage regardless of the rate limit.
 
 ---
+</rules>
 
-# Stage 3 — Secure Transport
+# Errors, logging and exposure
 
-Require
-
-HTTPS
-
-TLS 1.2+
-
-Strong cipher suites
-
-Certificate validation
-
-HSTS
-
-Never allow sensitive traffic over insecure connections.
-
----
-
-# Stage 4 — Authentication
-
-Support appropriate authentication.
-
-Examples
-
-OAuth 2.0
-
-OpenID Connect
-
-JWT
-
-API Keys
-
-Mutual TLS
-
-Service Accounts
-
-Authentication proves identity.
-
-Not permission.
+<rules>
+- One error shape, stable machine codes, no stack traces, no SQL, no internal
+  hostnames, no framework version.
+- Log the **event**, not the payload. Never log tokens, passwords, card numbers,
+  or full request bodies. Redact by allowlist.
+- Log authentication failures, authorization denials, rate-limit breaches and
+  privilege changes with actor, target and source IP. → `Security/audit-log`
+- Do not ship an interactive API explorer, GraphQL introspection, or a debug
+  endpoint to production.
+- Inventory your endpoints. Undocumented, forgotten and deprecated-but-live
+  endpoints are the ones without current authorization checks.
 
 ---
+</rules>
 
-# Stage 5 — Authorization
+# Anti-patterns
 
-Review
-
-Role-Based Access Control
-
-Attribute-Based Access Control
-
-Scopes
-
-Permissions
-
-Ownership
-
-Tenant isolation
-
-Every request must be authorized.
-
-Authentication alone is insufficient.
-
----
-
-# Stage 6 — Least Privilege
-
-Grant only required permissions.
-
-Review
-
-Minimal scopes
-
-Temporary access
-
-Resource ownership
-
-Administrative separation
-
-Default deny
-
-Reduce unnecessary access.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Authentication without per-object checks | BOLA — the top API vulnerability | Scope inside the query |
+| Fetch then compare ownership | One missed branch leaks data | Filter in the `WHERE` clause |
+| `403` for hidden objects | Confirms existence | `404` |
+| Identity taken from the request body | Client-controlled | Identity from the verified token only |
+| Unknown fields ignored | Mass assignment (`isAdmin`) | `.strict()` schema |
+| Denylist validation | Always incomplete | Allowlist |
+| Unbounded arrays or body size | Memory exhaustion | Explicit limits |
+| API key stored in plaintext | DB leak yields live credentials | Store the hash |
+| Credentials in a query string | Logged everywhere | `Authorization` header |
+| `Origin` reflected with credentials | Any site reads authenticated responses | Static allowlist |
+| No `Cache-Control: no-store` | Shared caches cross-serve user data | Set it on authenticated responses |
+| Unvalidated outbound URL fetch | SSRF to cloud metadata | Block private ranges, re-check redirects |
+| Stack traces in responses | Leaks internals | Generic message + `requestId` |
+| Full request bodies in logs | Credentials and PII in log storage | Allowlist redaction |
+| Forgotten legacy endpoints | Unpatched, unchecked, still live | Maintained endpoint inventory |
 
 ---
-
-# Stage 7 — Input Validation
-
-Validate
-
-Length
-
-Type
-
-Format
-
-Encoding
-
-Ranges
-
-Enums
-
-JSON Schema
-
-Reject malformed input immediately.
-
----
-
-# Stage 8 — Injection Protection
-
-Protect against
-
-SQL Injection
-
-NoSQL Injection
-
-Command Injection
-
-LDAP Injection
-
-XPath Injection
-
-Template Injection
-
-GraphQL Injection
-
-Never construct queries using untrusted input.
-
----
-
-# Stage 9 — Output Protection
-
-Protect responses.
-
-Review
-
-Sensitive fields
-
-Error messages
-
-Stack traces
-
-Internal identifiers
-
-PII
-
-Secrets
-
-Responses should expose only necessary information.
-
----
-
-# Stage 10 — Session Security
-
-Review
-
-Token expiration
-
-Refresh tokens
-
-Revocation
-
-Secure cookies
-
-Session fixation
-
-Logout behavior
-
-Sessions should expire safely.
-
----
-
-# Stage 11 — API Keys
-
-Review
-
-Generation
-
-Rotation
-
-Expiration
-
-Storage
-
-Revocation
-
-Usage tracking
-
-API keys should never be embedded in source code.
-
----
-
-# Stage 12 — Rate Limiting
-
-Protect against abuse.
-
-Review
-
-Brute force
-
-Credential stuffing
-
-Enumeration
-
-Scraping
-
-Resource exhaustion
-
-Rate limiting complements authentication.
-
----
-
-# Stage 13 — Data Protection
-
-Review
-
-Encryption at rest
-
-Encryption in transit
-
-Field encryption
-
-Hashing
-
-Key management
-
-Secrets management
-
-Sensitive data should remain protected throughout its lifecycle.
-
----
-
-# Stage 14 — Logging & Auditing
-
-Log
-
-Authentication events
-
-Authorization failures
-
-Administrative actions
-
-Security events
-
-Configuration changes
-
-Token usage
-
-Logs should support investigations.
-
-Not expose secrets.
-
----
-
-# Stage 15 — Error Handling
-
-Errors should
-
-Avoid sensitive details
-
-Provide consistent responses
-
-Support troubleshooting
-
-Prevent enumeration
-
-Hide implementation details
-
-Security errors should inform.
-
-Not assist attackers.
-
----
-
-# Stage 16 — Monitoring
-
-Monitor
-
-Failed logins
-
-Permission failures
-
-Traffic anomalies
-
-Rate limit violations
-
-Token abuse
-
-Suspicious patterns
-
-Continuous monitoring detects active attacks.
-
----
-
-# Stage 17 — Dependency Security
-
-Review
-
-Third-party libraries
-
-Known vulnerabilities
-
-Dependency updates
-
-Software Bill of Materials
-
-Supply chain risks
-
-Dependencies inherit security responsibilities.
-
----
-
-# Stage 18 — Security Testing
-
-Perform
-
-Static Analysis
-
-Dynamic Analysis
-
-Dependency Scanning
-
-Penetration Testing
-
-Fuzz Testing
-
-Contract Testing
-
-Security testing should be continuous.
-
----
-
-# Stage 19 — Compliance
-
-Review
-
-GDPR
-
-SOC 2
-
-HIPAA
-
-PCI DSS
-
-ISO 27001
-
-Internal policies
-
-Compliance supports governance.
-
-Not security itself.
-
----
-
-# Stage 20 — Incident Readiness
-
-Prepare
-
-Incident response
-
-Key rotation
-
-Credential revocation
-
-Disaster recovery
-
-Forensics
-
-Communication plans
-
-Preparedness reduces recovery time.
-
----
-
-# API Security Quality Attributes
-
-Evaluate
-
-Confidentiality
-
-Integrity
-
-Availability
-
-Authentication
-
-Authorization
-
-Auditability
-
-Resilience
-
-Maintainability
-
----
-
-# Security Questions
-
-Before approval ask
-
-Can every request be authenticated?
-
-↓
-
-Can every action be authorized?
-
-↓
-
-Can attackers exploit unvalidated input?
-
-↓
-
-Can sensitive data leak through responses?
-
-↓
-
-Can abnormal behavior be detected quickly?
-
-↓
-
-Can compromised credentials be revoked immediately?
-
-↓
-
-Would an independent security review approve this API?
-
----
-
-# Severity Levels
-
-Critical
-
-Authentication bypass
-
-Authorization bypass
-
-Sensitive data exposure
-
-Remote code execution
-
-Injection vulnerability
-
-Major
-
-Weak authentication
-
-Broken access control
-
-Improper encryption
-
-Session vulnerabilities
-
-Dependency vulnerabilities
-
-Medium
-
-Weak logging
-
-Missing rate limits
-
-Incomplete monitoring
-
-Configuration weaknesses
-
-Minor
-
-Documentation improvements
-
-Security header enhancements
-
-Operational recommendations
-
-Suggestion
-
-Future hardening
-
-Automation improvements
-
----
-
-# Security Checklist
-
-✓ HTTPS enforced
-
-✓ Strong authentication
-
-✓ Authorization implemented
-
-✓ Least privilege applied
-
-✓ Input validation complete
-
-✓ Injection protection reviewed
-
-✓ Output sanitized
-
-✓ Secure session handling
-
-✓ API key management
-
-✓ Rate limiting enabled
-
-✓ Encryption implemented
-
-✓ Logging configured
-
-✓ Monitoring enabled
-
-✓ Security testing completed
-
-✓ Incident response prepared
-
----
-
-# Anti-Patterns
-
-Avoid
-
-HTTP connections
-
-Hardcoded secrets
-
-Weak passwords
-
-Long-lived tokens
-
-Broken authorization
-
-Dynamic SQL
-
-Detailed error messages
-
-Exposed stack traces
-
-Missing rate limits
-
-Disabled TLS validation
-
-Logging secrets
-
-Trusting client input
-
-Ignoring dependency vulnerabilities
-
-Treating compliance as security
-
----
-
-# Definition of Done
-
-API security review is complete when
-
-- All communication is encrypted using modern transport security.
-- Authentication and authorization protect every resource appropriately.
-- Least privilege is enforced across users, services, and administrators.
-- Input validation and output protection prevent common attack vectors.
-- Sensitive data remains protected in transit, at rest, and during processing.
-- Rate limiting, monitoring, and auditing detect and mitigate abuse.
-- Dependencies and infrastructure are continuously assessed for vulnerabilities.
-- Incident response procedures support rapid containment and recovery.
-- Documentation accurately reflects security expectations and operational procedures.
-- The API demonstrates defense-in-depth and remains resilient against realistic threats.
-
-Exceptional API security is rarely visible.
-
-Users simply trust the system because every request is authenticated, every action is authorized, every attack surface is minimized, and every layer works together to protect the platform.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Every object fetch is scoped to the caller inside the query
+- [ ] Hidden objects return `404`, not `403`
+- [ ] Field-level authorization is applied to sensitive properties
+- [ ] Identity is never read from the request body
+- [ ] Every request body is schema-validated with unknown fields rejected
+- [ ] Arrays, strings, numbers and total body size are bounded
+- [ ] API keys are prefixed, hashed at rest, scoped and revocable
+- [ ] Bearer tokens verify `alg`, `iss`, `aud`, `exp` and signature
+- [ ] No credentials appear in URLs
+- [ ] TLS is enforced with HSTS; authenticated responses are `no-store`
+- [ ] CORS uses a static allowlist, never a reflected origin with credentials
+- [ ] Rate limits apply to every endpoint, keyed on account and IP
+- [ ] Per-request cost is bounded, not just request rate
+- [ ] Outbound fetches of client-supplied URLs are SSRF-guarded
+- [ ] Error bodies expose no internal detail; every response carries a `requestId`
+- [ ] Security-relevant events are logged; payloads are redacted by allowlist
+- [ ] Introspection, explorers and debug endpoints are disabled in production
+- [ ] An endpoint inventory exists and is reviewed
+</checklist>

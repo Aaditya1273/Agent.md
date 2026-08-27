@@ -1,784 +1,223 @@
-# rate-limiting.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: rate-limiting
+category: API
+description: Rate limiting that protects the service without punishing legitimate clients — algorithm choice, key selection, headers, and distributed enforcement.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, review, implement, document, and optimize API rate limiting.
+<purpose>
+Rules for limiting request rates. Two distinct goals, often conflated:
 
-Rate limiting is not simply restricting requests.
+- **Protection** — keep one caller from exhausting capacity for everyone.
+- **Fairness / monetisation** — enforce plan quotas.
 
-It is a protection mechanism that ensures fairness, stability, availability, and resilience while preventing abuse, accidental overload, denial-of-service attempts, and resource exhaustion.
-
-The objective is to maximize system reliability without unnecessarily impacting legitimate users.
-
-Every request should consume resources responsibly.
-
----
-
-# Core Philosophy
-
-Understand Traffic
-
-↓
-
-Understand Resources
-
-↓
-
-Define Limits
-
-↓
-
-Protect Services
-
-↓
-
-Provide Fair Access
-
-↓
-
-Monitor Usage
-
-↓
-
-Improve Continuously
-
-↓
-
-Approve
-
-Rate limiting protects both infrastructure and users.
+They need different keys, different windows, and different responses. Decide
+which one each limiter serves before configuring it.
 
 ---
+</purpose>
 
-# Primary Objective
+# Algorithms
 
-Every rate limiting strategy should answer one question.
+<rules>
+| Algorithm | Burst | Memory per key | Boundary problem |
+| --- | --- | --- | --- |
+| Fixed window | 2× at the boundary | 1 counter | **Yes** — 2× the limit across a boundary |
+| Sliding window log | None | O(n) timestamps | No, but memory grows with traffic |
+| Sliding window counter | Slight | 2 counters | Negligible |
+| Token bucket | Configurable, intended | 2 values | No |
+| Leaky bucket | None; smooths output | 1 queue | No |
 
-"Can this API remain reliable during abuse, traffic spikes, and normal growth while providing fair access to legitimate users?"
+**Token bucket is the default.** It expresses the real requirement — a sustained
+rate plus an allowance for bursts — in two numbers, and it costs two values per
+key.
 
-If the answer is uncertain,
+```lua
+-- Atomic token bucket in Redis. Read-then-write in application code races.
+local bucket = redis.call("HMGET", KEYS[1], "tokens", "ts")
+local tokens = tonumber(bucket[1]) or tonumber(ARGV[3])
+local ts     = tonumber(bucket[2]) or tonumber(ARGV[4])
+local delta  = math.max(0, tonumber(ARGV[4]) - ts)
+tokens = math.min(tonumber(ARGV[3]), tokens + delta * tonumber(ARGV[1]))
+if tokens < 1 then return {0, tokens} end
+redis.call("HMSET", KEYS[1], "tokens", tokens - 1, "ts", ARGV[4])
+redis.call("EXPIRE", KEYS[1], tonumber(ARGV[2]))
+return {1, tokens - 1}
+```
 
-the rate limiting strategy requires improvement.
-
----
-
-# Rate Limiting Principles
-
-Every implementation should maximize
-
-Availability
-
-↓
-
-Fairness
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Predictability
-
-↓
-
-Security
-
-↓
-
-Developer Experience
-
-Limits should protect systems.
-
-Not frustrate users.
+Fixed windows are tempting because they are trivial, but a client can send the
+full limit at `59.9s` and again at `60.1s` — twice the intended rate. Do not use
+them for anything protective. → `Database/redis`
 
 ---
+</rules>
 
-# Review Workflow
+# Choose the key deliberately
 
-Understand Traffic
+<rules>
+| Key | Limits | Weakness |
+| --- | --- | --- |
+| API key / account | Fairness, quotas | Absent for unauthenticated traffic |
+| User id | Per-user fairness | Same |
+| IP address | Unauthenticated abuse | NAT and mobile carriers share one IP; IPv6 is cheap to rotate |
+| IP + route | Login brute force | Distributed attacks bypass it |
+| Account + route | Credential stuffing on one account | — |
+| Global | Backstop against overload | Blunt |
 
-↓
+Limit on **more than one key at once**. Per-IP alone does not stop a distributed
+credential-stuffing run against one account; per-account alone lets one host spray
+many accounts. → `Security/authentication`
 
-Identify Resources
+Determine the client IP correctly. Behind a proxy, `X-Forwarded-For` is
+client-controlled unless you take the value at a known hop count from a trusted
+proxy set. Trusting the leftmost value lets any caller forge an unlimited number
+of identities and bypass the limiter entirely.
 
-↓
-
-Choose Algorithm
-
-↓
-
-Define Policies
-
-↓
-
-Handle Violations
-
-↓
-
-Monitor Usage
-
-↓
-
-Optimize
-
-↓
-
-Approve
+Weight expensive routes rather than counting all requests as one. A report
+endpoint costing 30 database seconds should consume more tokens than a health
+check.
 
 ---
+</rules>
 
-# Stage 1 — Traffic Analysis
+# Respond correctly
 
-Before implementing determine
+<rules>
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 30
+RateLimit-Limit: 1000
+RateLimit-Remaining: 0
+RateLimit-Reset: 30
+```
 
-Who uses the API?
+- **`429`**, never `403` — clients and SDKs retry on `429` and give up on `403`.
+- **`Retry-After` is mandatory.** Without it, well-behaved clients retry
+  immediately and make the overload worse.
+- Send `RateLimit-*` headers on **successful** responses too, so clients can slow
+  down before they are blocked.
+- Use `503` with `Retry-After` for whole-service overload, distinct from a
+  per-caller `429`.
 
-↓
-
-How frequently?
-
-↓
-
-Peak traffic?
-
-↓
-
-Burst traffic?
-
-↓
-
-Background traffic?
-
-↓
-
-Expected growth?
-
-Limits should reflect real usage patterns.
+Publish the limits in your documentation. An undocumented limit is discovered
+during an integration's launch.
 
 ---
+</rules>
 
-# Stage 2 — Resource Classification
+# Distributed enforcement
 
-Identify
+<rules>
+Per-instance counters mean the effective limit is `limit × instances`, and it
+changes when you autoscale.
 
-Authentication
+- Use a shared store (Redis) with an **atomic** check-and-decrement — the Lua
+  script above, not `GET` then `SET`.
+- Decide the failure mode explicitly: if the limiter's store is unavailable, do
+  you **fail open** (serve traffic, unprotected) or **fail closed** (reject
+  everything)? Fail open is usually right for an API, fail closed for a login
+  endpoint. Write the decision down.
+- Prefer enforcement at the edge (CDN/WAF/API gateway) for volumetric abuse —
+  a request rejected at the edge costs you nothing.
+- Local in-process limiting is a reasonable second layer, never the only one.
 
-Search
+```nginx
+</rules>
 
-File Uploads
+# Edge layer: reject volumetric abuse before it reaches an application process
 
-Payments
+<rules>
+limit_req_zone $binary_remote_addr zone=api:20m rate=20r/s;
+limit_req      zone=api burst=40 nodelay;
+limit_req_status 429;
+```
 
-Reporting
+```ts
+// Application layer: quota per API key, atomic, shared across instances
+const { allowed, remaining } = await bucket.take(`rl:key:${apiKey}:${route}`, {
+  refillPerSecond: 10,
+  capacity: 100,
+  cost: ROUTE_COST[route] ?? 1,
+});
+if (!allowed) return res.status(429)
+  .set({ "Retry-After": "30", "RateLimit-Remaining": "0" }).end();
+```
 
-AI Generation
-
-Database-heavy operations
-
-Streaming
-
-Different resources require different limits.
-
----
-
-# Stage 3 — Client Identification
-
-Determine limits based on
-
-API Key
-
-User ID
-
-IP Address
-
-Session
-
-Organization
-
-Tenant
-
-Application
-
-Anonymous users
-
-Choose the identifier that best represents a consumer.
-
----
-
-# Stage 4 — Limiting Algorithms
-
-Select an appropriate algorithm.
-
-Fixed Window
-
-Simple
-
-Fast
-
-Suitable for basic APIs
-
-Sliding Window
-
-More accurate
-
-Better fairness
-
-Token Bucket
-
-Supports bursts
-
-Smooth traffic
-
-Widely recommended
-
-Leaky Bucket
-
-Constant processing rate
-
-Queue-like behavior
-
-Distributed Rate Limiter
-
-Multi-region
-
-High availability
-
-Large-scale systems
-
-Choose based on traffic characteristics.
+| Layer | Enforces | Store |
+| --- | --- | --- |
+| CDN / WAF (Cloudflare, Fastly) | Volumetric floods, bot traffic | Edge-local |
+| API gateway (Kong, Envoy, APISIX) | Per-consumer plan quotas | Redis |
+| Application middleware | Route-weighted business limits | Redis |
+| Database / connection pool | Final backstop | `statement_timeout` |
 
 ---
+</rules>
 
-# Stage 5 — Limit Definition
+# Do not punish legitimate clients
 
-Define
-
-Requests per second
-
-Requests per minute
-
-Requests per hour
-
-Daily quotas
-
-Monthly quotas
-
-Concurrent requests
-
-Limits should match resource cost.
+<rules>
+- **Warn before enforcing.** Ship a new limit in log-only mode, measure who would
+  have been blocked, then enforce.
+- Give a higher burst allowance than the sustained rate; real clients are bursty.
+- Exempt health checks, and internal service-to-service traffic that has its own
+  backpressure.
+- Never permanently lock an account on rate-limit breach — that is a
+  denial-of-service primitive against your own users. Use temporary backoff.
+- Provide a documented path to a raised limit.
 
 ---
+</rules>
 
-# Stage 6 — Tier-Based Limits
+# Anti-patterns
 
-Support multiple usage tiers.
-
-Examples
-
-Anonymous
-
-Free
-
-Developer
-
-Professional
-
-Enterprise
-
-Internal Services
-
-Higher-value users may require higher limits.
-
----
-
-# Stage 7 — Burst Handling
-
-Allow controlled bursts.
-
-Review
-
-Burst capacity
-
-Recovery speed
-
-Sustained traffic
-
-Queue handling
-
-Grace periods
-
-Burst support improves user experience.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Fixed window for protection | 2× the limit across the boundary | Token or sliding window |
+| Read-then-write counter | Races under concurrency | Atomic Lua / `INCR` |
+| Per-instance counters | Effective limit scales with instance count | Shared store |
+| Trusting leftmost `X-Forwarded-For` | Forgeable; limiter fully bypassed | Trusted-proxy hop count |
+| IP-only limiting | NAT punishes many; attackers rotate | Multiple keys together |
+| Account-only limiting | One host sprays many accounts | Add per-IP |
+| `403` for rate limits | Clients do not retry | `429` |
+| `429` without `Retry-After` | Immediate retries worsen overload | Always include it |
+| Headers only on rejection | Clients cannot self-regulate | Send on success too |
+| All routes weighted equally | Expensive routes dominate cost | Weighted token cost |
+| Undocumented limits | Discovered during a customer launch | Publish them |
+| Permanent lockout | Self-inflicted DoS | Temporary backoff |
+| Enforcing a new limit without measuring | Breaks existing integrations | Log-only rollout first |
+| Undefined store-failure behaviour | Unpredictable under partial outage | Explicit fail-open/closed |
 
 ---
-
-# Stage 8 — Endpoint Policies
-
-Not every endpoint should share limits.
-
-Examples
-
-Login
-
-Strict
-
-Search
-
-Moderate
-
-Analytics
-
-High
-
-Health Check
-
-Very High
-
-AI Generation
-
-Expensive
-
-Endpoint cost should influence limits.
-
----
-
-# Stage 9 — Distributed Systems
-
-Review
-
-Multiple servers
-
-Load balancing
-
-Shared counters
-
-Redis
-
-Distributed cache
-
-Synchronization
-
-Limits should remain consistent across infrastructure.
-
----
-
-# Stage 10 — Response Design
-
-When limits are exceeded
-
-Return
-
-429 Too Many Requests
-
-Include
-
-Retry-After
-
-Limit
-
-Remaining
-
-Reset Time
-
-Responses should help clients recover.
-
----
-
-# Stage 11 — Headers
-
-Expose
-
-X-RateLimit-Limit
-
-X-RateLimit-Remaining
-
-X-RateLimit-Reset
-
-Retry-After
-
-Developers should understand current usage.
-
----
-
-# Stage 12 — Authentication Integration
-
-Authenticated users
-
-↓
-
-Individual quotas
-
-↓
-
-Organization quotas
-
-↓
-
-Application quotas
-
-Unauthenticated users
-
-↓
-
-IP-based limits
-
-Authentication improves fairness.
-
----
-
-# Stage 13 — Abuse Detection
-
-Review
-
-Bots
-
-Credential stuffing
-
-Brute force attacks
-
-API scraping
-
-Spam
-
-Traffic anomalies
-
-Rate limiting should support security.
-
----
-
-# Stage 14 — Performance
-
-Evaluate
-
-Counter storage
-
-Latency
-
-Cache efficiency
-
-Memory usage
-
-Atomic operations
-
-Distributed synchronization
-
-Protection should not become the bottleneck.
-
----
-
-# Stage 15 — Monitoring
-
-Track
-
-Request volume
-
-Rejected requests
-
-Top consumers
-
-Burst usage
-
-Endpoint usage
-
-Traffic growth
-
-Monitoring guides policy improvements.
-
----
-
-# Stage 16 — Error Handling
-
-Responses should explain
-
-Limit exceeded
-
-Retry time
-
-Documentation link
-
-Support information
-
-Errors should encourage recovery.
-
-Not confusion.
-
----
-
-# Stage 17 — Documentation
-
-Document
-
-Limit policies
-
-Headers
-
-Retry behavior
-
-Burst behavior
-
-Examples
-
-Tier differences
-
-Developers should understand limits before integration.
-
----
-
-# Stage 18 — Scalability
-
-Evaluate
-
-Millions of users
-
-Traffic spikes
-
-Regional deployments
-
-Multiple clusters
-
-Cloud scaling
-
-Policies should evolve with growth.
-
----
-
-# Stage 19 — Security Review
-
-Review
-
-DDoS mitigation
-
-Replay attacks
-
-Abuse prevention
-
-Quota bypass
-
-Header manipulation
-
-Identity spoofing
-
-Rate limiting is a security layer.
-
-Not the only security layer.
-
----
-
-# Stage 20 — Policy Review
-
-Review periodically
-
-Current limits
-
-Developer feedback
-
-Infrastructure changes
-
-Business growth
-
-Usage analytics
-
-Policies should evolve with real-world usage.
-
----
-
-# Rate Limiting Quality Attributes
-
-Evaluate
-
-Availability
-
-Fairness
-
-Scalability
-
-Reliability
-
-Security
-
-Performance
-
-Maintainability
-
-Developer Experience
-
----
-
-# Rate Limiting Questions
-
-Before approval ask
-
-Can legitimate users continue working?
-
-↓
-
-Can abusive clients be restricted?
-
-↓
-
-Are expensive operations protected?
-
-↓
-
-Are limits clearly communicated?
-
-↓
-
-Can infrastructure handle traffic spikes?
-
-↓
-
-Can policies evolve without breaking clients?
-
-↓
-
-Would this strategy remain effective as traffic grows?
-
----
-
-# Severity Levels
-
-Critical
-
-No protection
-
-Unlimited expensive requests
-
-Authentication bypass
-
-Distributed bypass
-
-Major
-
-Weak limits
-
-Poor recovery
-
-Missing headers
-
-Inconsistent enforcement
-
-Medium
-
-Documentation gaps
-
-Monitoring improvements
-
-Policy tuning
-
-Minor
-
-Examples
-
-Header improvements
-
-Documentation updates
-
-Suggestion
-
-Future optimizations
-
-Adaptive rate limiting
-
-AI-assisted traffic analysis
-
----
-
-# Rate Limiting Checklist
-
-✓ Traffic analyzed
-
-✓ Resources classified
-
-✓ Client identification defined
-
-✓ Appropriate algorithm selected
-
-✓ Tier-based limits implemented
-
-✓ Burst handling supported
-
-✓ Endpoint-specific policies
-
-✓ Standard headers returned
-
-✓ 429 responses implemented
-
-✓ Monitoring enabled
-
-✓ Documentation complete
-
-✓ Security reviewed
-
-✓ Performance validated
-
-✓ Scalability verified
-
-✓ Fair developer experience
-
----
-
-# Anti-Patterns
-
-Avoid
-
-One limit for every endpoint
-
-Unlimited expensive operations
-
-IP-only identification
-
-Hidden limits
-
-Silent request rejection
-
-Missing Retry-After header
-
-Hardcoded policies
-
-Ignoring distributed environments
-
-No monitoring
-
-Rate limiting without documentation
-
-Punishing legitimate burst traffic
-
-Treating rate limiting as DDoS protection alone
-
----
-
-# Definition of Done
-
-Rate limiting review is complete when
-
-- Traffic patterns and resource costs are understood.
-- Appropriate rate limiting algorithms are selected.
-- Limits reflect endpoint complexity and business requirements.
-- Legitimate users receive fair access while abusive traffic is controlled.
-- Standard rate limit headers and recovery information are returned.
-- Distributed deployments enforce limits consistently.
-- Monitoring supports continuous optimization.
-- Documentation clearly explains quotas and behavior.
-- Policies scale with infrastructure growth.
-- The implementation protects system availability without degrading developer experience.
-
-Exceptional rate limiting is almost invisible.
-
-Legitimate users rarely notice it, attackers quickly encounter it, and the system remains reliable regardless of traffic conditions.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Each limiter's purpose — protection or quota — is stated
+- [ ] The algorithm is token bucket or sliding window, not a fixed window
+- [ ] Counter updates are atomic
+- [ ] Limits are enforced from a shared store, not per instance
+- [ ] Limiting keys on both identity and network address
+- [ ] Client IP is derived from a trusted-proxy hop count
+- [ ] Expensive routes consume proportionally more budget
+- [ ] `429` is returned with `Retry-After`
+- [ ] `RateLimit-*` headers are sent on successful responses
+- [ ] Service-wide overload returns `503`, distinct from per-caller `429`
+- [ ] Store-unavailable behaviour is an explicit, documented decision
+- [ ] Volumetric abuse is rejected at the edge
+- [ ] New limits ship in log-only mode first
+- [ ] Limits are documented, with a path to request an increase
+</checklist>

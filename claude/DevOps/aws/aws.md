@@ -1,1152 +1,210 @@
-# aws.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: aws
+category: DevOps
+description: Running on AWS safely — IAM least privilege, network layout, encryption defaults, cost control, and the misconfigurations that cause breaches and bills.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, deploying, securing, operating, and continuously improving cloud infrastructure on Amazon Web Services (AWS).
+<purpose>
+Rules for building on AWS. Two failure modes dominate, and neither is exotic:
+**over-permissive IAM** and **publicly exposed storage**. Almost every publicised
+AWS breach is one of those two.
 
-It applies to
-
-- SaaS Platforms
-- Enterprise Applications
-- AI Platforms
-- APIs
-- Microservices
-- Event-Driven Systems
-- Data Platforms
-- Multi-Region Applications
-- High Availability Infrastructure
-
-AWS is not simply cloud hosting.
-
-AWS is a distributed cloud platform for building secure, scalable, resilient, observable, and automated systems capable of operating at global scale.
-
-Infrastructure should become software.
-
-Operations should become automation.
+The third, slower failure is cost: AWS bills grow silently and are discovered
+monthly.
 
 ---
+</purpose>
 
-# Core Philosophy
+# IAM: roles, not keys
 
-Understand Requirements
+<rules>
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:GetObject", "s3:PutObject"],
+  "Resource": "arn:aws:s3:::acme-uploads/tenants/${aws:PrincipalTag/tenant}/*",
+  "Condition": { "Bool": { "aws:SecureTransport": "true" } }
+}
+```
 
-↓
+- **Never create long-lived access keys** for a human or a workload. Use IAM roles:
+  instance profiles for EC2, IRSA/Pod Identity for EKS, task roles for ECS, and
+  OIDC federation for CI. → `DevOps/github-actions`
+- Humans authenticate through Identity Center (SSO) with short-lived credentials,
+  MFA enforced.
+- **No wildcards in production policies.** `"Action": "s3:*"` on
+  `"Resource": "*"` is the policy behind most incidents. Grant the specific
+  actions on the specific ARNs.
+- Scope by condition: `aws:SourceVpc`, `aws:PrincipalOrgID`, `aws:SecureTransport`.
+- Root account: MFA, no access keys, no daily use, alarm on any use.
+- Separate accounts per environment under Organizations, with SCPs preventing
+  region use, public S3 and CloudTrail deletion. A blast radius that stops at the
+  account boundary is the strongest control AWS offers.
 
-Design Architecture
-
-↓
-
-Provision Infrastructure
-
-↓
-
-Secure Everything
-
-↓
-
-Automate Operations
-
-↓
-
-Observe Continuously
-
-↓
-
-Scale Predictably
-
-↓
-
-Continuously Improve
-
-Cloud infrastructure should reduce operational complexity.
-
-Not relocate it.
+Review with IAM Access Analyzer and act on unused-permission findings. Policies
+accumulate permissions and never lose them unless someone looks.
 
 ---
+</rules>
 
-# Primary Objective
+# Storage: private and encrypted by default
 
-Every AWS architecture should maximize
+<rules>
+```hcl
+resource "aws_s3_bucket_public_access_block" "uploads" {
+  bucket                  = aws_s3_bucket.uploads.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+```
 
-Availability
+- **Block Public Access at the account level**, not just per bucket. Per-bucket
+  settings are one console click from being wrong.
+- Encrypt with KMS (`aws:kms`) rather than the default S3-managed key where key
+  control or audit matters; encryption at rest is on by default but the key
+  ownership is not.
+- Enable versioning on anything that matters, plus lifecycle rules to expire
+  noncurrent versions. → `DevOps/backups`
+- Serve public content through CloudFront with Origin Access Control, never a
+  public bucket.
+- Turn on S3 server access logging, or CloudTrail `data events`, for buckets
+  holding personal data.
 
-+
-
-Reliability
-
-+
-
-Security
-
-+
-
-Scalability
-
-+
-
-Automation
-
-+
-
-Observability
-
-+
-
-Cost Efficiency
-
-+
-
-Operational Excellence
-
-Infrastructure should continuously support business growth.
+RDS: `publicly_accessible = false`, encryption at rest, automated backups with a
+retention window, deletion protection, and Performance Insights enabled before you
+need it. → `Database/postgres`
 
 ---
+</rules>
 
-# Engineering Principles
+# Network layout
 
-Always prioritize
+<rules>
+```
+VPC 10.0.0.0/16
+ ├─ public subnets   → ALB, NAT gateway only
+ ├─ private subnets  → ECS/EKS workloads, Lambda
+ └─ isolated subnets → RDS, ElastiCache (no route to the internet)
+```
 
-Well-Architected Design
-
-↓
-
-Infrastructure as Code
-
-↓
-
-Least Privilege
-
-↓
-
-Automation
-
-↓
-
-Observability
-
-↓
-
-Fault Tolerance
-
-↓
-
-Cost Optimization
-
-↓
-
-Continuous Improvement
-
-Every AWS resource should exist for a measurable business purpose.
+- Nothing that holds data sits in a public subnet.
+- Security groups reference **other security groups**, not CIDR ranges:
+  `source = aws_security_group.api.id` keeps the rule correct as instances change.
+- **Never** open `0.0.0.0/0` on `22` or `3306`/`5432`. Use SSM Session Manager for
+  shell access — no bastion, no open port, and every session is logged.
+- VPC endpoints for S3, DynamoDB, ECR and Secrets Manager keep traffic off the
+  internet and remove NAT charges for it.
+- Plan CIDR ranges before creating VPCs. Overlapping ranges make peering and
+  Transit Gateway impossible later, and resizing a VPC is a rebuild.
 
 ---
+</rules>
 
-# AWS Lifecycle
+# Cost: the surprises are predictable
 
-Analyze Requirements
+<rules>
+| Line item | Why it surprises |
+| --- | --- |
+| **NAT gateway** | Hourly **plus** per-GB processing; often the largest non-compute cost |
+| **Cross-AZ data transfer** | Charged both directions; a chatty multi-AZ service pays constantly |
+| CloudWatch Logs ingestion | Priced per GB ingested; a debug-level service dominates the bill |
+| Idle load balancers, unattached EBS, old snapshots | Charged indefinitely |
+| `gp2` volumes | `gp3` is cheaper and faster; the default was never migrated |
+| Data egress to the internet | The one line nobody models |
 
-↓
+Controls that work: mandatory cost-allocation tags enforced by SCP, AWS Budgets
+with alerts at 50/80/100%, Cost Anomaly Detection, and Savings Plans for a
+measured steady-state baseline — after measuring, not before.
 
-Design Architecture
-
-↓
-
-Provision Infrastructure
-
-↓
-
-Deploy Applications
-
-↓
-
-Secure Platform
-
-↓
-
-Observe
-
-↓
-
-Optimize
-
-↓
-
-Continuously Improve
+Set CloudWatch log retention explicitly on every log group. The default is **never
+expire**, and it is a permanent, growing charge nobody notices.
 
 ---
+</rules>
 
-# Stage 1 — Business Analysis
+# Operations
 
-Understand
-
-Business Objectives
-
-↓
-
-Availability Requirements
-
-↓
-
-Compliance
-
-↓
-
-Traffic Patterns
-
-↓
-
-Growth Expectations
-
-↓
-
-Recovery Objectives
-
-↓
-
-Geographic Distribution
-
-↓
-
-Operational Constraints
-
-Architecture begins with business requirements.
+<rules>
+- Everything in Terraform or CDK. Console changes exist in no backup and drift
+  silently. → `DevOps/environments`
+- CloudTrail enabled in all regions, logging to a bucket in a **separate account**
+  with Object Lock, so a compromised account cannot erase its own trail.
+- GuardDuty, Security Hub and Config with conformance packs — the managed
+  detections catch the common misconfigurations without you writing rules.
+- Multi-AZ (`multi_az = true` on RDS, subnets in ≥ 2 zones) for anything
+  user-facing; multi-region only when the RTO justifies the complexity. → `DevOps/disaster-recovery`
+- Secrets in Secrets Manager or Parameter Store (SecureString), with rotation. Never
+  in environment variables committed anywhere, never in an AMI.
+  → `Security/secret-management`
+- Service quotas are per-account and per-region (`aws service-quotas
+  list-service-quotas`); request increases **before** a launch, not during one.
 
 ---
+</rules>
 
-# Stage 2 — Cloud Architecture
+# Anti-patterns
 
-Design
-
-Accounts
-
-↓
-
-Regions
-
-↓
-
-Availability Zones
-
-↓
-
-Networking
-
-↓
-
-Compute
-
-↓
-
-Storage
-
-↓
-
-Identity
-
-↓
-
-Disaster Recovery
-
-Architecture decisions determine operational maturity.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Long-lived access keys | Leak and are used for months | IAM roles, OIDC federation |
+| `"Action": "*"` policies | One compromise takes everything | Specific actions and ARNs |
+| Root account in daily use | No accountability; catastrophic if lost | SSO; alarm on root use |
+| One account for all environments | No blast-radius boundary | Account per environment |
+| Public S3 buckets | The classic breach | Account-level Block Public Access |
+| Databases in public subnets | Directly reachable | Isolated subnets |
+| `0.0.0.0/0` on SSH or database ports | Scanned within minutes | SSM Session Manager |
+| Security groups by CIDR | Drift as instances change | Reference security groups |
+| Unplanned CIDR ranges | Peering impossible later | Plan the address space first |
+| No VPC endpoints | NAT charges for AWS traffic | Endpoints for S3, ECR, Secrets |
+| CloudWatch log groups with no retention | Charged forever | Set retention explicitly |
+| Console-created resources | Drift; unrecoverable | Infrastructure as code |
+| CloudTrail in the same account | A compromise erases the evidence | Separate account, Object Lock |
+| No budgets or anomaly detection | Cost discovered monthly | Budgets and alerts |
+| Reserved capacity bought early | Locked into the wrong shape | Measure, then commit |
+| Quota increases requested at launch | Approval takes days | Request in advance |
 
 ---
-
-# Stage 3 — Infrastructure Provisioning
-
-Provision
-
-Virtual Networks
-
-↓
-
-Compute Resources
-
-↓
-
-Databases
-
-↓
-
-Storage
-
-↓
-
-Load Balancers
-
-↓
-
-DNS
-
-↓
-
-Certificates
-
-↓
-
-Monitoring
-
-Infrastructure should be reproducible.
-
-Never manually assembled.
-
----
-
-# Stage 4 — Compute Strategy
-
-Select
-
-Virtual Machines
-
-↓
-
-Containers
-
-↓
-
-Serverless
-
-↓
-
-Managed Services
-
-↓
-
-Auto Scaling
-
-↓
-
-Workload Isolation
-
-↓
-
-Resource Optimization
-
-↓
-
-Operational Simplicity
-
-Choose compute based on workload characteristics.
-
-Not familiarity.
-
----
-
-# Stage 5 — Networking
-
-Configure
-
-Virtual Networks
-
-↓
-
-Subnets
-
-↓
-
-Routing
-
-↓
-
-Load Balancing
-
-↓
-
-Private Connectivity
-
-↓
-
-DNS
-
-↓
-
-Traffic Control
-
-↓
-
-Network Security
-
-Networking should remain resilient and predictable.
-
----
-
-# Stage 6 — Storage
-
-Manage
-
-Object Storage
-
-↓
-
-Block Storage
-
-↓
-
-File Storage
-
-↓
-
-Backups
-
-↓
-
-Snapshots
-
-↓
-
-Lifecycle Policies
-
-↓
-
-Encryption
-
-↓
-
-Recovery
-
-Data should outlive infrastructure.
-
----
-
-# Stage 7 — Identity & Access
-
-Protect
-
-Identity Management
-
-↓
-
-Roles
-
-↓
-
-Policies
-
-↓
-
-Least Privilege
-
-↓
-
-Multi-Factor Authentication
-
-↓
-
-Temporary Credentials
-
-↓
-
-Audit Logging
-
-↓
-
-Compliance
-
-Identity is the security perimeter.
-
----
-
-# Stage 8 — Security
-
-Secure
-
-Infrastructure
-
-↓
-
-Applications
-
-↓
-
-Data
-
-↓
-
-Secrets
-
-↓
-
-Encryption
-
-↓
-
-Threat Detection
-
-↓
-
-Compliance
-
-↓
-
-Incident Response
-
-Security should exist by default.
-
-Not after deployment.
-
----
-
-# Stage 9 — Deployment
-
-Deploy
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Staging
-
-↓
-
-Production
-
-↓
-
-Infrastructure Validation
-
-↓
-
-Application Validation
-
-↓
-
-Health Checks
-
-↓
-
-Release Verification
-
-Deployments should remain deterministic.
-
----
-
-# Stage 10 — Scalability
-
-Design
-
-Horizontal Scaling
-
-↓
-
-Vertical Scaling
-
-↓
-
-Auto Scaling
-
-↓
-
-Load Distribution
-
-↓
-
-Regional Expansion
-
-↓
-
-Traffic Management
-
-↓
-
-Capacity Planning
-
-↓
-
-Future Growth
-
-Infrastructure should adapt automatically.
-
----
-
-# Stage 11 — Reliability
-
-Ensure
-
-High Availability
-
-↓
-
-Failure Isolation
-
-↓
-
-Automatic Recovery
-
-↓
-
-Health Monitoring
-
-↓
-
-Redundancy
-
-↓
-
-Backup Validation
-
-↓
-
-Disaster Recovery
-
-↓
-
-Business Continuity
-
-Failures should become expected engineering events.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Infrastructure
-
-↓
-
-Applications
-
-↓
-
-Logs
-
-↓
-
-Metrics
-
-↓
-
-Tracing
-
-↓
-
-Security Events
-
-↓
-
-Resource Utilization
-
-↓
-
-Operational Health
-
-Every service should be observable.
-
----
-
-# Stage 13 — Performance
-
-Optimize
-
-Compute Efficiency
-
-↓
-
-Storage Performance
-
-↓
-
-Networking
-
-↓
-
-Latency
-
-↓
-
-Caching
-
-↓
-
-Resource Utilization
-
-↓
-
-Cost Efficiency
-
-↓
-
-User Experience
-
-Performance should be measured continuously.
-
----
-
-# Stage 14 — Cost Optimization
-
-Optimize
-
-Compute Usage
-
-↓
-
-Storage Costs
-
-↓
-
-Networking Costs
-
-↓
-
-Reserved Capacity
-
-↓
-
-Auto Scaling
-
-↓
-
-Idle Resources
-
-↓
-
-Resource Tagging
-
-↓
-
-Financial Visibility
-
-Cloud efficiency includes financial efficiency.
-
----
-
-# Stage 15 — Automation
-
-Automate
-
-Infrastructure Provisioning
-
-↓
-
-Deployments
-
-↓
-
-Scaling
-
-↓
-
-Monitoring
-
-↓
-
-Recovery
-
-↓
-
-Backups
-
-↓
-
-Compliance
-
-↓
-
-Operational Workflows
-
-Automation reduces operational risk.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Architecture
-
-↓
-
-Infrastructure
-
-↓
-
-Security
-
-↓
-
-Networking
-
-↓
-
-Recovery Plans
-
-↓
-
-Operational Procedures
-
-↓
-
-Engineering Decisions
-
-↓
-
-Future Evolution
-
-Documentation preserves architectural knowledge.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Architecture
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Performance
-
-↓
-
-Cost
-
-↓
-
-Automation
-
-↓
-
-Maintainability
-
-↓
-
-Business Alignment
-
-Cloud architecture deserves continuous review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Regional Failure
-
-↓
-
-Availability Zone Failure
-
-↓
-
-Security Risks
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Configuration Drift
-
-↓
-
-Cost Overruns
-
-↓
-
-Operational Risks
-
-↓
-
-Business Impact
-
-Cloud platforms reduce hardware failures.
-
-Not engineering mistakes.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Architecture
-
-↓
-
-Security
-
-↓
-
-Automation
-
-↓
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Cost Efficiency
-
-↓
-
-Documentation
-
-↓
-
-Engineering Maturity
-
-Cloud platforms evolve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Availability
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Automation
-
-↓
-
-Observability
-
-↓
-
-Cost Optimization
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional AWS platforms become invisible.
-
----
-
-# AWS Quality Attributes
-
-Evaluate
-
-Availability
-
-Reliability
-
-Security
-
-Scalability
-
-Automation
-
-Observability
-
-Cost Efficiency
-
-Maintainability
-
----
-
-# AWS Questions
-
-Before production ask
-
-Can infrastructure be recreated entirely from code?
-
-↓
-
-Can workloads survive regional failures?
-
-↓
-
-Are permissions based on least privilege?
-
-↓
-
-Can infrastructure scale automatically?
-
-↓
-
-Is every resource observable?
-
-↓
-
-Are cloud costs continuously optimized?
-
-↓
-
-Would experienced cloud architects confidently approve this AWS architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Regional outage
-
-Credential compromise
-
-Data loss
-
-Infrastructure corruption
-
-Business continuity failure
-
-Major
-
-Availability degradation
-
-Deployment failures
-
-Scaling failures
-
-Configuration drift
-
-Cost escalation
-
-Medium
-
-Performance optimization
-
-Automation improvements
-
-Monitoring gaps
-
-Documentation improvements
-
-Minor
-
-Naming consistency
-
-Tagging strategy
-
-Metadata
-
-Formatting
-
----
-
-# AWS Checklist
-
-✓ Business requirements understood
-
-✓ Cloud architecture designed
-
-✓ Infrastructure provisioned
-
-✓ Compute strategy selected
-
-✓ Networking configured
-
-✓ Storage designed
-
-✓ Identity management implemented
-
-✓ Security established
-
-✓ Deployment strategy validated
-
-✓ Scalability configured
-
-✓ Reliability ensured
-
-✓ Monitoring enabled
-
-✓ Performance optimized
-
-✓ Cost optimization reviewed
-
-✓ Automation implemented
-
-✓ Documentation completed
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using root credentials for daily operations
-
-Creating infrastructure manually
-
-Ignoring least privilege
-
-Hardcoding credentials
-
-Single Availability Zone deployments
-
-Ignoring backups
-
-Ignoring monitoring
-
-Skipping disaster recovery planning
-
-Overprovisioning infrastructure
-
-Underestimating cloud costs
-
-Ignoring infrastructure tagging
-
-Treating cloud infrastructure as traditional servers
-
-Optimizing cost before ensuring reliability
-
----
-
-# Definition of Done
-
-An AWS platform is considered production-ready when
-
-- Every infrastructure component is provisioned declaratively using Infrastructure as Code, version-controlled configurations, automated validation, and reproducible deployment workflows.
-- Cloud architecture intentionally balances availability, scalability, security, reliability, performance, operational simplicity, and cost efficiency according to measurable business requirements.
-- Compute resources, networking, storage, databases, identity management, security controls, and deployment environments remain independently scalable, resilient, observable, and maintainable.
-- Identity and access management consistently enforces least-privilege principles through role-based access, temporary credentials, multi-factor authentication, policy validation, and comprehensive audit logging.
-- Security continuously protects infrastructure, applications, workloads, data, secrets, and communication channels through layered defense, encryption, monitoring, compliance validation, and automated incident detection.
-- Monitoring provides complete visibility into infrastructure health, application performance, operational metrics, resource utilization, security events, deployment activity, and business-critical services.
-- Reliability is achieved through multi-zone architecture, automatic recovery, redundancy, backup validation, disaster recovery planning, health monitoring, and resilient operational procedures.
-- Cost optimization continuously improves resource utilization through intelligent scaling, lifecycle management, infrastructure rightsizing, governance policies, and financial observability without compromising reliability.
-- Documentation preserves architecture decisions, operational procedures, security standards, networking strategies, disaster recovery plans, infrastructure evolution, and long-term maintenance guidance.
-- Engineering reviews continuously validate security posture, operational excellence, scalability, maintainability, observability, automation quality, reliability, and long-term cloud sustainability.
-
-Exceptional AWS platforms rarely require manual intervention.
-
-Infrastructure provisions itself, applications scale automatically with demand, failures recover without disrupting users, operational visibility remains comprehensive, security controls are continuously enforced, cloud costs remain predictable, and engineering teams focus on delivering business value because the underlying platform has become a resilient, automated, and disciplined foundation for software delivery.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] No long-lived IAM access keys exist for humans or workloads
+- [ ] Human access is via Identity Center with MFA
+- [ ] Production policies name specific actions and resource ARNs
+- [ ] Root account has MFA, no keys, and alarms on use
+- [ ] Environments are separated into accounts with guardrail SCPs
+- [ ] Block Public Access is enforced at the account level
+- [ ] Buckets are encrypted, versioned, with lifecycle rules
+- [ ] Public content is served through CloudFront with Origin Access Control
+- [ ] Databases are private, encrypted, backed up, with deletion protection
+- [ ] Data-holding resources sit in isolated subnets
+- [ ] Security groups reference other security groups, not CIDRs
+- [ ] No `0.0.0.0/0` rule exists on administrative or database ports
+- [ ] Shell access uses SSM Session Manager and is logged
+- [ ] VPC endpoints exist for AWS services used from private subnets
+- [ ] CIDR ranges were planned before VPC creation
+- [ ] Every CloudWatch log group has an explicit retention period
+- [ ] All infrastructure is defined as code
+- [ ] CloudTrail is multi-region, in a separate account, with Object Lock
+- [ ] GuardDuty, Security Hub and Config are enabled
+- [ ] Secrets live in Secrets Manager or Parameter Store with rotation
+- [ ] Cost-allocation tags are enforced and budgets alert
+- [ ] Service quotas are checked and raised before launches
+</checklist>

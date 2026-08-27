@@ -1,1143 +1,192 @@
-# migration.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: migration
+category: Database
+description: Schema changes that deploy without downtime — expand-contract, locks that block writes, and backfilling large tables safely.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for planning, implementing, reviewing, and operating database schema migrations.
+<purpose>
+Rules for changing a database schema in a running system.
 
-It applies to
-
-- PostgreSQL
-- MySQL
-- MariaDB
-- SQL Server
-- Oracle
-- SQLite
-- CockroachDB
-- Cloud Databases
-
-Database migrations are not scripts.
-
-They are controlled transformations of production data.
-
-Every migration changes business infrastructure.
-
-Every migration must be reversible whenever possible.
+The governing constraint: **during a deploy, old and new application code run at
+the same time.** Every migration must therefore be compatible with the code
+before it and the code after it. A migration that is only valid with the new code
+causes errors for the duration of the rollout.
 
 ---
+</purpose>
 
-# Core Philosophy
+# Expand, migrate, contract
 
-Understand Change
+<rules>
+Never change a column in place. Split it across releases:
 
-↓
+| Phase | Deploy | Schema | Code |
+| --- | --- | --- | --- |
+| **Expand** | 1 | Add the new nullable column or table | Write to both, read from old |
+| **Migrate** | 2 | Backfill in batches | Read from new, still write both |
+| **Contract** | 3 | Drop the old column | Write and read new only |
 
-Design Safely
+Each phase deploys independently and is individually reversible. Compressing
+them into one release is how a rename takes the site down.
 
-↓
-
-Validate Thoroughly
-
-↓
-
-Deploy Predictably
-
-↓
-
-Monitor Continuously
-
-↓
-
-Recover Quickly
-
-↓
-
-Document Completely
-
-↓
-
-Continuously Improve
-
-Successful migrations are rarely noticed.
-
-Failed migrations become incidents.
+**Renaming a column is three deploys, not one.** `ALTER TABLE … RENAME COLUMN`
+breaks every running instance of the old code the instant it commits.
 
 ---
+</rules>
 
-# Primary Objective
+# Locks are the danger
 
-Every migration should maximize
+<rules>
+The migration that reads harmlessly is often the one that takes an
+`ACCESS EXCLUSIVE` lock and queues every query behind it.
 
-Safety
+Safe in PostgreSQL (brief lock, no table rewrite):
 
-+
+```sql
+ALTER TABLE users ADD COLUMN nickname text;                    -- no default
+ALTER TABLE users ALTER COLUMN nickname DROP NOT NULL;
+CREATE INDEX CONCURRENTLY idx_users_email ON users (email);
+ALTER TABLE users VALIDATE CONSTRAINT users_email_check;
+```
 
-Correctness
+Dangerous (rewrites the table or blocks writes for its duration):
 
-+
+```sql
+ALTER TABLE users ADD COLUMN status text NOT NULL DEFAULT 'a'; -- rewrite on PG < 11
+ALTER TABLE users ALTER COLUMN id TYPE bigint;                 -- full rewrite
+CREATE INDEX idx_users_email ON users (email);                 -- blocks writes
+ALTER TABLE orders ADD CONSTRAINT fk_user FOREIGN KEY …;        -- scans both tables
+```
 
-Recoverability
+Two rules that prevent most incidents:
 
-+
+- **`CREATE INDEX CONCURRENTLY`** on any table large enough to matter. It cannot
+  run inside a transaction, so the migration tool must be told not to wrap it.
+- **Add constraints `NOT VALID`, then `VALIDATE` separately.** The first takes a
+  brief lock; the second scans without blocking writes.
 
-Predictability
+```sql
+ALTER TABLE orders ADD CONSTRAINT fk_user
+  FOREIGN KEY (user_id) REFERENCES users (id) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT fk_user;   -- separate transaction
+```
 
-+
+Always set a short `lock_timeout` so a migration fails fast rather than queueing
+every request behind it:
 
-Compatibility
-
-+
-
-Reliability
-
-+
-
-Observability
-
-+
-
-Maintainability
-
-Data integrity always takes priority over deployment speed.
-
----
-
-# Engineering Principles
-
-Always prioritize
-
-Business Continuity
-
-↓
-
-Backward Compatibility
-
-↓
-
-Data Integrity
-
-↓
-
-Incremental Changes
-
-↓
-
-Operational Simplicity
-
-↓
-
-Reliable Rollback
-
-↓
-
-Observability
-
-↓
-
-Continuous Improvement
-
-Never optimize deployment speed at the cost of recoverability.
+```sql
+SET lock_timeout = '3s';
+SET statement_timeout = '30s';
+```
 
 ---
+</rules>
 
-# Migration Lifecycle
+# Backfilling
 
-Understand Requirements
+<rules>
+**Never** issue a single `UPDATE` across a large table. It holds a long
+transaction, bloats the table, and blocks vacuum.
 
-↓
+```sql
+-- Batch by primary key, commit between batches, pause to let replicas catch up.
+UPDATE users SET nickname = split_part(email, '@', 1)
+WHERE id IN (
+  SELECT id FROM users WHERE nickname IS NULL ORDER BY id LIMIT 1000
+);
+```
 
-Plan Migration
-
-↓
-
-Review Design
-
-↓
-
-Validate
-
-↓
-
-Deploy
-
-↓
-
-Monitor
-
-↓
-
-Recover if Needed
-
-↓
-
-Document
+- Batch size in the low thousands; tune from observed replication lag.
+- Make it **resumable** — the `WHERE … IS NULL` above restarts safely after a
+  failure.
+- Make it **idempotent**, so re-running cannot double-apply.
+- Run it **outside the deploy**, as a job. A backfill inside a migration blocks
+  the release for its full duration.
+- Watch replication lag while it runs and pause when it grows.
 
 ---
+</rules>
 
-# Stage 1 — Requirement Analysis
+# Reversibility
 
-Understand
-
-Business Requirements
-
-↓
-
-Schema Changes
-
-↓
-
-Operational Impact
-
-↓
-
-Downtime Requirements
-
-↓
-
-Data Growth
-
-↓
-
-Traffic Patterns
-
-↓
-
-Dependencies
-
-↓
-
-Risk Level
-
-Every migration begins with understanding the business impact.
+<rules>
+- Every migration needs a **tested** `down`. An untested rollback is a rollback
+  that fails during an incident.
+- **Destructive steps are irreversible in practice.** `DROP COLUMN` loses the data;
+  the `down` recreates an empty column. Contract only after the new path has run
+  in production long enough to trust.
+- Prefer **forward fixes** for data problems. Rolling a schema back under live
+  traffic is usually more dangerous than fixing forward.
+- Take a backup before any destructive migration and **verify it restores** — an
+  unverified backup is a hope.
 
 ---
+</rules>
 
-# Stage 2 — Change Classification
+# Practice
 
-Identify
-
-Schema Changes
-
-↓
-
-Data Changes
-
-↓
-
-Configuration Changes
-
-↓
-
-Index Changes
-
-↓
-
-Constraint Changes
-
-↓
-
-Relationship Changes
-
-↓
-
-Performance Changes
-
-↓
-
-Infrastructure Changes
-
-Understand exactly what is changing.
+<rules>
+- Migrations live **in version control** beside the code and run in CI on a
+  restored copy of production-shaped data. That is how you learn migration 47
+  fails on a table with real rows. → `Testing/integration`
+- **Never edit a migration that has run** anywhere. Add a new one; editing leaves
+  environments permanently divergent.
+- One logical change per migration. A file doing four things cannot be partially
+  rolled back.
+- Separate **schema** changes from **data** changes, so each can be timed
+  independently.
+- Guard against two instances migrating at once — most tools take an advisory
+  lock; confirm yours does.
 
 ---
+</rules>
 
-# Stage 3 — Migration Planning
+# Anti-patterns
 
-Plan
-
-Execution Order
-
-↓
-
-Dependencies
-
-↓
-
-Rollback Strategy
-
-↓
-
-Compatibility
-
-↓
-
-Deployment Windows
-
-↓
-
-Resource Requirements
-
-↓
-
-Communication
-
-↓
-
-Verification
-
-Planning prevents emergency recovery.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `RENAME COLUMN` in one deploy | Old code breaks instantly | Expand-migrate-contract |
+| `CREATE INDEX` without `CONCURRENTLY` | Blocks writes for the build | `CONCURRENTLY`, outside a transaction |
+| `ADD COLUMN NOT NULL DEFAULT` on old PG | Full table rewrite under lock | Add nullable, backfill, then set |
+| Adding a foreign key directly | Scans both tables under lock | `NOT VALID` then `VALIDATE` |
+| One `UPDATE` over millions of rows | Long transaction, bloat, replica lag | Batch, commit, pause |
+| Backfill inside the migration | Deploy blocked for its duration | Separate job |
+| No `lock_timeout` | Migration queues all traffic | Set lock and statement timeouts |
+| Editing an applied migration | Environments diverge permanently | Add a new migration |
+| Untested `down` | Rollback fails mid-incident | Test both directions in CI |
+| Contracting in the same release | No safe window to revert | Wait; drop later |
 
 ---
-
-# Stage 4 — Backward Compatibility
-
-Ensure
-
-Old Application Support
-
-↓
-
-New Application Support
-
-↓
-
-Dual Compatibility
-
-↓
-
-Safe Rollouts
-
-↓
-
-Feature Flags
-
-↓
-
-Version Coordination
-
-↓
-
-Incremental Deployment
-
-↓
-
-Operational Stability
-
-Compatibility enables zero-downtime deployments.
-
----
-
-# Stage 5 — Data Integrity
-
-Protect
-
-Existing Data
-
-↓
-
-Relationships
-
-↓
-
-Constraints
-
-↓
-
-Business Rules
-
-↓
-
-Validation
-
-↓
-
-Consistency
-
-↓
-
-Accuracy
-
-↓
-
-Recoverability
-
-No migration should compromise business data.
-
----
-
-# Stage 6 — Rollback Strategy
-
-Prepare
-
-Rollback Scripts
-
-↓
-
-Backup Validation
-
-↓
-
-Recovery Procedures
-
-↓
-
-Dependency Removal
-
-↓
-
-Version Recovery
-
-↓
-
-Configuration Rollback
-
-↓
-
-Operational Recovery
-
-↓
-
-Incident Response
-
-Every migration should have an exit strategy.
-
----
-
-# Stage 7 — Performance Impact
-
-Evaluate
-
-Table Locks
-
-↓
-
-Index Rebuilds
-
-↓
-
-Long Queries
-
-↓
-
-Disk Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Replication Delay
-
-↓
-
-Application Latency
-
-↓
-
-Infrastructure Load
-
-Performance degradation should be anticipated.
-
----
-
-# Stage 8 — Testing
-
-Validate
-
-Migration Logic
-
-↓
-
-Rollback
-
-↓
-
-Constraints
-
-↓
-
-Indexes
-
-↓
-
-Relationships
-
-↓
-
-Performance
-
-↓
-
-Compatibility
-
-↓
-
-Recovery
-
-Never test for success alone.
-
-Test for failure.
-
----
-
-# Stage 9 — Deployment Strategy
-
-Choose
-
-Rolling Deployment
-
-↓
-
-Blue-Green Deployment
-
-↓
-
-Canary Deployment
-
-↓
-
-Expand-Contract
-
-↓
-
-Feature Flags
-
-↓
-
-Maintenance Window
-
-↓
-
-Progressive Rollout
-
-↓
-
-Production Validation
-
-Deployment strategy should minimize risk.
-
----
-
-# Stage 10 — Backup Verification
-
-Confirm
-
-Recent Backups
-
-↓
-
-Restore Validation
-
-↓
-
-Recovery Time
-
-↓
-
-Recovery Point
-
-↓
-
-Storage Availability
-
-↓
-
-Backup Integrity
-
-↓
-
-Operational Readiness
-
-↓
-
-Disaster Recovery
-
-Backups are only valuable if they restore successfully.
-
----
-
-# Stage 11 — Monitoring
-
-Observe
-
-Migration Progress
-
-↓
-
-Database Health
-
-↓
-
-Replication
-
-↓
-
-Query Performance
-
-↓
-
-Error Rates
-
-↓
-
-Latency
-
-↓
-
-Application Health
-
-↓
-
-Infrastructure Stability
-
-Visibility reduces recovery time.
-
----
-
-# Stage 12 — Failure Handling
-
-Prepare for
-
-Unexpected Errors
-
-↓
-
-Constraint Failures
-
-↓
-
-Replication Issues
-
-↓
-
-Timeouts
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Rollback Triggers
-
-↓
-
-Communication
-
-↓
-
-Recovery
-
-Failures should be expected.
-
-Not feared.
-
----
-
-# Stage 13 — Security
-
-Protect
-
-Sensitive Data
-
-↓
-
-Credentials
-
-↓
-
-Permissions
-
-↓
-
-Encryption
-
-↓
-
-Audit Logs
-
-↓
-
-Compliance
-
-↓
-
-Access Control
-
-↓
-
-Operational Integrity
-
-Migration tools deserve production-level security.
-
----
-
-# Stage 14 — Scalability
-
-Prepare for
-
-Large Tables
-
-↓
-
-High Traffic
-
-↓
-
-Distributed Systems
-
-↓
-
-Replication
-
-↓
-
-Partitioned Data
-
-↓
-
-Cloud Infrastructure
-
-↓
-
-Global Deployments
-
-↓
-
-Future Growth
-
-Large databases require incremental change.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Migration Purpose
-
-↓
-
-Business Justification
-
-↓
-
-Execution Steps
-
-↓
-
-Rollback Procedure
-
-↓
-
-Dependencies
-
-↓
-
-Architecture Decisions
-
-↓
-
-Known Risks
-
-↓
-
-Recovery Process
-
-Documentation enables confident operations.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Migration History
-
-↓
-
-Schema Versions
-
-↓
-
-Release Mapping
-
-↓
-
-Compatibility Matrix
-
-↓
-
-Rollback Versions
-
-↓
-
-Review Records
-
-↓
-
-Audit Trail
-
-↓
-
-Deployment History
-
-Schema evolution should always be traceable.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Migration Logic
-
-↓
-
-Business Impact
-
-↓
-
-Rollback Strategy
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Readiness
-
-Every migration deserves peer review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Data Loss
-
-↓
-
-Downtime
-
-↓
-
-Performance Risks
-
-↓
-
-Compatibility Risks
-
-↓
-
-Recovery Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Security Risks
-
-↓
-
-Business Impact
-
-Understand every failure before deployment.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Migration Process
-
-↓
-
-Automation
-
-↓
-
-Validation
-
-↓
-
-Deployment Strategy
-
-↓
-
-Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Recovery
-
-↓
-
-Developer Experience
-
-Migration maturity grows through iteration.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Safety
-
-↓
-
-Reliability
-
-↓
-
-Automation
-
-↓
-
-Observability
-
-↓
-
-Scalability
-
-↓
-
-Documentation
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Maturity
-
-Exceptional migration systems improve with every release.
-
----
-
-# Migration Quality Attributes
-
-Evaluate
-
-Safety
-
-Correctness
-
-Recoverability
-
-Compatibility
-
-Reliability
-
-Scalability
-
-Observability
-
-Maintainability
-
----
-
-# Migration Questions
-
-Before deployment ask
-
-Does this migration preserve business data?
-
-↓
-
-Can production continue operating safely?
-
-↓
-
-Is rollback fully tested?
-
-↓
-
-Will both application versions remain compatible?
-
-↓
-
-Has production-scale testing been completed?
-
-↓
-
-Can failures be detected immediately?
-
-↓
-
-Would experienced database engineers confidently approve this migration?
-
----
-
-# Severity Levels
-
-Critical
-
-Data loss
-
-Irreversible migration
-
-Broken production schema
-
-Corrupted business data
-
-Major
-
-Long downtime
-
-Rollback failure
-
-Performance degradation
-
-Replication failure
-
-Compatibility issues
-
-Medium
-
-Slow migration
-
-Documentation gaps
-
-Deployment improvements
-
-Monitoring improvements
-
-Minor
-
-Naming consistency
-
-Formatting
-
-Comments
-
-Operational refinements
-
----
-
-# Migration Checklist
-
-✓ Requirements understood
-
-✓ Changes classified
-
-✓ Migration planned
-
-✓ Compatibility verified
-
-✓ Data integrity protected
-
-✓ Rollback prepared
-
-✓ Performance reviewed
-
-✓ Testing completed
-
-✓ Deployment strategy selected
-
-✓ Backups verified
-
-✓ Monitoring enabled
-
-✓ Failure handling prepared
-
-✓ Security reviewed
-
-✓ Scalability evaluated
-
-✓ Documentation completed
-
-✓ Versioning updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Editing production schema manually
-
-Skipping backups
-
-Skipping rollback planning
-
-Large destructive migrations
-
-Combining unrelated changes
-
-Dropping columns immediately
-
-Ignoring compatibility
-
-Deploying without testing
-
-Ignoring production traffic
-
-Long blocking migrations
-
-Missing monitoring
-
-Treating migrations as simple SQL scripts
-
----
-
-# Definition of Done
-
-A database migration process is considered production-ready when
-
-- Every migration has a clearly defined business objective, architectural justification, implementation plan, and expected operational outcome.
-- Schema evolution preserves data integrity, business rules, referential consistency, and compatibility throughout the deployment lifecycle.
-- Backward compatibility enables previous and current application versions to operate safely during progressive deployments whenever practical.
-- Rollback procedures, backups, restore validation, and disaster recovery plans are tested, documented, and operationally verified before deployment.
-- Deployment strategies minimize downtime, reduce operational risk, and support predictable releases across production environments.
-- Performance impact, locking behavior, replication health, infrastructure utilization, and application latency are evaluated before execution.
-- Monitoring provides immediate visibility into migration progress, failures, resource utilization, application health, and recovery conditions.
-- Documentation preserves migration intent, architectural decisions, operational procedures, rollback instructions, dependencies, and release history.
-- Every migration undergoes peer review, production-scale validation, risk assessment, and operational readiness verification before execution.
-- The migration system consistently demonstrates safety, reliability, recoverability, scalability, maintainability, operational excellence, and long-term engineering maturity.
-
-Exceptional database migrations become invisible to users.
-
-Applications continue serving traffic, data remains correct, deployments proceed predictably, recovery remains possible at every stage, and years later the migration history still provides a clear, traceable record of how the database evolved safely alongside the business.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Every change is compatible with both old and new application code
+- [ ] Renames and type changes are split across expand, migrate and contract
+- [ ] Indexes are created `CONCURRENTLY` and outside a transaction
+- [ ] Constraints are added `NOT VALID` and validated separately
+- [ ] `lock_timeout` and `statement_timeout` are set
+- [ ] Backfills are batched, resumable, idempotent and run outside the deploy
+- [ ] Replication lag is monitored during backfills
+- [ ] Every migration has a `down` that has been executed in CI
+- [ ] Migrations run in CI against production-shaped data
+- [ ] No applied migration is ever edited
+- [ ] Destructive steps happen only after the new path is proven
+- [ ] A verified backup exists before any destructive change
+</checklist>

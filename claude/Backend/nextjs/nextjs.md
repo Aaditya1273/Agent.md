@@ -1,822 +1,218 @@
-# nextjs.md
-
-Version: 1.0.0
-
-Target Models
-
-- Claude Fable 5
-- Claude Opus 5
-- Claude Sonnet 5
-- Claude 5 Family
-- Future Claude Models
-
 ---
-
+targetModels:
+  - "Claude Fable 5"
+  - "Claude Opus 5"
+  - "Claude Sonnet 5"
+  - "Claude 5 Family"
+  - "Future Claude Models"
+name: nextjs
+category: Backend
+description: Next.js as a backend — server/client boundaries, route handlers, caching semantics, Server Actions, and keeping secrets out of the bundle.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
+---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
 # Purpose
 
-This document defines how Claude should design, implement, review, optimize, and maintain Next.js applications.
+<purpose>
+Rules for the server side of a Next.js App Router application: route handlers,
+server components as data loaders, Server Actions, caching, and the boundary that
+decides what ends up in the browser bundle.
 
-Next.js is not simply a React framework.
-
-It is a full-stack application framework for building scalable, production-ready web applications that combine frontend rendering, backend APIs, server components, edge computing, caching, and deployment optimization.
-
-The objective is to build applications that are fast, maintainable, secure, scalable, SEO-friendly, and optimized for both developers and users.
-
-Next.js should maximize user experience while minimizing unnecessary complexity.
+Rendering and component concerns are `Frontend/nextjs` and
+`Frontend/server-components`.
 
 ---
+</purpose>
 
-# Core Philosophy
+# The server/client boundary is a security boundary
 
-Understand Product
+<rules>
+```ts
+// lib/db.ts — poisoned so an accidental client import fails at build time
+import "server-only";
+export const db = new PrismaClient();
+```
 
-↓
+- `server-only` turns "this secret leaked into the browser bundle" from a
+  production incident into a build error. Put it in every module that touches
+  secrets, the database, or internal services.
+- Anything referenced by a `"use client"` module — including transitively — ends
+  up in the bundle. **Never** import a module holding secrets from a client
+  component.
+- Only `NEXT_PUBLIC_*` environment variables reach the browser, and they are
+  inlined at build time. Everything else is server-side; never prefix a secret.
+- Data returned from a server component to a client component is **serialised into
+  the HTML**. Returning a full user row sends the password hash to the browser.
+  Project explicit fields. → `Security/secret-management`
 
-Understand Users
-
-↓
-
-Choose Rendering Strategy
-
-↓
-
-Design Application Architecture
-
-↓
-
-Optimize Performance
-
-↓
-
-Observe Behavior
-
-↓
-
-Continuously Improve
-
-↓
-
-Approve
-
-Render only what provides value.
-
-Everything else is unnecessary work.
+Validate environment variables at startup and fail the boot on a missing one,
+rather than discovering it on one code path at 3am. → `Backend/error-handling`
 
 ---
+</rules>
 
-# Primary Objective
+# Route handlers
 
-Every Next.js application should answer one question.
+<rules>
+```ts
+// app/api/orders/route.ts
+export async function POST(req: Request) {
+  const session = await auth();                        // never trust a header
+  if (!session) return Response.json({ code: "unauthenticated" }, { status: 401 });
 
-"Can this application deliver the fastest possible user experience while remaining maintainable, scalable, and production-ready?"
+  const parsed = CreateOrder.safeParse(await req.json());
+  if (!parsed.success) return Response.json(toFieldErrors(parsed.error), { status: 422 });
 
-If the answer is uncertain,
+  const order = await createOrder(session.user, parsed.data);
+  return Response.json(order, { status: 201, headers: { "Cache-Control": "no-store" } });
+}
+```
 
-the architecture requires improvement.
-
----
-
-# Engineering Principles
-
-Every implementation should maximize
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-SEO
-
-↓
-
-Accessibility
-
-↓
-
-Security
-
-↓
-
-Developer Experience
-
-User experience should drive architecture decisions.
+- Authenticate and authorize **inside every handler**. Middleware is a coarse
+  filter running on a different runtime — it is not the authorization layer.
+- Validate every body, query and route parameter against a schema.
+  → `Backend/validation`
+- Set `Cache-Control: no-store` on any authenticated response. A cached
+  authenticated response served to another user is a real and recurring bug class.
+- Return proper status codes and one consistent error shape. → `API/rest`
+- Declare `export const runtime = "nodejs"` or `"edge"` deliberately — the edge
+  runtime has no Node APIs and most database drivers do not work there.
 
 ---
+</rules>
 
-# Development Workflow
+# Caching: know which cache you are in
 
-Understand Requirements
+<rules>
+Next.js caches at several layers, and the defaults change between versions. Be
+explicit rather than relying on them.
 
-↓
+| Layer | Controls |
+| --- | --- |
+| `fetch` memoisation | Per-request deduplication of identical calls |
+| Data cache | `fetch(url, { cache, next: { revalidate, tags } })` |
+| Full route cache | Static rendering of a route at build time |
+| Router cache | Client-side, per navigation |
 
-Design Routes
+```ts
+const res = await fetch(url, { next: { revalidate: 60, tags: ["orders"] } });
+revalidateTag("orders");     // after a mutation — precise invalidation
 
-↓
+// Anything user-specific must never be cached
+const res = await fetch(url, { cache: "no-store" });
+```
 
-Choose Rendering Strategy
-
-↓
-
-Build Components
-
-↓
-
-Fetch Data
-
-↓
-
-Optimize Performance
-
-↓
-
-Deploy
-
-↓
-
-Approve
-
----
-
-# Stage 1 — Product Understanding
-
-Before writing code determine
-
-Business goals
-
-↓
-
-Target users
-
-↓
-
-SEO requirements
-
-↓
-
-Authentication
-
-↓
-
-Content updates
-
-↓
-
-Performance goals
-
-↓
-
-Expected traffic
-
-Architecture follows product requirements.
+- **Any request whose response depends on the user must be `no-store`.** Caching a
+  personalised response and serving it to another visitor is the highest-impact
+  Next.js caching bug.
+- Reading `cookies()` or `headers()` makes a route dynamic. That is correct — do
+  not work around it to force static rendering of authenticated content.
+- Use `revalidateTag`/`revalidatePath` after mutations. Stale data after a
+  successful write is what users report as "it didn't save".
+- Verify with `next build` output which routes are static (`○`) and which are
+  dynamic (`ƒ`). A route you expected to be dynamic rendering statically is a
+  correctness bug, not a performance note.
 
 ---
+</rules>
 
-# Stage 2 — Application Structure
+# Server Actions are public endpoints
 
-Prefer feature-based organization.
+<rules>
+```ts
+"use server";
+export async function deleteOrder(orderId: string) {
+  const session = await auth();                          // required
+  if (!session) throw new Error("unauthenticated");
 
-Example
+  const parsed = z.string().uuid().parse(orderId);       // required
+  const deleted = await db.order.deleteMany({
+    where: { id: parsed, tenantId: session.user.tenantId },   // scoped
+  });
+  if (deleted.count === 0) throw new Error("not found");
+  revalidatePath("/orders");
+}
+```
 
-app/
+A Server Action compiles to an HTTP endpoint that anyone can call with any
+arguments. The fact that your UI only calls it from an admin page is not a
+control.
 
-components/
+**Every** action authenticates, authorizes, and validates its arguments — exactly
+like a route handler. Scope the query by tenant rather than checking after the
+fetch. → `Backend/authorization`
 
-features/
-
-lib/
-
-hooks/
-
-services/
-
-actions/
-
-styles/
-
-types/
-
-public/
-
-middleware/
-
-tests/
-
-Keep business logic separate from UI.
+Actions are for mutations. Fetch data in server components.
 
 ---
+</rules>
 
-# Stage 3 — Routing
+# Deployment and runtime
 
-Routes should
-
-Represent user journeys
-
-Remain predictable
-
-Support nested layouts
-
-Support route groups
-
-Support loading states
-
-Support error boundaries
-
-Navigation should feel natural.
-
----
-
-# Stage 4 — Rendering Strategy
-
-Choose intentionally.
-
-Static Rendering (SSG)
-
-↓
-
-Incremental Static Regeneration (ISR)
-
-↓
-
-Server-Side Rendering (SSR)
-
-↓
-
-Server Components
-
-↓
-
-Client Components
-
-↓
-
-Edge Rendering
-
-Never default to Client Components.
-
-Use the simplest rendering strategy that satisfies requirements.
+<rules>
+- Serverless means **no shared process state**. In-memory caches, rate limiters
+  and counters are per-instance and reset constantly. Use Redis.
+  → `Database/redis`
+- Database connections: one module-scope client, a pooled connection string, and
+  a transaction-mode pooler. A client per invocation exhausts `max_connections`.
+  → `Database/prisma`
+- Long work does not belong in a request — serverless functions have hard
+  execution limits. Enqueue it. → `Backend/background-jobs`
+- `middleware.ts` runs on every matched request including static assets; scope its
+  `matcher` tightly and keep it free of blocking I/O.
+- Set security headers in `next.config.js` headers or middleware, and use a
+  nonce-based CSP rather than `unsafe-inline`. → `Security/headers`
 
 ---
+</rules>
 
-# Stage 5 — Server Components
+# Anti-patterns
 
-Prefer Server Components when
-
-Rendering data
-
-Fetching databases
-
-Calling internal services
-
-Accessing secrets
-
-Generating metadata
-
-Server Components reduce JavaScript sent to browsers.
-
----
-
-# Stage 6 — Client Components
-
-Use Client Components only when required.
-
-Examples
-
-State
-
-Events
-
-Forms
-
-Animations
-
-Browser APIs
-
-Interactive dashboards
-
-Interactive maps
-
-Client Components increase bundle size.
-
-Use intentionally.
+<antipatterns>
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Secret module imported by a client component | Secret ships in the browser bundle | `server-only` |
+| Secret in a `NEXT_PUBLIC_` variable | Inlined into client JavaScript | Server-side variable |
+| Returning a full database row to a client component | Serialised into the HTML | Project explicit fields |
+| Authorization only in `middleware.ts` | Coarse, different runtime, easily bypassed | Check in every handler and action |
+| Server Action without auth or validation | It is a public endpoint | Authenticate, authorize, validate |
+| Fetch-then-check ownership | One missed branch leaks data | Scope inside the query |
+| Caching a personalised response | Served to another user | `no-store` for authenticated data |
+| No revalidation after mutation | Users see stale data | `revalidateTag` / `revalidatePath` |
+| Relying on default cache behaviour | Changes between versions | Explicit `cache` and `revalidate` |
+| In-memory rate limiter | Per-instance, resets constantly | Shared store |
+| New database client per request | Connection exhaustion | Module-scope client + pooler |
+| Long-running work in a handler | Hits the execution limit | Background job |
+| Broad middleware `matcher` | Runs on every asset | Scope tightly |
+| `unsafe-inline` CSP | Defeats the point of a CSP | Nonce-based |
+| Runtime not declared | Edge runtime breaks database drivers | Declare it explicitly |
 
 ---
-
-# Stage 7 — Data Fetching
-
-Prefer
-
-Server Components
-
-↓
-
-Server Actions
-
-↓
-
-Route Handlers
-
-↓
-
-Client Fetching (only when necessary)
-
-Avoid unnecessary client-side fetching.
-
----
-
-# Stage 8 — Server Actions
-
-Use Server Actions for
-
-Forms
-
-Mutations
-
-CRUD
-
-Authentication
-
-Business operations
-
-Validation
-
-Server Actions reduce API boilerplate.
-
----
-
-# Stage 9 — API Routes
-
-Use Route Handlers for
-
-Public APIs
-
-Webhooks
-
-SDK integrations
-
-Third-party callbacks
-
-External consumers
-
-Internal UI should prefer Server Actions whenever possible.
-
----
-
-# Stage 10 — State Management
-
-Choose the smallest solution.
-
-Component State
-
-↓
-
-Context
-
-↓
-
-Server State
-
-↓
-
-Global Store
-
-↓
-
-External Cache
-
-Avoid global state unless necessary.
-
----
-
-# Stage 11 — Performance
-
-Review
-
-Code Splitting
-
-Image Optimization
-
-Font Optimization
-
-Streaming
-
-Caching
-
-Prefetching
-
-Lazy Loading
-
-Bundle Size
-
-Performance should be measured continuously.
-
----
-
-# Stage 12 — Caching
-
-Review
-
-Request Cache
-
-↓
-
-Data Cache
-
-↓
-
-Router Cache
-
-↓
-
-Revalidation
-
-↓
-
-Tag Revalidation
-
-↓
-
-Cache Invalidation
-
-Caching strategy should reflect business requirements.
-
----
-
-# Stage 13 — Security
-
-Review
-
-Authentication
-
-Authorization
-
-Server-only secrets
-
-CSRF
-
-Headers
-
-Input validation
-
-Output sanitization
-
-Environment variables
-
-Secrets belong only on the server.
-
----
-
-# Stage 14 — SEO
-
-Review
-
-Metadata
-
-Canonical URLs
-
-Structured Data
-
-Sitemaps
-
-Robots
-
-Open Graph
-
-Twitter Cards
-
-Semantic HTML
-
-Search engines should understand every page.
-
----
-
-# Stage 15 — Accessibility
-
-Review
-
-Semantic HTML
-
-Keyboard navigation
-
-ARIA
-
-Focus management
-
-Contrast
-
-Screen readers
-
-Forms
-
-Accessibility is mandatory.
-
-Not optional.
-
----
-
-# Stage 16 — Error Handling
-
-Implement
-
-Error Boundaries
-
-Loading UI
-
-Not Found pages
-
-Retry strategies
-
-Graceful degradation
-
-User-friendly messages
-
-Applications should fail gracefully.
-
----
-
-# Stage 17 — Observability
-
-Implement
-
-Structured logging
-
-Performance monitoring
-
-Tracing
-
-Analytics
-
-Health checks
-
-Error reporting
-
-Measure production behavior continuously.
-
----
-
-# Stage 18 — Testing
-
-Implement
-
-Unit Tests
-
-Component Tests
-
-Integration Tests
-
-E2E Tests
-
-Accessibility Tests
-
-Performance Tests
-
-Regression Tests
-
-Testing validates user experience.
-
----
-
-# Stage 19 — Production Readiness
-
-Verify
-
-Environment variables
-
-Caching
-
-Monitoring
-
-Security
-
-Deployment
-
-Rollback
-
-CDN
-
-Image optimization
-
-Everything should be production-ready before release.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Performance
-
-SEO
-
-Accessibility
-
-Developer feedback
-
-Security
-
-Technical debt
-
-Core Web Vitals
-
-Bundle size
-
-Applications should improve with every release.
-
----
-
-# Next.js Quality Attributes
-
-Evaluate
-
-Performance
-
-Maintainability
-
-Scalability
-
-Reliability
-
-SEO
-
-Accessibility
-
-Security
-
-Developer Experience
-
----
-
-# Engineering Questions
-
-Before approval ask
-
-Does every page use the correct rendering strategy?
-
-↓
-
-Can Server Components replace Client Components?
-
-↓
-
-Is unnecessary JavaScript eliminated?
-
-↓
-
-Are Core Web Vitals optimized?
-
-↓
-
-Can another engineer understand the architecture quickly?
-
-↓
-
-Will this application scale without major redesign?
-
-↓
-
-Would this application feel fast on a slow mobile network?
-
----
-
-# Severity Levels
-
-Critical
-
-Sensitive data exposed
-
-Server secrets leaked
-
-Broken authentication
-
-Severe performance issues
-
-Security vulnerability
-
-Major
-
-Incorrect rendering strategy
-
-Large client bundles
-
-Missing SEO
-
-Weak caching
-
-Poor architecture
-
-Medium
-
-Documentation improvements
-
-Optimization opportunities
-
-Naming inconsistencies
-
-Accessibility improvements
-
-Minor
-
-Formatting
-
-Examples
-
-Comments
-
-Future optimizations
-
-Developer experience improvements
-
----
-
-# Next.js Checklist
-
-✓ App Router architecture
-
-✓ Feature-based organization
-
-✓ Correct rendering strategy
-
-✓ Server Components preferred
-
-✓ Client Components minimized
-
-✓ Server Actions implemented
-
-✓ Route Handlers reviewed
-
-✓ Caching optimized
-
-✓ SEO complete
-
-✓ Accessibility reviewed
-
-✓ Security validated
-
-✓ Performance optimized
-
-✓ Monitoring enabled
-
-✓ Testing completed
-
-✓ Production ready
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Making everything a Client Component
-
-Fetching data inside useEffect unnecessarily
-
-Large global state
-
-Exposing server secrets
-
-Duplicating business logic
-
-Ignoring caching
-
-Ignoring streaming
-
-Overusing API routes for internal actions
-
-Large JavaScript bundles
-
-Poor folder organization
-
-Blocking rendering unnecessarily
-
-Ignoring Core Web Vitals
-
----
-
-# Definition of Done
-
-Next.js engineering review is complete when
-
-- Every page uses the most appropriate rendering strategy.
-- Server Components are preferred whenever client-side interactivity is unnecessary.
-- Server Actions handle internal mutations efficiently while Route Handlers expose external APIs.
-- Data fetching, caching, and revalidation are optimized for performance and correctness.
-- Security protects secrets, authentication, and user data throughout the application.
-- SEO, accessibility, and Core Web Vitals meet production-quality standards.
-- Monitoring, testing, and deployment practices support long-term operational excellence.
-- The architecture remains modular, maintainable, and scalable as the application evolves.
-- Developers can extend the application without introducing unnecessary complexity.
-- Users experience a fast, reliable, and seamless application across all devices and network conditions.
-
-Exceptional Next.js applications feel effortless.
-
-Pages load instantly, interactions remain smooth, search engines understand every page, developers work efficiently, and the underlying architecture scales confidently as the product grows.
+</antipatterns>
+
+# Checklist
+
+<checklist>
+- [ ] Server-only modules are marked with `server-only`
+- [ ] No secret is exposed through a `NEXT_PUBLIC_` variable
+- [ ] Environment variables are validated at startup
+- [ ] Data crossing to client components is explicitly projected
+- [ ] Every route handler authenticates and authorizes independently of middleware
+- [ ] Every route handler validates its input against a schema
+- [ ] Authenticated responses set `Cache-Control: no-store`
+- [ ] The runtime (`nodejs` / `edge`) is declared per route
+- [ ] Cache behaviour is explicit; personalised data is never cached
+- [ ] Mutations call `revalidateTag` or `revalidatePath`
+- [ ] `next build` output has been checked for unexpectedly static routes
+- [ ] Every Server Action authenticates, authorizes and validates its arguments
+- [ ] Queries are scoped by tenant inside the `where` clause
+- [ ] No in-memory state is relied on across invocations
+- [ ] One module-scope database client behind a connection pooler
+- [ ] Long-running work is queued, not run in a request
+- [ ] `middleware.ts` has a tight matcher and no blocking I/O
+- [ ] Security headers and a nonce-based CSP are configured
+</checklist>
