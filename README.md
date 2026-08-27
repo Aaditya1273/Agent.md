@@ -6,7 +6,7 @@
 
 Configure Claude and every AI coding assistant with production-ready engineering standards in seconds.
 
-<img width="1672" height="941" alt="Agent.md" src="https://github.com/user-attachments/assets/2defc7cf-d968-48d9-b148-eed4eceda17e" />
+<img width="1672" height="941" alt="AGENT.md" src="https://github.com/user-attachments/assets/9eae353f-7e57-4254-a06d-033f3027f6f6" />
 
 [![npm](https://img.shields.io/npm/v/agentmd-cli?label=agentmd-cli&color=000)](https://www.npmjs.com/package/agentmd-cli)
 [![npm downloads](https://img.shields.io/npm/dm/agentmd-cli?color=000)](https://www.npmjs.com/package/agentmd-cli)
