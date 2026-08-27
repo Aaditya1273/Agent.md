@@ -5,1137 +5,171 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: prefetching
+category: Performance
+description: Loading things before they are needed — resource hints, prefetch on intent, speculation rules, and not wasting a user's bandwidth or battery.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# prefetching.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, prefetching methodologies, predictive resource loading strategies, execution prioritization, dependency optimization, and long-term best practices for proactively preparing application resources while preserving responsiveness, efficiency, scalability, maintainability, and engineering quality.
+Rules for fetching resources before the user asks. Done well, a navigation feels
+instant. Done badly, prefetching competes with the resources that are actually
+blocking the current page, and costs users money on metered connections.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- APIs
-- Progressive Web Applications
-- Mobile Applications
-- Dashboards
-- Documentation Platforms
-- Production Software
-
-Prefetching is not downloading everything early.
-
-Prefetching is the engineering discipline of intelligently retrieving resources before they are explicitly requested based on predictable user behavior, application flow, and business context while minimizing unnecessary bandwidth, computation, storage, and operational overhead.
-
-Effective prefetching prepares for likely future work without creating unnecessary work.
+The governing question for every hint: **does this compete with something the user
+needs right now?** If yes, it is a regression, not an optimisation.
 
 ---
 
-# Core Philosophy
+# The hints, and what each actually does
 
-Understand User Behavior
+| Hint | Does | Cost if wrong |
+| --- | --- | --- |
+| `dns-prefetch` | Resolves DNS only | Negligible |
+| `preconnect` | DNS + TCP + TLS | An idle connection; limited slots |
+| `preload` | Fetches now, **high priority** | Competes with render-blocking work |
+| `modulepreload` | Fetches and parses an ES module | Same |
+| `prefetch` | Fetches at **lowest** priority for a future navigation | Bandwidth |
+| `prerender` (speculation rules) | Renders the whole page in the background | CPU, memory, bandwidth |
 
-↓
+```html
+<link rel="preconnect" href="https://cdn.example.com" crossorigin />
+<link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="prefetch" href="/checkout" as="document" />
+```
 
-Predict Future Needs
+Two frequent mistakes:
 
-↓
+- **`preload` without `as`** — the browser cannot set a priority or reuse the
+  response, and the resource is fetched **twice**.
+- **`preload` for fonts without `crossorigin`** — fonts fetch in CORS mode, so the
+  preload does not match and downloads again.
 
-Evaluate Resource Value
-
-↓
-
-Prefetch High-Probability Resources
-
-↓
-
-Preserve System Efficiency
-
-↓
-
-Validate User Experience
-
-↓
-
-Measure Effectiveness
-
-↓
-
-Continuously Improve
-
-Resources should arrive before users need them—but only when prediction is justified.
+Preload only what blocks the first render: typically one font and the LCP image.
+Everything else competes with them. → `Performance/fonts`
 
 ---
 
-# Primary Objective
+# Prefetch on intent, not on load
 
-Every prefetching strategy should maximize
+Prefetching every link on a page wastes bandwidth on the majority nobody clicks.
+Use signals that precede the click:
 
-Responsiveness
+```tsx
+<Link href="/reports"
+      onMouseEnter={() => router.prefetch("/reports")}
+      onFocus={() => router.prefetch("/reports")} />
+```
 
-+
+| Signal | Lead time | Accuracy |
+| --- | --- | --- |
+| Viewport entry | Seconds | Low — most visible links are not clicked |
+| Hover | 200–300 ms | High |
+| Focus (keyboard) | Similar | High |
+| `pointerdown` | ~80 ms | Very high |
+| Known flow step (cart → checkout) | Long | Very high |
 
-Efficiency
+Hover plus focus is the default: enough lead time to matter, high enough accuracy
+not to be wasteful, and it covers keyboard users.
 
-+
-
-Reliability
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Resource Utilization
-
-+
-
-Predictability
-
-+
-
-Long-Term Sustainability
-
-Prefetching should reduce waiting without increasing unnecessary work.
+For known funnels, prefetch the next step as soon as the user enters the current
+one — the checkout bundle should already be there when they finish the cart.
 
 ---
 
-# Engineering Principles
+# Speculation rules
 
-Always prioritize
+```html
+<script type="speculationrules">
+{
+  "prerender": [{
+    "where": { "href_matches": "/checkout" },
+    "eagerness": "moderate"
+  }],
+  "prefetch": [{
+    "where": { "href_matches": "/*" },
+    "eagerness": "conservative"
+  }]
+}
+</script>
+```
 
-User Experience
+`eagerness` controls the trigger: `conservative` on pointer-down, `moderate` on
+hover, `eager` immediately. Start conservative and raise it only where the
+conversion is genuinely predictable.
 
-↓
+**Prerendering runs the page**, including its JavaScript. Consequences:
 
-Evidence-Based Prediction
-
-↓
-
-Minimal Resource Waste
-
-↓
-
-Predictable Loading
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Every prefetched resource should have measurable probability of being used.
+- Analytics will record a page view for a page nobody saw. Gate on the Page
+  Visibility API or `document.prerendering`.
+- Any side effect — a POST, a counter increment, a "mark as read" — executes.
+  Never prerender a page that mutates state on load.
+- It costs real CPU and memory on the user's device. Prerender one likely
+  destination, not ten.
 
 ---
 
-# Prefetching Engineering Lifecycle
+# Respect the user's constraints
 
-Understand User Flow
+```ts
+const c = (navigator as any).connection;
+if (c?.saveData || /2g/.test(c?.effectiveType ?? "")) return;   // do not prefetch
+```
 
-↓
-
-Analyze Resource Usage
-
-↓
-
-Predict Future Requests
-
-↓
-
-Evaluate Resource Priority
-
-↓
-
-Prefetch Resources
-
-↓
-
-Validate User Experience
-
-↓
-
-Measure Efficiency
-
-↓
-
-Continuously Improve
-
-Successful prefetching combines prediction with engineering discipline.
+- Honour `Save-Data` and `prefers-reduced-data`. Prefetching on a metered
+  connection spends the user's money on something they may never use.
+- Skip prefetching on slow connections — the bandwidth is needed for the current
+  page.
+- Consider battery: speculative work on a low battery is a poor trade.
+- Prefetched responses obey `Cache-Control`. A resource marked `no-store` is
+  fetched and discarded — pure waste. Check the headers on anything you prefetch.
+- **Never prefetch authenticated or personalised URLs speculatively** — the
+  response may be cached, logged or attributed to the wrong session, and it
+  creates load nobody asked for. → `Performance/caching`
 
 ---
 
-# Stage 1 — User Journey Analysis
+# Anti-patterns
 
-Understand
-
-Business Objectives
-
-↓
-
-Navigation Patterns
-
-↓
-
-Interaction Frequency
-
-↓
-
-Application Workflows
-
-↓
-
-Feature Usage
-
-↓
-
-Behavior Trends
-
-↓
-
-Operational Constraints
-
-↓
-
-Future Growth
-
-Prediction begins with understanding user behavior.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `preload` without `as` | No priority; fetched twice | Always specify `as` |
+| Font preload without `crossorigin` | Downloaded twice | Add `crossorigin` |
+| Preloading many resources | Competes with render-blocking work | One font, the LCP image |
+| `preload` used for future navigations | Wrong hint; high priority now | `prefetch` |
+| `preconnect` to many origins | Idle connections; limited slots | Only definite origins |
+| Prefetching every link on load | Bandwidth for links nobody clicks | Prefetch on intent |
+| Viewport-based prefetch on a link-dense page | Dozens of wasted requests | Hover/focus, or conservative eagerness |
+| `eagerness: eager` by default | Speculative cost for most users | Start conservative |
+| Prerendering a page with side effects | POSTs and counters fire unseen | Never prerender mutating pages |
+| Prerender without visibility gating | Phantom analytics page views | `document.prerendering` |
+| Prerendering many candidates | CPU and memory on the user's device | One likely destination |
+| Ignoring `Save-Data` | Spends a metered user's money | Check and skip |
+| Prefetching `no-store` responses | Fetched and discarded | Check cache headers |
+| Prefetching authenticated URLs | Wrong-session caching; unnecessary load | Never speculatively |
+| Prefetching without measuring | May be pure cost | Measure navigation timing |
 
 ---
 
-# Stage 2 — Resource Analysis
-
-Identify
-
-Application Code
-
-↓
-
-API Responses
-
-↓
-
-Pages
-
-↓
-
-Components
-
-↓
-
-Images
-
-↓
-
-Fonts
-
-↓
-
-Configuration
-
-↓
-
-Shared Resources
-
-Every resource has a prefetching cost.
-
----
-
-# Stage 3 — Prediction Analysis
-
-Evaluate
-
-Navigation Probability
-
-↓
-
-Interaction Probability
-
-↓
-
-Resource Reuse
-
-↓
-
-Business Priority
-
-↓
-
-Historical Behavior
-
-↓
-
-Context Awareness
-
-↓
-
-Session Patterns
-
-↓
-
-Operational Impact
-
-Prediction should remain evidence-based.
-
----
-
-# Stage 4 — Priority Evaluation
-
-Classify
-
-Critical Resources
-
-↓
-
-High Probability Resources
-
-↓
-
-Medium Probability Resources
-
-↓
-
-Low Probability Resources
-
-↓
-
-Optional Resources
-
-↓
-
-Background Resources
-
-↓
-
-Deferred Resources
-
-↓
-
-Unused Resources
-
-Only valuable predictions deserve prefetching.
-
----
-
-# Stage 5 — Prefetch Strategy
-
-Define
-
-Navigation Prefetching
-
-↓
-
-Resource Prefetching
-
-↓
-
-API Prefetching
-
-↓
-
-Component Prefetching
-
-↓
-
-Background Loading
-
-↓
-
-Idle-Time Loading
-
-↓
-
-Recovery Strategy
-
-↓
-
-Operational Limits
-
-Prefetching should remain intentional.
-
----
-
-# Stage 6 — Resource Preparation
-
-Execute
-
-Prediction
-
-↓
-
-Scheduling
-
-↓
-
-Network Requests
-
-↓
-
-Caching
-
-↓
-
-Validation
-
-↓
-
-Synchronization
-
-↓
-
-Availability
-
-↓
-
-User Readiness
-
-Prepared resources should remain immediately usable.
-
----
-
-# Stage 7 — Correctness Validation
-
-Validate
-
-Prediction Accuracy
-
-↓
-
-Resource Availability
-
-↓
-
-Consistency
-
-↓
-
-Cache Integrity
-
-↓
-
-User Experience
-
-↓
-
-Accessibility
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Prepared resources should remain correct and current.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Prefetch Success Rate
-
-↓
-
-Resource Usage
-
-↓
-
-Latency Reduction
-
-↓
-
-Bandwidth Usage
-
-↓
-
-Memory Usage
-
-↓
-
-CPU Usage
-
-↓
-
-User Experience
-
-↓
-
-Operational Stability
-
-Prefetching effectiveness should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Unused Prefetched Resources
-
-↓
-
-Incorrect Predictions
-
-↓
-
-Duplicate Requests
-
-↓
-
-Bandwidth Waste
-
-↓
-
-Memory Growth
-
-↓
-
-CPU Overhead
-
-↓
-
-Scheduling Problems
-
-↓
-
-Operational Waste
-
-Optimization should improve prediction efficiency.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Prediction Boundaries
-
-↓
-
-Resource Ownership
-
-↓
-
-Dependency Relationships
-
-↓
-
-Loading Strategy
-
-↓
-
-Caching Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Future Evolution
-
-Architecture determines sustainable prefetching.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Applications
-
-↓
-
-Large Navigation Trees
-
-↓
-
-High Traffic
-
-↓
-
-Distributed Systems
-
-↓
-
-Large Resource Libraries
-
-↓
-
-Concurrent Users
-
-↓
-
-Operational Stability
-
-↓
-
-Future Expansion
-
-Prefetching should scale predictably.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Prediction Accuracy
-
-↓
-
-Resource Freshness
-
-↓
-
-Failure Recovery
-
-↓
-
-Fallback Strategy
-
-↓
-
-Synchronization
-
-↓
-
-Availability
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Reliable prefetching preserves user trust.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Prefetch Strategy
-
-↓
-
-Prediction Rules
-
-↓
-
-Engineering Decisions
-
-↓
-
-Architecture
-
-↓
-
-Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Incorrect Predictions
-
-↓
-
-Bandwidth Waste
-
-↓
-
-Memory Exhaustion
-
-↓
-
-Stale Resources
-
-↓
-
-Performance Regression
-
-↓
-
-Operational Risks
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-Prediction risks should remain continuously visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Bandwidth
-
-↓
-
-Memory
-
-↓
-
-Maintainability
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Future Evolution
-
-Every prediction introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Prediction Quality
-
-↓
-
-Performance
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-Prefetching improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Prefetch Summary
-
-↓
-
-Prediction Metrics
-
-↓
-
-Performance Results
-
-↓
-
-Optimization Opportunities
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports preserve engineering knowledge.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Workloads
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Recovery
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Maintainability
-
-Prefetching should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Prefetch Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Discipline
-
-Prediction quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Prediction Accuracy
-
-↓
-
-Resource Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional software prepares intelligently for future work while minimizing unnecessary resource consumption and preserving engineering simplicity.
-
----
-
-# Prefetching Quality Attributes
-
-Evaluate
-
-Responsiveness
-
-Efficiency
-
-Reliability
-
-Predictability
-
-Scalability
-
-Maintainability
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every prefetched resource have measurable probability of being used?
-
-↓
-
-Can unnecessary prefetching be eliminated?
-
-↓
-
-Has prediction been supported by measurable evidence?
-
-↓
-
-Does prefetching improve actual user experience?
-
-↓
-
-Will future engineers understand these prediction decisions?
-
-↓
-
-Does the architecture scale as applications grow?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this prefetching strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Application instability
-
-Incorrect resource delivery
-
-Operational failure
-
-Data inconsistency
-
-Major
-
-Bandwidth waste
-
-Memory growth
-
-Poor prediction accuracy
-
-Performance degradation
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Prefetching Checklist
-
-✓ User journey analyzed
-
-✓ Resources evaluated
-
-✓ Prediction analysis completed
-
-✓ Priorities defined
-
-✓ Strategy documented
-
-✓ Resource preparation validated
-
-✓ Correctness verified
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Prefetching everything
-
-Predicting without evidence
-
-Ignoring bandwidth costs
-
-Preparing low-value resources
-
-Duplicate resource downloads
-
-Prefetching stale information
-
-Ignoring cache consistency
-
-Increasing complexity for insignificant gains
-
-Architecture driven by implementation shortcuts
-
-Ignoring scalability
-
-Optimizing benchmarks instead of user experience
-
-Treating prediction as certainty
-
----
-
-# Definition of Done
-
-A prefetching strategy is considered complete when
-
-- Resources are proactively prepared according to measurable user behavior, navigation probability, business priority, and application workflows while preserving correctness, reliability, maintainability, scalability, operational stability, and architectural integrity.
-- Prediction models, resource prioritization, network utilization, caching behavior, dependency relationships, scheduling strategies, memory consumption, and bandwidth usage have been systematically optimized through evidence-based engineering decisions rather than assumptions.
-- Prefetching architecture supports predictable resource preparation, scalable application growth, reliable recovery mechanisms, efficient resource utilization, maintainable software evolution, operational excellence, and sustainable engineering practices without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate prediction accuracy, resource freshness, performance characteristics, architectural consistency, documentation quality, maintainability, scalability, production readiness, and long-term sustainability before deployment.
-- Documentation clearly explains prediction strategies, prioritization decisions, engineering trade-offs, validation evidence, governance expectations, operational constraints, known limitations, and future optimization opportunities.
-- Prefetching decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than framework-specific implementation techniques.
-- The resulting system demonstrates engineering discipline, intelligent resource preparation, responsive user experience, architectural clarity, operational excellence, predictable scalability, efficient resource utilization, maintainability, and long-term software sustainability.
-
-Exceptional prefetching is not measured by how many resources are downloaded before they are needed.
-
-It is measured by how accurately software anticipates future user needs, prepares only the resources most likely to provide immediate value, minimizes unnecessary resource consumption, preserves operational efficiency, and continuously improves through measurable engineering evidence.
+# Checklist
+
+- [ ] Verify: Every `preload` specifies `as`, and fonts include `crossorigin`
+- [ ] Verify: Preloading is limited to render-blocking resources
+- [ ] Verify: `preconnect` is used only for origins certain to be needed
+- [ ] Verify: Future navigations use `prefetch`, not `preload`
+- [ ] Verify: Prefetching is triggered by hover, focus or a known flow step
+- [ ] Verify: Speculation rules start at conservative eagerness
+- [ ] Verify: No page with load-time side effects is prerendered
+- [ ] Verify: Prerendered pages gate analytics on visibility
+- [ ] Verify: At most one or two destinations are prerendered
+- [ ] Verify: `Save-Data` and slow connections disable prefetching
+- [ ] Verify: Prefetch targets are cacheable, not `no-store`
+- [ ] Verify: Authenticated and personalised URLs are never speculatively fetched
+- [ ] Verify: The effect of prefetching on navigation timing is measured

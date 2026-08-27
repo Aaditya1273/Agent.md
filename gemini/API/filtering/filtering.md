@@ -5,756 +5,179 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: filtering
+category: API
+description: Filter parameters that are expressive without being injectable — allowlisted fields, typed operators, index-backed queries, and bounded cost.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# filtering.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines how Gemini should design, review, implement, document, and optimize API filtering.
+Rules for query filtering on list endpoints. Filtering sits directly on top of the
+database, which makes it the place where API design, SQL injection and query
+performance meet. Three requirements, in priority order:
 
-Filtering is not simply reducing the number of returned records.
-
-Filtering is a query capability that enables clients to retrieve only the data relevant to their current task while maintaining correctness, consistency, performance, and scalability.
-
-The objective is to design filtering systems that are intuitive, composable, secure, and efficient regardless of dataset size.
-
-Filtering should reduce unnecessary data transfer without increasing API complexity.
+1. **Safe** — no client string ever reaches SQL as structure.
+2. **Bounded** — no filter combination can produce an unindexed full scan.
+3. **Predictable** — the same query means the same thing next release.
 
 ---
 
-# Core Philosophy
+# Syntax: pick one and hold it
 
-Understand Data
+| Style | Example | Trade-off |
+| --- | --- | --- |
+| Flat equality | `?status=paid&currency=EUR` | Simplest; no ranges |
+| Bracketed operators | `?total[gte]=1000&status[in]=paid,void` | Readable, expressive. **Default** |
+| Prefixed operators | `?minTotal=1000&maxTotal=5000` | Explicit; parameter count grows |
+| RSQL / OData | `?filter=total>=1000;status==paid` | Very expressive; needs a real parser |
+| JSON in a query param | `?filter={"total":{"$gte":1000}}` | Awkward to encode; invites Mongo-style injection |
 
-↓
+Bracketed operators cover almost every real need without a grammar to maintain.
+Whatever you choose, use it on **every** list endpoint — a per-endpoint dialect is
+a permanent tax on client authors.
 
-Understand User Intent
+Repeated parameters mean `IN`, and it should be documented:
 
-↓
-
-Design Filters
-
-↓
-
-Validate Requests
-
-↓
-
-Optimize Queries
-
-↓
-
-Return Relevant Data
-
-↓
-
-Approve
-
-Filtering should help users find information.
-
-Never make them search manually.
+```
+?status=paid&status=refunded        →  status IN ('paid','refunded')
+?tag=eu&tag=priority                →  tag = 'eu' AND tag = 'priority'   (also valid — pick one, document it)
+```
 
 ---
 
-# Primary Objective
+# Allowlist the field and the operator
 
-Every filtering system should answer one question.
+This is the whole security story. Never map client input to SQL structure by
+interpolation.
 
-"Can clients retrieve exactly the records they need with clear, predictable, and efficient filters?"
+```ts
+const FILTERABLE = {
+  status:    { column: "status",       ops: ["eq", "in"],               type: "enum"   },
+  totalCents:{ column: "total_cents",  ops: ["eq","gte","lte"],         type: "int"    },
+  createdAt: { column: "created_at",   ops: ["gte","lte"],              type: "date"   },
+  email:     { column: "email",        ops: ["eq", "startsWith"],       type: "string" },
+} as const;
 
-If the answer is uncertain,
+const OPS = { eq: "=", gte: ">=", lte: "<=", in: "IN" } as const;
 
-the filtering strategy requires redesign.
+function clause(field: string, op: string, raw: unknown) {
+  const spec = FILTERABLE[field];
+  if (!spec) throw new BadRequest(`Unknown filter field: ${field}`);
+  if (!spec.ops.includes(op)) throw new BadRequest(`Operator ${op} not allowed on ${field}`);
+  const value = coerce(spec.type, raw);              // throws on a bad value
+  return { sql: `${spec.column} ${OPS[op]} ?`, value };   // column from the table, never from input
+}
+```
 
----
+Three properties matter:
 
-# Filtering Principles
+- The **column name comes from your table**, keyed by an alias. A client-supplied
+  column name interpolated into SQL is injection even if the value is
+  parameterised. → `Security/sql-injection`
+- The **operator comes from a fixed map**. `OPS[op]` with an unknown key is
+  `undefined`, not a fragment.
+- Values are **parameterised and type-coerced**. Reject `?totalCents[gte]=abc`
+  with `400`, do not coerce it to `0`.
 
-Every implementation should maximize
-
-Clarity
-
-↓
-
-Predictability
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-↓
-
-Scalability
-
-↓
-
-Security
-
-↓
-
-Developer Experience
-
-Filtering should reduce complexity.
-
-Never create ambiguity.
+Exposing your internal column names in the API also freezes your schema — the
+alias layer means a column rename is not a breaking change.
 
 ---
 
-# Filtering Workflow
+# Bound the cost
 
-Understand Dataset
+An expressive filter language lets a client construct a query nobody planned for.
 
-↓
+- Every filterable field must be **indexed**, or explicitly documented as slow and
+  rate-limited more strictly. → `Database/indexes`
+- Cap the number of filters per request (e.g. 10) and the size of an `in` list
+  (e.g. 100).
+- **Leading-wildcard search (`%term%`) cannot use a B-tree index.** Offer
+  `startsWith` instead, or route full-text search to a trigram/GIN index or a
+  search engine — not to `LIKE '%…%'` on a large table.
+- Always combine filtering with pagination and a bounded `limit`.
+  → `API/pagination`
+- Tenant scoping is not a filter. It is applied server-side to every query,
+  regardless of what the client sent. → `Security/authorization`
 
-Identify Filterable Fields
+Check the plan for the worst legal combination, not the common one:
 
-↓
+```sql
+-- The worst request a client may legally send, planned before it is shipped
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders
+WHERE tenant_id = $1
+  AND status = ANY($2)                 -- in: 100 values
+  AND total_cents >= $3
+  AND created_at BETWEEN $4 AND $5
+ORDER BY created_at DESC, id DESC
+LIMIT 100;
+```
 
-Define Operators
-
-↓
-
-Validate Inputs
-
-↓
-
-Optimize Queries
-
-↓
-
-Document Behavior
-
-↓
-
-Approve
-
----
-
-# Stage 1 — Dataset Understanding
-
-Before implementing determine
-
-What entities exist?
-
-↓
-
-Which fields are searchable?
-
-↓
-
-Which fields change frequently?
-
-↓
-
-Which fields require indexing?
-
-↓
-
-What are the most common user queries?
-
-Filtering begins with understanding data usage.
+A `Seq Scan` or a `Rows Removed by Filter` in the hundreds of thousands means the
+filter combination is not index-backed and must be narrowed or indexed before
+release. → `Database/query-optimization`
 
 ---
 
-# Stage 2 — Filter Selection
+# Semantics worth defining once
 
-Choose meaningful filters.
+- **Multiple fields combine with `AND`.** If you need `OR`, add it explicitly
+  rather than overloading repeated parameters.
+- **Absent versus empty**: `?status=` should be a `400`, not "match everything" and
+  not "match empty string".
+- **Null matching** needs an explicit operator (`?deletedAt[isNull]=true`) —
+  `= NULL` never matches.
+- **Ranges are inclusive** unless the operator says otherwise, and dates are
+  RFC 3339 UTC.
+- **Case sensitivity** is a documented property per field, backed by a matching
+  index (`lower(email)` needs an expression index).
 
-Examples
-
-Status
-
-Category
-
-Type
-
-Owner
-
-Country
-
-Role
-
-Date
-
-Price
-
-Tag
-
-Priority
-
-Filters should represent business concepts.
-
-Not internal implementation.
+Document every filterable field, its operators and its type in the OpenAPI
+document, so clients and generators see the same contract. → `API/open-api`
 
 ---
 
-# Stage 3 — Query Parameters
+# Anti-patterns
 
-Use readable query parameters.
-
-Examples
-
-/users?role=admin
-
-/orders?status=paid
-
-/products?category=laptop
-
-/tasks?priority=high
-
-Keep parameter names descriptive.
-
----
-
-# Stage 4 — Equality Filters
-
-Support simple comparisons.
-
-Examples
-
-status=active
-
-country=india
-
-role=developer
-
-category=books
-
-Equality filters should be the default.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Client-supplied column name in SQL | Injection, even with parameterised values | Alias → column allowlist |
+| Operator string interpolated | `?op=; DROP` reaches the parser | Fixed operator map |
+| Values not type-checked | `abc` coerced to `0`; wrong results | Coerce and reject |
+| Unindexed filterable field | Full scan on demand | Index it or document and limit it |
+| `LIKE '%term%'` on a large table | Cannot use a B-tree index | `startsWith`, trigram index, or a search engine |
+| Unbounded `in` list | One request scans everything | Cap the list length |
+| No cap on filter count | Unplanned query shapes | Limit filters per request |
+| Filtering without pagination | Unbounded result set | Always paginate |
+| Tenant scope passed as a filter | Client can omit or change it | Server-side, unconditional |
+| Per-endpoint filter dialects | Every client re-learns the API | One syntax everywhere |
+| Empty value means "all" | Surprising and easy to send accidentally | `400` on empty |
+| Internal column names in the API | Schema changes become breaking | Alias layer |
+| Undocumented filters | Discovered by trial and error, then depended on | Declare in OpenAPI |
 
 ---
 
-# Stage 5 — Comparison Filters
-
-Support numeric and date comparisons.
-
-Examples
-
-price_gt=100
-
-price_lt=1000
-
-age_gte=18
-
-created_after=2025-01-01
-
-updated_before=2025-12-31
-
-Comparison operators should remain consistent.
-
----
-
-# Stage 6 — Range Filters
-
-Support value ranges.
-
-Examples
-
-price_min=500
-
-price_max=1500
-
-date_from=2025-01-01
-
-date_to=2025-12-31
-
-Ranges should include clear boundary behavior.
-
----
-
-# Stage 7 — Multi-Value Filters
-
-Allow multiple selections.
-
-Examples
-
-status=active,pending
-
-category=laptop,tablet
-
-role=admin,editor
-
-Document whether filters behave as
-
-AND
-
-OR
-
-Never leave behavior undefined.
-
----
-
-# Stage 8 — Boolean Filters
-
-Support explicit boolean values.
-
-Examples
-
-verified=true
-
-featured=false
-
-published=true
-
-Boolean filters should never rely on implicit defaults.
-
----
-
-# Stage 9 — Text Search
-
-Support
-
-Partial matching
-
-Case-insensitive matching
-
-Normalized text
-
-Unicode support
-
-Examples
-
-search=keyboard
-
-name=alex
-
-Avoid expensive wildcard queries whenever possible.
-
----
-
-# Stage 10 — Relationship Filters
-
-Support filtering across relationships.
-
-Examples
-
-orders?customerId=123
-
-projects?owner=456
-
-tasks?project=789
-
-Relationships should remain intuitive.
-
----
-
-# Stage 11 — Date Filtering
-
-Review
-
-Created Date
-
-Updated Date
-
-Published Date
-
-Deleted Date
-
-Expiration Date
-
-Always specify
-
-Timezone
-
-Precision
-
-Inclusivity
-
-Dates should never be ambiguous.
-
----
-
-# Stage 12 — Combining Filters
-
-Allow filters to work together.
-
-Example
-
-/products?
-
-category=laptop
-
-&brand=lenovo
-
-&price_lt=80000
-
-&available=true
-
-Filters should compose naturally.
-
----
-
-# Stage 13 — Validation
-
-Validate
-
-Unknown filters
-
-Invalid values
-
-Wrong types
-
-Invalid dates
-
-Negative numbers
-
-Malformed requests
-
-Reject invalid filters early.
-
----
-
-# Stage 14 — Performance
-
-Review
-
-Indexes
-
-Execution plans
-
-Query optimization
-
-Caching
-
-Result size
-
-Database scans
-
-Filtering should reduce work.
-
-Not increase it.
-
----
-
-# Stage 15 — Pagination Integration
-
-Filtering should occur
-
-Before pagination.
-
-Correct order
-
-Filter
-
-↓
-
-Sort
-
-↓
-
-Paginate
-
-↓
-
-Respond
-
-Incorrect ordering produces inconsistent results.
-
----
-
-# Stage 16 — Sorting Integration
-
-Filters should work seamlessly with sorting.
-
-Example
-
-status=active
-
-↓
-
-sort=createdAt
-
-↓
-
-limit=20
-
-↓
-
-response
-
-Filtering should never break sorting.
-
----
-
-# Stage 17 — Security
-
-Review
-
-Input validation
-
-SQL injection prevention
-
-NoSQL injection prevention
-
-Authorization
-
-Sensitive fields
-
-Rate limiting
-
-Never expose restricted data through filtering.
-
----
-
-# Stage 18 — Error Handling
-
-Return meaningful errors.
-
-Examples
-
-Unknown filter
-
-Invalid value
-
-Invalid format
-
-Unsupported operator
-
-Exceeded limits
-
-Errors should help developers recover quickly.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Supported filters
-
-Operators
-
-Examples
-
-Default behavior
-
-Limits
-
-Edge cases
-
-Documentation removes guesswork.
-
----
-
-# Stage 20 — Consistency
-
-Review
-
-Naming
-
-Operators
-
-Responses
-
-Validation
-
-Errors
-
-Documentation
-
-Consistency improves developer productivity.
-
----
-
-# Filtering Quality Attributes
-
-Evaluate
-
-Correctness
-
-Performance
-
-Scalability
-
-Consistency
-
-Security
-
-Maintainability
-
-Developer Experience
-
-User Experience
-
----
-
-# Filtering Questions
-
-Before approval ask
-
-Can users retrieve only relevant data?
-
-↓
-
-Are filters intuitive?
-
-↓
-
-Do filters compose naturally?
-
-↓
-
-Are queries efficient?
-
-↓
-
-Can invalid filters be detected immediately?
-
-↓
-
-Does filtering scale with large datasets?
-
-↓
-
-Would another developer understand every filter without documentation?
-
----
-
-# Severity Levels
-
-Critical
-
-Incorrect results
-
-Unauthorized data exposure
-
-Injection vulnerability
-
-Broken filtering logic
-
-Major
-
-Poor performance
-
-Inconsistent operators
-
-Missing validation
-
-Weak documentation
-
-Medium
-
-Naming inconsistencies
-
-Missing filters
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Examples
-
-Documentation improvements
-
-Suggestion
-
-Future filter enhancements
-
-Additional operators
-
----
-
-# Filtering Checklist
-
-✓ Business fields identified
-
-✓ Equality filters implemented
-
-✓ Range filters supported
-
-✓ Date filters supported
-
-✓ Boolean filters supported
-
-✓ Multi-value filters supported
-
-✓ Validation implemented
-
-✓ Pagination integrated
-
-✓ Sorting integrated
-
-✓ Security reviewed
-
-✓ Documentation complete
-
-✓ Performance optimized
-
-✓ Consistent naming
-
-✓ Predictable behavior
-
-✓ Developer-friendly interface
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Filtering after pagination
-
-Dynamic SQL generation
-
-Unvalidated filters
-
-Hidden filter behavior
-
-Database-specific parameters
-
-Unlimited wildcard searches
-
-Inconsistent operators
-
-Poor naming
-
-Exposing internal fields
-
-Ignoring indexes
-
-Silent failures
-
-Undocumented filters
-
----
-
-# Definition of Done
-
-Filtering review is complete when
-
-- Every filter represents a meaningful business concept.
-- Filter parameters are intuitive and consistently named.
-- Equality, range, boolean, date, and relationship filters behave predictably.
-- Validation prevents malformed or unsupported requests.
-- Filtering integrates correctly with sorting and pagination.
-- Database queries remain efficient under realistic workloads.
-- Sensitive data cannot be exposed through filtering.
-- Documentation completely describes supported filters and operators.
-- The implementation scales with growing datasets.
-- Developers can retrieve exactly the information they need with minimal effort.
-
-Excellent filtering is invisible.
-
-Users simply ask for the data they need, and the API returns the correct results quickly, consistently, and predictably.
+# Checklist
+
+- [ ] Verify: One filter syntax is used across every list endpoint
+- [ ] Verify: Filterable fields come from an explicit allowlist mapping alias → column
+- [ ] Verify: Allowed operators are declared per field
+- [ ] Verify: Operators resolve through a fixed map, never string interpolation
+- [ ] Verify: Values are type-coerced and rejected with `400` when invalid
+- [ ] Verify: All values are passed as bound parameters
+- [ ] Verify: Every filterable field is indexed, or documented as slow and rate-limited
+- [ ] Verify: `in` list length and filters-per-request are capped
+- [ ] Verify: Substring search does not use a leading-wildcard `LIKE` on large tables
+- [ ] Verify: Filtering is always combined with pagination and a bounded limit
+- [ ] Verify: Tenant scoping is applied server-side and cannot be influenced by input
+- [ ] Verify: Combination semantics, null handling and case sensitivity are documented
+- [ ] Verify: The worst legal filter combination has been checked with `EXPLAIN ANALYZE`
+- [ ] Verify: Filters are declared in the OpenAPI document

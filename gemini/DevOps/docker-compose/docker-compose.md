@@ -5,1159 +5,192 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: docker-compose
+category: DevOps
+description: Compose for local development and small deployments — service dependencies and health, volumes, environment handling, and why it is not production orchestration.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# docker-compose.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, managing, and operating multi-container applications using Docker Compose.
+Rules for Docker Compose. Its real value is **local development parity**: one
+command brings up the same database engine, cache and broker that production
+runs, so nobody debugs a SQLite-versus-Postgres difference.
 
-It applies to
-
-- Local Development
-- Integration Testing
-- Backend APIs
-- Frontend Applications
-- Databases
-- Caching Systems
-- Message Queues
-- Worker Services
-- AI Applications
-- Microservice Development
-
-Docker Compose is not an orchestration platform.
-
-Docker Compose is a declarative system for defining, configuring, and operating related containers as a single application.
-
-Compose should simplify development.
-
-Never complicate production architecture.
+It is not a production orchestrator — no rolling updates, no self-healing across
+hosts, no autoscaling. Use it for development, CI, and genuinely single-host
+deployments. → `DevOps/kubernetes`
 
 ---
 
-# Core Philosophy
+# `depends_on` alone does not wait
 
-Define Services
+```yaml
+services:
+  api:
+    build: .
+    depends_on:
+      db:    { condition: service_healthy }     # waits for the healthcheck
+      redis: { condition: service_started }
+    environment:
+      DATABASE_URL: postgres://app:app@db:5432/app
+    ports: ["3000:3000"]
 
-↓
+  db:
+    image: postgres:17.2-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    volumes: ["pgdata:/var/lib/postgresql/data"]
 
-Declare Dependencies
+volumes: { pgdata: }
+```
 
-↓
+Bare `depends_on` waits for the container to **start**, not for the service to be
+usable. Postgres accepts connections seconds after the container starts, so the
+application crashes on boot and the failure looks random.
 
-Standardize Configuration
+`condition: service_healthy` plus a real healthcheck is the fix. `start_period`
+matters: failures during it do not count toward `retries`, which is what allows a
+slow-starting database without a long total timeout.
 
-↓
-
-Automate Startup
-
-↓
-
-Maintain Isolation
-
-↓
-
-Observe Continuously
-
-↓
-
-Simplify Collaboration
-
-↓
-
-Continuously Improve
-
-Every developer should run the same application.
-
-Configuration differences should not exist.
-
----
-
-# Primary Objective
-
-Every Docker Compose architecture should maximize
-
-Consistency
-
-+
-
-Developer Productivity
-
-+
-
-Maintainability
-
-+
-
-Reproducibility
-
-+
-
-Isolation
-
-+
-
-Reliability
-
-+
-
-Observability
-
-+
-
-Scalability Readiness
-
-Compose exists to create identical development environments.
-
-Not production clusters.
+Even with this, the application should retry its initial connection — dependencies
+restart, and Compose does not re-order anything when they do.
 
 ---
 
-# Engineering Principles
+# Named volumes for state, bind mounts for source
 
-Always prioritize
+| Mount | Use for | Note |
+| --- | --- | --- |
+| Named volume | Database data, uploads | Managed by Docker, survives `down` |
+| Bind mount | Source code in development | Live reload; slow on macOS/Windows |
+| Anonymous volume | Nothing | Accumulates untracked, unnamed data |
 
-Simple Architecture
+```yaml
+volumes:
+  - .:/app                    # source, live-reloaded
+  - /app/node_modules         # keep the container's install, not the host's
+```
 
-↓
+The `node_modules` line is the one people miss: without it the host directory
+shadows the container's, and native modules built for the host architecture fail
+inside the container.
 
-Service Isolation
-
-↓
-
-Declarative Configuration
-
-↓
-
-Minimal Coupling
-
-↓
-
-Environment Consistency
-
-↓
-
-Automation
-
-↓
-
-Observability
-
-↓
-
-Continuous Improvement
-
-Compose should improve development workflows.
-
-Not replace production orchestration.
+`docker compose down -v` **deletes named volumes**. That is the intended reset
+command in development and a data-loss command anywhere else — never run it
+against anything you care about.
 
 ---
 
-# Compose Lifecycle
+# Configuration and secrets
 
-Understand Application
+```yaml
+services:
+  api:
+    env_file: [.env]                       # local only, gitignored
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?required}   # fail fast if unset
+```
 
-↓
+- Commit `.env.example` with every variable and a placeholder; never commit `.env`.
+- `${VAR:?message}` fails immediately with a clear error rather than starting with
+  an empty value.
+- Compose files are frequently committed, so **no real secret belongs in one** —
+  not in `environment`, not in a build `arg`. → `Security/secret-management`
+- Pin image tags (`postgres:17.2-alpine`), never `latest`. A colleague pulling
+  `latest` next week gets a different database version and a different bug.
 
-Define Services
-
-↓
-
-Configure Networks
-
-↓
-
-Configure Storage
-
-↓
-
-Manage Configuration
-
-↓
-
-Validate
-
-↓
-
-Monitor
-
-↓
-
-Continuously Improve
+Use `compose.override.yaml` for local-only changes; it is merged automatically and
+can stay untracked, which keeps personal port choices out of the shared file.
 
 ---
 
-# Stage 1 — Application Analysis
+# Ports, networks and isolation
 
-Understand
-
-Business Requirements
-
-↓
-
-Application Components
-
-↓
-
-Dependencies
-
-↓
-
-External Services
-
-↓
-
-Databases
-
-↓
-
-Caches
-
-↓
-
-Message Brokers
-
-↓
-
-Developer Workflow
-
-Applications determine Compose architecture.
+- Publish only what you need on the host. `ports: ["5432:5432"]` exposes your
+  development database on every interface — on a shared or public network that is
+  an open database. Bind to loopback explicitly: `"127.0.0.1:5432:5432"`.
+- Services reach each other by **service name** on the default network
+  (`postgres://db:5432`), with no published port required.
+- Split networks when isolation matters: a `backend` network the database joins
+  and the reverse proxy does not.
+- Give each project a distinct `name:` so two checkouts do not collide on
+  container and volume names.
 
 ---
 
-# Stage 2 — Service Design
+# CI and single-host deployment
 
-Define
+For CI, Compose is a reasonable way to stand up real dependencies:
 
-Application Services
+```bash
+docker compose -f compose.yaml -f compose.ci.yaml up -d --wait
+docker compose exec -T api npm test
+docker compose down -v
+```
 
-↓
+`--wait` blocks until healthchecks pass, which removes the `sleep 30` that
+otherwise appears in every pipeline. → `Testing/integration`
 
-Database Services
+If you do deploy Compose to a single host, add what production needs:
 
-↓
-
-Cache Services
-
-↓
-
-Queue Services
-
-↓
-
-Worker Services
-
-↓
-
-Proxy Services
-
-↓
-
-Monitoring Services
-
-↓
-
-Supporting Infrastructure
-
-Each service should have one responsibility.
+- `restart: unless-stopped` on every service.
+- Resource limits (`deploy.resources.limits`) so one container cannot take the host.
+- Log rotation (`logging.options.max-size`), or the disk fills.
+- A reverse proxy terminating TLS in front.
+- Accept the constraint: `docker compose up -d` recreates containers, so there is
+  a gap. There is no rolling update.
 
 ---
 
-# Stage 3 — Container Configuration
+# Anti-patterns
 
-Configure
-
-Images
-
-↓
-
-Build Context
-
-↓
-
-Commands
-
-↓
-
-Entrypoints
-
-↓
-
-Restart Policies
-
-↓
-
-Health Checks
-
-↓
-
-Resource Limits
-
-↓
-
-Metadata
-
-Container configuration should remain predictable.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `depends_on` without a condition | Waits for start, not readiness | `service_healthy` plus a healthcheck |
+| No healthcheck | Nothing to wait on | Real readiness command |
+| No `start_period` | Slow starters exhaust retries | Set it above cold-start time |
+| No client-side connection retry | Dependency restarts break the app | Retry with backoff |
+| `latest` image tags | Colleagues run different versions | Pin the tag |
+| Host `node_modules` shadowing | Native modules fail in the container | Anonymous volume over the path |
+| Anonymous volumes for state | Untracked data accumulates | Named volumes |
+| `.env` committed | Secrets in version control | `.env.example` only |
+| Real secrets in the Compose file | Committed and shared | Runtime injection |
+| Unset variables silently empty | Confusing runtime failures | `${VAR:?}` |
+| `ports` bound to all interfaces | Database exposed on the network | Bind to `127.0.0.1` |
+| One flat network | No isolation between tiers | Separate networks |
+| `down -v` outside development | Deletes all data | Never run it elsewhere |
+| Compose as production orchestration | No rolling updates or self-healing | Use a real orchestrator |
+| No log rotation on a host deployment | Disk fills; service dies | `max-size` and `max-file` |
+| No resource limits | One container takes the host | `deploy.resources.limits` |
 
 ---
 
-# Stage 4 — Networking
-
-Design
-
-Internal Networks
-
-↓
-
-Service Discovery
-
-↓
-
-DNS Resolution
-
-↓
-
-Port Exposure
-
-↓
-
-Network Isolation
-
-↓
-
-External Access
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-Services should communicate through networks.
-
-Not hardcoded addresses.
-
----
-
-# Stage 5 — Storage
-
-Manage
-
-Volumes
-
-↓
-
-Persistent Data
-
-↓
-
-Shared Storage
-
-↓
-
-Temporary Storage
-
-↓
-
-Database Files
-
-↓
-
-Configuration Files
-
-↓
-
-Permissions
-
-↓
-
-Recovery
-
-Containers disappear.
-
-Data should not.
-
----
-
-# Stage 6 — Configuration Management
-
-Manage
-
-Environment Variables
-
-↓
-
-Secrets
-
-↓
-
-Application Configuration
-
-↓
-
-Feature Flags
-
-↓
-
-Runtime Parameters
-
-↓
-
-Profiles
-
-↓
-
-Overrides
-
-↓
-
-Environment Separation
-
-Configuration belongs outside containers.
-
----
-
-# Stage 7 — Dependencies
-
-Define
-
-Startup Order
-
-↓
-
-Service Dependencies
-
-↓
-
-Readiness Checks
-
-↓
-
-Health Validation
-
-↓
-
-Graceful Shutdown
-
-↓
-
-Recovery
-
-↓
-
-Retry Logic
-
-↓
-
-Operational Stability
-
-Dependencies should be explicit.
-
-Never assumed.
-
----
-
-# Stage 8 — Development Workflow
-
-Optimize
-
-Local Development
-
-↓
-
-Hot Reloading
-
-↓
-
-Debugging
-
-↓
-
-Testing
-
-↓
-
-Rapid Iteration
-
-↓
-
-Developer Experience
-
-↓
-
-Consistency
-
-↓
-
-Automation
-
-Development environments should be reproducible.
-
----
-
-# Stage 9 — Security
-
-Protect
-
-Secrets
-
-↓
-
-Credentials
-
-↓
-
-Networks
-
-↓
-
-Volumes
-
-↓
-
-Least Privilege
-
-↓
-
-Image Integrity
-
-↓
-
-Access Control
-
-↓
-
-Compliance
-
-Development security still matters.
-
----
-
-# Stage 10 — Performance
-
-Optimize
-
-Container Startup
-
-↓
-
-Resource Usage
-
-↓
-
-Volume Performance
-
-↓
-
-Build Time
-
-↓
-
-Network Latency
-
-↓
-
-Caching
-
-↓
-
-Image Reuse
-
-↓
-
-Infrastructure Efficiency
-
-Fast development improves engineering velocity.
-
----
-
-# Stage 11 — Scalability
-
-Prepare for
-
-Additional Services
-
-↓
-
-Growing Teams
-
-↓
-
-Larger Projects
-
-↓
-
-Testing Environments
-
-↓
-
-Service Expansion
-
-↓
-
-Infrastructure Evolution
-
-↓
-
-Migration to Orchestration
-
-↓
-
-Future Growth
-
-Compose should prepare teams for Kubernetes.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Container Health
-
-↓
-
-Logs
-
-↓
-
-Metrics
-
-↓
-
-Service Status
-
-↓
-
-Resource Usage
-
-↓
-
-Network Health
-
-↓
-
-Startup Failures
-
-↓
-
-Application Health
-
-Every service should be observable.
-
----
-
-# Stage 13 — Reliability
-
-Ensure
-
-Health Checks
-
-↓
-
-Automatic Restart
-
-↓
-
-Dependency Recovery
-
-↓
-
-Graceful Shutdown
-
-↓
-
-Configuration Validation
-
-↓
-
-Failure Isolation
-
-↓
-
-Operational Stability
-
-↓
-
-Business Continuity
-
-Reliable development environments reduce production surprises.
-
----
-
-# Stage 14 — Automation
-
-Automate
-
-Container Startup
-
-↓
-
-Environment Creation
-
-↓
-
-Testing
-
-↓
-
-Validation
-
-↓
-
-Cleanup
-
-↓
-
-Dependency Installation
-
-↓
-
-Monitoring
-
-↓
-
-Developer Workflows
-
-Automation removes repetitive work.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Architecture
-
-↓
-
-Services
-
-↓
-
-Networks
-
-↓
-
-Volumes
-
-↓
-
-Environment Variables
-
-↓
-
-Operational Procedures
-
-↓
-
-Recovery
-
-↓
-
-Future Evolution
-
-Documentation enables collaboration.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Compose Versions
-
-↓
-
-Image Versions
-
-↓
-
-Configuration History
-
-↓
-
-Service Evolution
-
-↓
-
-Dependency Updates
-
-↓
-
-Review History
-
-↓
-
-Migration Records
-
-↓
-
-Compatibility
-
-Configuration should evolve predictably.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Architecture
-
-↓
-
-Service Design
-
-↓
-
-Networking
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Business Alignment
-
-Development architecture deserves review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Configuration Drift
-
-↓
-
-Dependency Failures
-
-↓
-
-Network Misconfiguration
-
-↓
-
-Secret Exposure
-
-↓
-
-Volume Corruption
-
-↓
-
-Startup Failures
-
-↓
-
-Operational Complexity
-
-↓
-
-Business Risks
-
-Small development problems become production habits.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Service Definitions
-
-↓
-
-Startup Speed
-
-↓
-
-Automation
-
-↓
-
-Documentation
-
-↓
-
-Developer Experience
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Operational Excellence
-
-Healthy development environments evolve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Consistency
-
-↓
-
-Maintainability
-
-↓
-
-Developer Productivity
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Automation
-
-↓
-
-Scalability Readiness
-
-↓
-
-Engineering Excellence
-
-Exceptional Compose environments disappear into the workflow.
-
----
-
-# Docker Compose Quality Attributes
-
-Evaluate
-
-Consistency
-
-Maintainability
-
-Developer Productivity
-
-Reliability
-
-Security
-
-Observability
-
-Reproducibility
-
-Operational Simplicity
-
----
-
-# Docker Compose Questions
-
-Before adoption ask
-
-Can every developer start the project identically?
-
-↓
-
-Are services isolated correctly?
-
-↓
-
-Are dependencies explicitly defined?
-
-↓
-
-Can environments be recreated from scratch?
-
-↓
-
-Is configuration externalized?
-
-↓
-
-Is migration to production orchestration straightforward?
-
-↓
-
-Would experienced platform engineers confidently approve this Compose architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken development environments
-
-Secret exposure
-
-Persistent data loss
-
-Configuration corruption
-
-Major
-
-Dependency failures
-
-Service startup failures
-
-Network issues
-
-Volume problems
-
-Resource exhaustion
-
-Medium
-
-Performance improvements
-
-Developer workflow optimization
-
-Documentation gaps
-
-Automation improvements
-
-Minor
-
-Naming consistency
-
-Formatting
-
-Metadata
-
-Comments
-
----
-
-# Docker Compose Checklist
-
-✓ Application analyzed
-
-✓ Services defined
-
-✓ Containers configured
-
-✓ Networks designed
-
-✓ Storage configured
-
-✓ Configuration externalized
-
-✓ Dependencies validated
-
-✓ Development workflow optimized
-
-✓ Security implemented
-
-✓ Performance reviewed
-
-✓ Scalability planned
-
-✓ Monitoring enabled
-
-✓ Reliability validated
-
-✓ Automation implemented
-
-✓ Documentation completed
-
-✓ Versioning maintained
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using Docker Compose for production orchestration
-
-Hardcoding IP addresses
-
-Embedding secrets inside configuration
-
-Running everything in one container
-
-Ignoring health checks
-
-Using mutable containers
-
-Overloading a single service
-
-Manual environment setup
-
-Ignoring networking
-
-Ignoring persistent storage
-
-Treating Compose as Kubernetes
-
-Duplicating configuration across environments
-
----
-
-# Definition of Done
-
-A Docker Compose architecture is considered production-quality for development and testing when
-
-- Every application service, dependency, database, cache, worker, and supporting component is defined declaratively and can be reproduced consistently across all developer environments.
-- Service definitions clearly separate responsibilities while maintaining predictable networking, storage, dependency management, and runtime configuration.
-- Environment variables, secrets, runtime configuration, and feature flags remain externalized and portable across development, testing, and staging environments.
-- Networking enables reliable service discovery, secure communication, isolated environments, and deterministic startup behavior without relying on machine-specific configuration.
-- Persistent storage, shared volumes, configuration files, and recovery procedures preserve important data while maintaining container immutability.
-- Health checks, restart policies, dependency validation, startup sequencing, logging, and monitoring provide operational visibility into every running service.
-- Development workflows support rapid iteration, testing, debugging, onboarding, and collaboration without requiring manual infrastructure setup.
-- Documentation preserves service architecture, configuration decisions, networking, storage strategies, operational procedures, and future migration guidance.
-- Engineering reviews continuously validate maintainability, developer experience, operational simplicity, security, scalability readiness, and architectural consistency.
-- The Docker Compose environment consistently demonstrates reproducibility, reliability, maintainability, observability, portability, developer productivity, and long-term engineering excellence.
-
-Exceptional Docker Compose architectures become invisible to developers.
-
-New engineers clone the repository, start the environment with a single command, every service behaves identically across machines, integration testing becomes reliable, onboarding takes minutes instead of days, and the entire development workflow remains predictable because the environment itself has become part of the engineering discipline rather than another source of operational complexity.
+# Checklist
+
+- [ ] Verify: Every dependency has a healthcheck with a realistic `start_period`
+- [ ] Verify: `depends_on` uses `condition: service_healthy` where readiness matters
+- [ ] Verify: The application retries its initial dependency connections
+- [ ] Verify: All image tags are pinned to specific versions
+- [ ] Verify: Stateful data uses named volumes; source uses bind mounts
+- [ ] Verify: Container-installed dependencies are shielded from host bind mounts
+- [ ] Verify: `.env` is gitignored and `.env.example` documents every variable
+- [ ] Verify: Required variables fail fast with `${VAR:?}`
+- [ ] Verify: No real secret appears in any committed Compose file
+- [ ] Verify: Published ports are bound to loopback in development
+- [ ] Verify: Services communicate by service name over an internal network
+- [ ] Verify: Networks are split where tier isolation matters
+- [ ] Verify: The project declares a distinct `name`
+- [ ] Verify: CI uses `--wait` rather than sleeping
+- [ ] Verify: Host deployments set restart policies, resource limits and log rotation
+- [ ] Verify: The absence of rolling updates is understood and accepted, or Compose is not used

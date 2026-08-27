@@ -5,1100 +5,181 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: stress
+category: Testing
+description: Pushing a system past its limit deliberately — finding the breaking point, verifying it degrades gracefully, and confirming it recovers.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# stress.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, stress testing methodologies, resilience validation strategies, failure analysis standards, recovery verification, operational reliability, scalability limits, and long-term engineering guidance for validating that software continues operating safely and predictably when pushed beyond expected production capacity.
+Rules for testing beyond expected capacity. `Testing/load` answers "does it meet
+its target". Stress testing answers three different questions:
 
-It applies to
+1. **Where does it break?**
+2. **How does it break** — gracefully, or catastrophically?
+3. **Does it recover** when the pressure stops?
 
-- APIs
-- Backend Services
-- Frontend Applications
-- SaaS Platforms
-- Enterprise Systems
-- AI Systems
-- Distributed Systems
-- Databases
-- Message Brokers
-- Cloud Infrastructure
-
-Stress Testing is not generating excessive traffic.
-
-Stress Testing is the engineering discipline of intentionally exceeding expected operational limits to validate system resilience, graceful degradation, fault tolerance, recovery capabilities, and operational safety under extreme conditions.
-
-Stress Testing answers one question:
-
-**How does the system behave when real-world conditions exceed its intended operational capacity?**
+The third is the one most teams never test, and the one that turns a ten-minute
+spike into a two-hour outage.
 
 ---
 
-# Core Philosophy
+# Ramp to failure
 
-Understand Business Limits
+```js
+// k6 — climb until something gives. No thresholds: failure is the point.
+export const options = {
+  stages: [
+    { duration: "3m", target: 200 },
+    { duration: "3m", target: 500 },
+    { duration: "3m", target: 1000 },
+    { duration: "3m", target: 2000 },
+    { duration: "5m", target: 0 },      // the recovery window — do not skip
+  ],
+};
+```
 
-↓
+Watch these on the server, not only in the generator: `cpu`, `rss`,
+`event_loop_lag`, `pg_stat_activity` connection counts, and `pg_locks` waits.
 
-Understand System Capacity
+Record, at each step: `p95` and `p99` latency, error rate by class, throughput,
+and saturation (`cpu`, `rss`, `active_connections`, `queue_depth`).
 
-↓
-
-Exceed Expected Demand
-
-↓
-
-Observe System Behavior
-
-↓
-
-Identify Failure Points
-
-↓
-
-Validate Recovery
-
-↓
-
-Increase Operational Resilience
-
-↓
-
-Continuously Improve
-
-Systems should fail gracefully rather than unpredictably.
+The **knee** is where latency climbs sharply while throughput stops rising. That
+is your real capacity — not the point where the system falls over, which is well
+past the point users abandoned it.
 
 ---
 
-# Primary Objective
+# Graceful versus catastrophic
 
-Every Stress Testing Strategy should maximize
+| Graceful | Catastrophic |
+| --- | --- |
+| Latency rises smoothly | Latency stays flat, then everything times out |
+| Excess requests get `429` or `503` quickly | Requests queue until every worker is stuck |
+| Throughput plateaus | Throughput **collapses** below its peak |
+| Errors are bounded and typed | Cascading failures across unrelated services |
+| Recovers within seconds of load dropping | Stays down after load stops |
 
-Resilience
+**Throughput collapse** is the signature of congestion. A system doing 1,000 rps
+at peak and 200 rps under heavier load is spending its capacity on work nobody is
+waiting for any more.
 
-+
+Fixes are architectural, not configuration:
 
-Graceful Degradation
-
-+
-
-Recovery Capability
-
-+
-
-Operational Reliability
-
-+
-
-Capacity Awareness
-
-+
-
-Failure Visibility
-
-+
-
-Engineering Confidence
-
-+
-
-Long-Term Sustainability
-
-The objective is understanding system behavior beyond normal operating conditions.
+- **Shed load** — reject early with `503` and `Retry-After` rather than queueing.
+  → `Security/rate-limiting`
+- **Bound every queue.** An unbounded queue converts a throughput problem into a
+  memory problem and then a crash.
+- **Set timeouts everywhere**, and make them shorter than the caller's. A 30s
+  downstream timeout behind a 10s client timeout means 20s of work nobody reads.
+- **Circuit-break** a failing dependency so its latency does not become yours.
+- **Prioritise** — health checks and payments should survive when search does not.
+  Separate pools or a dedicated `readiness` path keeps `/health` answering while
+  the main pool is saturated, so the orchestrator does not restart a busy but
+  healthy instance.
 
 ---
 
-# Engineering Principles
+```js
+// Bounded queue plus load shedding: reject fast rather than accepting work
+// that will time out anyway.
+const MAX_QUEUE = 500;
 
-Always prioritize
+app.use((req, res, next) => {
+  if (queue.length >= MAX_QUEUE) {
+    res.set("Retry-After", "5");
+    return res.status(503).json({ error: "overloaded" });
+  }
+  next();
+});
+```
 
-Business Continuity
+```js
+// Backoff with jitter. Without the random term every client retries at the
+// same instant and recreates the original load.
+const delay = Math.min(30_000, 2 ** attempt * 100);
+const jittered = Math.random() * delay;        // full jitter
+await setTimeout(jittered);
+```
 
-↓
+Tooling: `k6` and `vegeta` for volume, `toxiproxy` for injected latency and
+partitions, `pumba` or `chaos-mesh` for killing containers, and `stress-ng` for
+CPU, memory and IO pressure on a host.
 
-Graceful Failure
+# Recovery
 
-↓
+Testing recovery is what distinguishes a stress test from a load test.
 
-Recovery
+After the load drops to zero, watch for:
 
-↓
+- Does latency return to baseline, and **how long** does that take?
+- Do queues drain, or keep growing from retries?
+- Do connection pools recover, or stay exhausted with `idle in transaction`?
+- Does memory return, or did the peak leak?
+- Do circuit breakers close again?
+- Did any process get OOM-killed and restart into a cold cache — and did the cold
+  cache then cause a second failure?
 
-Operational Safety
-
-↓
-
-Data Integrity
-
-↓
-
-Resilience
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Stress testing should expose engineering weaknesses before production does.
-
----
-
-# Stress Testing Lifecycle
-
-Understand Capacity
-
-↓
-
-Identify Critical Services
-
-↓
-
-Design Extreme Workloads
-
-↓
-
-Exceed Operational Limits
-
-↓
-
-Observe Failure Behavior
-
-↓
-
-Validate Recovery
-
-↓
-
-Improve System Resilience
-
-↓
-
-Continuously Improve
-
-Every stress test should reveal engineering knowledge—not simply system failure.
+**Retry storms** are the usual reason recovery fails. Every client retrying
+simultaneously reproduces the original load exactly when the system is weakest.
+Require exponential backoff **with jitter** on every client, and cap total
+attempts.
 
 ---
 
-# Stage 1 — Capacity Discovery
+# Failure injection
 
-Identify
+Stress is not only volume. Test the failure modes you will actually meet:
 
-Expected Capacity
+| Injected | Expected |
+| --- | --- |
+| Database primary killed | Failover completes; requests error briefly, then recover |
+| Dependency latency +5s | Circuit opens; the caller stays responsive |
+| One instance killed | Traffic reroutes; no user-visible error |
+| Network partition | Bounded, typed failure — not a hang |
+| Disk fills | Clear failure and an alert — not silent corruption |
+| Cache flushed | Survives the thundering herd on the cold cache |
 
-↓
-
-Concurrent Users
-
-↓
-
-Traffic Volume
-
-↓
-
-Peak Business Load
-
-↓
-
-Infrastructure Limits
-
-↓
-
-Scaling Limits
-
-↓
-
-Growth Expectations
-
-↓
-
-Future Expansion
-
-Understanding normal capacity is required before exceeding it.
+Start in a staging environment. Only move to production experiments with a
+hypothesis, a bounded blast radius, an abort condition, and someone watching.
 
 ---
 
-# Stage 2 — Critical System Identification
-
-Identify
-
-Authentication
-
-↓
-
-Business APIs
-
-↓
-
-Databases
-
-↓
-
-Caching
-
-↓
-
-Queues
-
-↓
-
-Search
-
-↓
-
-Storage
-
-↓
-
-AI Services
-
-↓
-
-Third-Party Integrations
-
-↓
-
-Administrative Systems
-
-Critical systems should be evaluated before secondary features.
-
----
-
-# Stage 3 — Stress Scenario Design
-
-Design
-
-Traffic Spikes
-
-↓
-
-Extreme Concurrency
-
-↓
-
-Massive Request Volume
-
-↓
-
-Large Payloads
-
-↓
-
-Burst Traffic
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Infrastructure Failures
-
-↓
-
-Dependency Failures
-
-Stress scenarios should reflect realistic extreme production events.
-
----
-
-# Stage 4 — Environment Preparation
-
-Prepare
-
-Production Configuration
-
-↓
-
-Infrastructure
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Metrics
-
-↓
-
-Tracing
-
-↓
-
-Alerting
-
-↓
-
-Recovery Procedures
-
-Every stress test should generate actionable operational insight.
-
----
-
-# Stage 5 — Extreme Workload Modeling
-
-Model
-
-Sudden User Growth
-
-↓
-
-Marketing Campaign Traffic
-
-↓
-
-Flash Sales
-
-↓
-
-Breaking News
-
-↓
-
-AI Request Surges
-
-↓
-
-Mass Uploads
-
-↓
-
-Large Data Processing
-
-↓
-
-Simultaneous Operations
-
-Extreme workloads should remain business-relevant rather than artificial.
-
----
-
-# Stage 6 — System Behavior Validation
-
-Observe
-
-Response Time
-
-↓
-
-Error Rate
-
-↓
-
-Timeouts
-
-↓
-
-Resource Usage
-
-↓
-
-Availability
-
-↓
-
-Service Degradation
-
-↓
-
-Dependency Health
-
-↓
-
-Operational Stability
-
-System behavior under stress reveals architectural maturity.
-
----
-
-# Stage 7 — Failure Analysis
-
-Identify
-
-CPU Saturation
-
-↓
-
-Memory Exhaustion
-
-↓
-
-Database Saturation
-
-↓
-
-Queue Backlogs
-
-↓
-
-Cache Failures
-
-↓
-
-Network Congestion
-
-↓
-
-Storage Limits
-
-↓
-
-Application Bottlenecks
-
-Every failure should produce measurable engineering knowledge.
-
----
-
-# Stage 8 — Graceful Degradation
-
-Verify
-
-Reduced Performance
-
-↓
-
-Partial Functionality
-
-↓
-
-Priority Services
-
-↓
-
-Request Limiting
-
-↓
-
-Fallback Behavior
-
-↓
-
-Error Communication
-
-↓
-
-Operational Visibility
-
-↓
-
-Business Continuity
-
-Systems should continue delivering core business value even during overload.
-
----
-
-# Stage 9 — Recovery Validation
-
-Validate
-
-Automatic Recovery
-
-↓
-
-Service Restart
-
-↓
-
-Cache Recovery
-
-↓
-
-Database Recovery
-
-↓
-
-Queue Recovery
-
-↓
-
-Connection Recovery
-
-↓
-
-State Consistency
-
-↓
-
-Operational Stability
-
-Recovery capability is as important as failure resistance.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design stress validation that maximizes
-
-Repeatability
-
-↓
-
-Controlled Failure
-
-↓
-
-Operational Visibility
-
-↓
-
-Reliable Metrics
-
-↓
-
-Recovery Confidence
-
-↓
-
-Engineering Knowledge
-
-↓
-
-Regression Detection
-
-↓
-
-Continuous Improvement
-
-Reliable stress tests create engineering confidence rather than operational surprises.
-
-# Stage 11 — Failure Metrics
-
-Every stress test should measure how the system behaves while approaching and exceeding operational limits.
-
-Measure
-
-Response Time Degradation
-
-↓
-
-Latency Distribution
-
-↓
-
-Error Rate
-
-↓
-
-Request Success Rate
-
-↓
-
-Service Availability
-
-↓
-
-Recovery Time
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Business Impact
-
-The objective is understanding failure characteristics rather than maximum throughput.
-
----
-
-# Stage 12 — Capacity Limit Validation
-
-Every system has measurable operational boundaries.
-
-Identify
-
-Maximum Concurrent Users
-
-↓
-
-Maximum Requests Per Second
-
-↓
-
-Database Capacity
-
-↓
-
-Queue Capacity
-
-↓
-
-Memory Limits
-
-↓
-
-CPU Limits
-
-↓
-
-Storage Capacity
-
-↓
-
-Network Saturation
-
-Operational limits should be understood before production traffic discovers them.
-
----
-
-# Stage 13 — Resilience Verification
-
-Validate
-
-Graceful Degradation
-
-↓
-
-Circuit Breakers
-
-↓
-
-Load Shedding
-
-↓
-
-Backpressure
-
-↓
-
-Rate Limiting
-
-↓
-
-Auto Scaling
-
-↓
-
-Service Isolation
-
-↓
-
-Business Continuity
-
-Resilient systems protect critical functionality even when resources become constrained.
-
----
-
-# Stage 14 — Dependency Resilience
-
-Every dependency should remain observable under extreme conditions.
-
-Validate
-
-Databases
-
-↓
-
-Caches
-
-↓
-
-Message Brokers
-
-↓
-
-Authentication Services
-
-↓
-
-Search Services
-
-↓
-
-Object Storage
-
-↓
-
-Third-Party APIs
-
-↓
-
-Internal Services
-
-The resilience of the entire system depends upon the resilience of its dependencies.
-
----
-
-# Stage 15 — Test Organization
-
-Organize stress tests around business-critical infrastructure.
-
-Group by
-
-Critical APIs
-
-↓
-
-Business Workflows
-
-↓
-
-Infrastructure Components
-
-↓
-
-Failure Scenarios
-
-↓
-
-Dependency Failures
-
-↓
-
-Scaling Scenarios
-
-↓
-
-Disaster Recovery
-
-↓
-
-Future Growth
-
-Engineering organization should simplify operational analysis.
-
----
-
-# Stage 16 — Failure Documentation
-
-Document every observed failure.
-
-Capture
-
-Trigger Conditions
-
-↓
-
-Failure Symptoms
-
-↓
-
-Affected Services
-
-↓
-
-Root Cause
-
-↓
-
-Recovery Method
-
-↓
-
-Engineering Improvements
-
-↓
-
-Preventive Actions
-
-↓
-
-Knowledge Sharing
-
-Every failure should increase organizational engineering knowledge.
-
----
-
-# Stage 17 — Quality Attributes
-
-Every Stress Testing strategy should maximize
-
-Resilience
-
-↓
-
-Recovery Capability
-
-↓
-
-Graceful Degradation
-
-↓
-
-Operational Visibility
-
-↓
-
-Failure Predictability
-
-↓
-
-Engineering Confidence
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-High-quality systems fail predictably, recover quickly, and preserve business continuity.
-
----
-
-# Stage 18 — Engineering Questions
-
-Before approving any stress test, ask
-
-Does this represent a realistic extreme business scenario?
-
-↓
-
-Have critical system limits been identified?
-
-↓
-
-Does the system fail gracefully?
-
-↓
-
-Can critical services continue operating?
-
-↓
-
-Is recovery automatic and reliable?
-
-↓
-
-Are bottlenecks fully understood?
-
-↓
-
-Can engineers confidently estimate operational limits?
-
-↓
-
-Will these tests improve production resilience?
-
-If any answer is "No", improve the stress testing strategy before approval.
-
----
-
-# Stage 19 — Anti-Patterns
-
-Avoid
-
-Generating unrealistic traffic
-
-↓
-
-Ignoring graceful degradation
-
-↓
-
-Testing without monitoring
-
-↓
-
-Uncontrolled failure conditions
-
-↓
-
-Ignoring dependency failures
-
-↓
-
-Incomplete recovery validation
-
-↓
-
-Testing shared environments
-
-↓
-
-Ignoring business continuity
-
-↓
-
-Measuring only infrastructure metrics
-
-↓
-
-Treating crashes as acceptable outcomes
-
-↓
-
-Performing stress tests without recovery plans
-
-↓
-
-Repeating identical scenarios without learning
-
-The objective is engineering resilient systems—not intentionally breaking software.
-
----
-
-# Stage 20 — Continuous Evolution
-
-Stress Testing should evolve together with system architecture and business growth.
-
-Continuously improve
-
-Failure Scenarios
-
-↓
-
-Recovery Procedures
-
-↓
-
-Capacity Understanding
-
-↓
-
-Infrastructure Resilience
-
-↓
-
-Monitoring
-
-↓
-
-Automation
-
-↓
-
-Engineering Standards
-
-↓
-
-Operational Confidence
-
-Stress Testing is a continuous engineering discipline that transforms production uncertainty into measurable operational confidence.
-
----
-
-# Quality Attributes
-
-A high-quality Stress Testing strategy demonstrates
-
-- Predictable failure behavior
-- Graceful degradation
-- Reliable recovery
-- Strong operational visibility
-- Accurate capacity understanding
-- Resilient infrastructure
-- Stable monitoring
-- Actionable engineering insights
-- Clear engineering intent
-- Long-term sustainability
-
----
-
-# Engineering Questions
-
-Before considering Stress Testing complete, verify
-
-- Are operational limits clearly identified?
-- Are realistic extreme workloads represented?
-- Does the system degrade gracefully?
-- Are recovery procedures validated?
-- Are dependencies stress-tested?
-- Is business continuity preserved?
-- Are infrastructure bottlenecks documented?
-- Will operational teams understand observed failures?
-- Can engineers confidently improve resilience?
-- Will these tests remain valuable as the system scales?
-
----
-
-# Severity Levels
-
-## Critical
-
-- Complete system failure without graceful degradation.
-- Data corruption or data loss.
-- Recovery requires manual intervention for critical services.
-- Business-critical workflows become permanently unavailable.
-
-Immediate correction required.
-
----
-
-## High
-
-- Unacceptable recovery time.
-- Infrastructure exhaustion.
-- Dependency collapse.
-- Service instability under realistic stress.
-
-Resolve before release.
-
----
-
-## Medium
-
-- Performance degradation exceeds acceptable thresholds.
-- Inefficient resource utilization.
-- Incomplete observability.
-- Recovery optimization opportunities.
-
-Improve during normal engineering work.
-
----
-
-## Low
-
-- Documentation improvements.
-- Monitoring refinements.
-- Reporting enhancements.
-- Minor resilience optimizations.
-
-Address during continuous improvement.
+# Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Stopping at the first error | Misses how it breaks and whether it recovers | Ramp past failure, then to zero |
+| No recovery window | The most valuable phase is skipped | Always ramp down and observe |
+| Unbounded queues | Turns overload into OOM | Bound every queue; shed load |
+| Timeouts longer than the caller's | Work completed for nobody | Shorter than the caller's |
+| Retries without jitter | Retry storm re-creates the load | Exponential backoff plus jitter |
+| Client is the bottleneck | Measures the generator | Distribute; watch client CPU |
+| Only volume tested | Real incidents are dependency failures | Inject latency and faults |
+| Chaos in production, unannounced | A real outage you caused | Hypothesis, blast radius, abort |
+| Ignoring throughput collapse | The signature of congestion | Load shedding |
+| Assuming recovery | Cold caches cause a second failure | Measure the return to baseline |
 
 ---
 
 # Checklist
 
-Before approving Stress Testing
-
-- Business stress scenarios identified
-- Operational limits documented
-- Extreme workloads modeled
-- Production-like environment prepared
-- Resource utilization monitored
-- Dependencies validated
-- Bottlenecks identified
-- Graceful degradation verified
-- Recovery procedures tested
-- Capacity limits measured
-- Monitoring configured
-- Failure analysis completed
-- Regression protection established
-- Engineering intent documented
-- Operational confidence achieved
-
----
-
-# Definition of Done
-
-A Stress Testing strategy is considered complete when all business-critical services, infrastructure components, service dependencies, extreme workload scenarios, operational limits, graceful degradation mechanisms, failure behaviors, recovery procedures, resilience characteristics, monitoring capabilities, and capacity constraints have been validated through controlled, repeatable, production-representative stress testing that provides engineering teams with high confidence that the system will fail predictably, recover reliably, preserve business continuity, and continue protecting critical user workflows under conditions that exceed expected production demand.
-
-Exceptional Stress Testing is not measured by how quickly a system crashes or by the highest number of simulated requests.
-
-It is measured by how effectively it reveals operational limits, validates graceful degradation, verifies reliable recovery, strengthens architectural resilience, enables evidence-based capacity planning, improves incident preparedness, and continuously supports the delivery of robust, fault-tolerant, and production-ready software.
+- [ ] Verify: Load ramps past the breaking point, not up to the first error
+- [ ] Verify: The knee is identified and recorded as real capacity
+- [ ] Verify: Failure mode is classified as graceful or catastrophic
+- [ ] Verify: Throughput is checked for collapse, not only latency
+- [ ] Verify: Every queue is bounded and load shedding returns `503` with `Retry-After`
+- [ ] Verify: Timeouts are shorter at each layer moving downstream
+- [ ] Verify: Circuit breakers open and later close under test
+- [ ] Verify: A recovery window is included and time-to-baseline is measured
+- [ ] Verify: Client retry logic uses exponential backoff with jitter and an attempt cap
+- [ ] Verify: Dependency failure and instance loss are injected, not just volume
+- [ ] Verify: Production experiments have a hypothesis, blast radius and abort condition

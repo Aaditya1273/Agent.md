@@ -5,1158 +5,240 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: disaster-recovery
+category: DevOps
+description: Planning and rehearsing recovery from a major failure — RTO and RPO, failure scenarios, runbooks, incident roles, and drills that find the gaps.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# disaster-recovery.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, implementing, validating, operating, and continuously improving Disaster Recovery (DR) capabilities across modern software platforms.
+Rules for surviving a major failure: a region outage, a destructive mistake, a
+ransomware event, or the loss of a critical third party.
 
-It applies to
-
-- Cloud Infrastructure
-- Kubernetes
-- Web Applications
-- APIs
-- AI Platforms
-- Databases
-- Enterprise Systems
-- Multi-Region Architectures
-- Critical Business Services
-
-Disaster Recovery is not backup restoration.
-
-Disaster Recovery is the disciplined capability to restore critical business operations after catastrophic failures while preserving data integrity, service continuity, customer trust, and organizational resilience.
-
-Disasters are inevitable.
-
-Operational paralysis is optional.
+The plan is not the deliverable — the **rehearsed capability** is. A recovery
+document that has never been executed is a hypothesis, and it is usually wrong in
+ways only a drill reveals.
 
 ---
 
-# Core Philosophy
+# Start with two numbers, per service
 
-Identify Risks
+| Term | Question | Determines |
+| --- | --- | --- |
+| **RPO** | How much data may we lose? | Backup and replication strategy |
+| **RTO** | How long may recovery take? | Standby architecture and cost |
 
-↓
+Agree them with the business, per service tier, and write them down. They are the
+only basis on which any of the following decisions can be made.
 
-Prepare Recovery
+| Tier | Example | RPO | RTO | Architecture |
+| --- | --- | --- | --- | --- |
+| 0 | Payments, authentication | < 1 min | < 15 min | Multi-region active/active |
+| 1 | Core product | < 5 min | < 1 hour | Warm standby |
+| 2 | Reporting, admin | < 1 hour | < 8 hours | Backup restore |
+| 3 | Internal tools | < 24 hours | Best effort | Backup restore |
 
-↓
-
-Protect Critical Data
-
-↓
-
-Detect Disasters
-
-↓
-
-Recover Services
-
-↓
-
-Validate Operations
-
-↓
-
-Learn From Incidents
-
-↓
-
-Continuously Improve
-
-Preparation determines recovery.
-
-Recovery determines business survival.
+If measured recovery time does not meet the stated RTO, either change the
+architecture or change the number. An aspirational RTO nobody has measured is
+worse than an honest one.
 
 ---
 
-# Primary Objective
+# Enumerate the scenarios
 
-Every Disaster Recovery strategy should maximize
+Plan for causes, because the response differs:
 
-Business Continuity
+| Scenario | Response |
+| --- | --- |
+| Single instance or node failure | Automatic — health checks and replacement |
+| Availability-zone failure | Automatic — multi-AZ, no human involvement |
+| **Region failure** | Failover procedure; DNS or global load balancer |
+| **Destructive human error** (`DROP TABLE`, bad migration) | PITR to just before the event |
+| **Ransomware / account compromise** | Restore from immutable, isolated backups |
+| Corrupted deploy | `kubectl rollout undo`, or a flag flip → `DevOps/rollback` |
+| Third-party outage (payments, email, auth) | Degrade gracefully; queue and retry behind a circuit breaker |
+| Expired certificate or domain | Prevention: alert on `probe_ssl_earliest_cert_expiry`, 30 and 7 days out |
+| Loss of key personnel | Documented runbooks; no single-holder credentials |
 
-+
+Two are commonly missed and are the most likely to actually happen:
 
-Availability
+- **Human error is more frequent than infrastructure failure.** Point-in-time
+  recovery matters more than multi-region, for most organisations. A delayed
+  replica (an hour behind on purpose) is cheap insurance.
+- **Account compromise** defeats every backup that shares the account.
+  → `DevOps/backups`
 
-+
-
-Recoverability
-
-+
-
-Reliability
-
-+
-
-Automation
-
-+
-
-Data Integrity
-
-+
-
-Operational Resilience
-
-+
-
-Engineering Excellence
-
-Recovery exists to restore business operations.
-
-Not merely infrastructure.
+A delayed replica is configured with `recovery_min_apply_delay = '1h'` in Postgres,
+or `--delay` on a MySQL replica. It is an hour behind on purpose, so a `DROP TABLE`
+or a destructive `UPDATE` can be caught before it applies — and the recovery is a
+promotion rather than a multi-hour restore. → `Database/replication`
 
 ---
 
-# Engineering Principles
+# Write runbooks that work at 3am
 
-Always prioritize
+```markdown
+# Runbook: Primary database region failure
 
-Business Continuity
+## Detect
+- `pg_up == 0` for 2 minutes in `eu-west-1`, or the RDS event stream shows failover
+- Confirm: `pg_isready -h $PRIMARY_HOST` from a bastion outside the region
 
-↓
+## Decide
+- Promote if the primary is unreachable for > 5 minutes. Decision owner: on-call.
+- No approval required.
 
-Risk Reduction
+## Act
+1. Verify the standby's replay position:  SELECT pg_last_wal_replay_lsn();
+2. Promote:  aws rds failover-db-cluster --db-cluster-identifier prod
+3. Update the connection secret and restart consumers
+4. Verify writes:  psql -c "INSERT INTO healthcheck …"
+5. Re-point surviving replicas
 
-↓
+## Verify
+- Error rate returns to baseline within 5 minutes
+- Write path confirmed by the synthetic check
 
-Automation
+## Communicate
+- Status page within 10 minutes; update every 30
+```
 
-↓
+Rules: exact commands, no ambiguity, decision criteria before the incident, and
+a named owner. Anything requiring judgement should be pre-decided.
 
-Redundancy
+| Runbook section | Must contain |
+| --- | --- |
+| Detect | The exact query or alert name (`pg_up == 0`, `probe_success == 0`) |
+| Decide | A threshold, a time window, and a named decision owner |
+| Act | Copy-pasteable commands (`aws rds failover-db-cluster`, `kubectl rollout undo`) |
+| Verify | The specific signal proving recovery (`http_requests_total{status=~"5.."}` at baseline) |
+| Communicate | Status-page timing and the update cadence |
+| Rollback | What to do if the recovery action itself fails |
 
-↓
-
-Verification
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Testing
-
-↓
-
-Continuous Improvement
-
-Recovery should be predictable.
-
-Never improvised.
-
----
-
-# Disaster Recovery Lifecycle
-
-Identify Risks
-
-↓
-
-Design Recovery
-
-↓
-
-Protect Systems
-
-↓
-
-Validate Readiness
-
-↓
-
-Detect Disaster
-
-↓
-
-Recover Operations
-
-↓
-
-Verify Services
-
-↓
-
-Continuously Improve
+Runbooks live in version control **and** somewhere reachable when your systems are
+down — a runbook hosted only in the wiki that runs in the failed cluster is
+useless exactly when needed.
 
 ---
 
-# Stage 1 — Business Impact Analysis
+# Define incident roles
 
-Understand
+Under pressure, unassigned work does not happen and everyone debugs at once.
 
-Critical Business Processes
+| Role | Responsibility |
+| --- | --- |
+| **Incident commander** | Coordinates; makes decisions; does **not** debug |
+| Deputy | Takes over when the commander needs to hand off (`> 2h` incidents) |
+| Operations lead | Executes technical actions |
+| Communications lead | Status page, customers, internal updates |
+| Scribe | Timeline of what was done and when — feeds the `postmortem` directly |
 
-↓
+The commander not debugging is the rule people resist and the one that matters
+most: someone must hold the overall picture and decide when to roll back.
 
-Service Dependencies
+Have a communications channel that does not depend on your infrastructure, and
+know how to reach people out of hours.
 
-↓
+| Dependency | Independent alternative |
+| --- | --- |
+| Chat hosted in the affected cloud | A second provider, or SMS/phone tree |
+| Status page on the same CDN | A provider-hosted page (`statuspage.io`, `instatus`) |
+| Runbooks in the internal wiki | A git repository plus an offline export |
+| Paging via the monitored cluster | An external service (`PagerDuty`, `Opsgenie`) |
+| SSO for the recovery console | Break-glass credentials, sealed and audited |
 
-Revenue Impact
-
-↓
-
-Recovery Priorities
-
-↓
-
-Recovery Time Objectives
-
-↓
-
-Recovery Point Objectives
-
-↓
-
-Compliance Requirements
-
-↓
-
-Operational Constraints
-
-Recovery priorities should follow business priorities.
+Break-glass credentials are the one people skip: if authentication itself is down,
+every recovery action requiring SSO is blocked. Store them offline, require two
+people to open them, and alert on use.
 
 ---
 
-# Stage 2 — Risk Assessment
+# Drill, or it does not work
 
-Identify
+| Drill | Frequency |
+| --- | --- |
+| Restore a database from backup to a scratch environment | Monthly |
+| Fail over the primary database | Quarterly |
+| Region failover (or a documented tabletop) | Annually |
+| Restore a deleted object-storage prefix | Quarterly |
+| Recover secrets and configuration from backup | Quarterly |
+| Incident tabletop with a scenario nobody prepared for | Quarterly |
 
-Infrastructure Risks
+```bash
+# Time every drill. The measured number replaces the aspirational RTO.
+START=$(date -u +%s)
+./runbooks/restore-db.sh --target-time "2026-08-23T14:32:59Z" --into scratch
+psql "$SCRATCH_URL" -c "SELECT count(*) FROM orders;"        # sanity, not proof
+./scripts/smoke-test.sh --base-url "$SCRATCH_APP_URL"        # proof
+echo "measured RTO: $(( $(date -u +%s) - START ))s"
+```
 
-↓
+Run drills **against the runbook as written**, with someone who did not write it,
+and time them. Every drill's output is a corrected runbook and a corrected RTO.
 
-Regional Failures
+```yaml
+# A chaos experiment states its hypothesis and its abort condition up front.
+# Without both, it is not an experiment — it is an outage you caused.
+hypothesis: "Losing one of three API pods does not raise the 5xx rate above 0.1%."
+method:     { action: pod-delete, namespace: prod, label: app=api, count: 1 }
+abort_if:   "sum(rate(http_requests_total{status=~'5..'}[1m])) / sum(rate(http_requests_total[1m])) > 0.01"
+blast_radius: "one pod, staging first, then 1% of production traffic"
+```
 
-↓
+Chaos engineering — deliberately killing instances, injecting latency, blocking a
+dependency — finds the assumptions nobody wrote down. Start in staging, with a
+hypothesis and an abort condition.
 
-Cloud Failures
-
-↓
-
-Cyber Attacks
-
-↓
-
-Data Corruption
-
-↓
-
-Human Error
-
-↓
-
-Supply Chain Risks
-
-↓
-
-Operational Risks
-
-Every recovery strategy begins with realistic risk assessment.
-
----
-
-# Stage 3 — Recovery Architecture
-
-Design
-
-Primary Infrastructure
-
-↓
-
-Secondary Infrastructure
-
-↓
-
-Regional Redundancy
-
-↓
-
-Network Redundancy
-
-↓
-
-Storage Redundancy
-
-↓
-
-Application Redundancy
-
-↓
-
-Identity Resilience
-
-↓
-
-Operational Independence
-
-Recovery architecture should eliminate single points of failure.
+After every real incident, write a **blameless** postmortem: timeline, impact,
+contributing causes, and action items with owners and dates. Track them to
+completion; a postmortem whose actions are never done is theatre.
+→ `Review/postmortem`
 
 ---
 
-# Stage 4 — Data Protection
+# Anti-patterns
 
-Protect
-
-Databases
-
-↓
-
-Object Storage
-
-↓
-
-File Systems
-
-↓
-
-Configuration
-
-↓
-
-Secrets
-
-↓
-
-Application State
-
-↓
-
-Audit Records
-
-↓
-
-Business Data
-
-Infrastructure can be rebuilt.
-
-Business data cannot.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No stated RPO/RTO | No basis for any recovery decision | Agree and document per tier |
+| RTO never measured | Aspirational; fails when tested | Time every drill |
+| Planning only for infrastructure failure | Human error is more common | PITR and delayed replicas |
+| Backups in the production account | Compromise takes both | Isolated, immutable copies |
+| Plan never rehearsed | Fails the first time it is used | Scheduled drills |
+| Drills run by their author | Tests one person's memory, not the document | Someone else executes |
+| Runbooks only in the affected system | Unreachable during the outage | Off-platform copy |
+| Vague runbook steps | Judgement required under pressure | Exact commands and criteria |
+| No incident roles | Everyone debugs; nobody decides | Named commander |
+| Commander also debugging | Nobody holds the overall picture | Separate the roles |
+| Communications on affected infrastructure | Cannot coordinate | Independent channel |
+| No status page updates | Support load multiplies | Communicate early and regularly |
+| Blame-focused postmortems | People hide information | Blameless process |
+| Action items never tracked | The same incident recurs | Owners and dates |
 
 ---
 
-# Stage 5 — Backup Strategy
-
-Manage
-
-Backup Frequency
-
-↓
-
-Retention Policies
-
-↓
-
-Immutable Backups
-
-↓
-
-Encrypted Backups
-
-↓
-
-Offsite Storage
-
-↓
-
-Cross-Region Replication
-
-↓
-
-Integrity Validation
-
-↓
-
-Recovery Readiness
-
-Backups are valuable only when recoverable.
-
----
-
-# Stage 6 — Infrastructure Recovery
-
-Recover
-
-Networks
-
-↓
-
-Compute
-
-↓
-
-Storage
-
-↓
-
-Identity Services
-
-↓
-
-Certificates
-
-↓
-
-DNS
-
-↓
-
-Load Balancers
-
-↓
-
-Platform Services
-
-Infrastructure recovery should be automated.
-
----
-
-# Stage 7 — Application Recovery
-
-Restore
-
-Applications
-
-↓
-
-Microservices
-
-↓
-
-APIs
-
-↓
-
-Worker Services
-
-↓
-
-Background Jobs
-
-↓
-
-Messaging Systems
-
-↓
-
-Caches
-
-↓
-
-Business Workflows
-
-Applications should recover in dependency order.
-
----
-
-# Stage 8 — Database Recovery
-
-Restore
-
-Backups
-
-↓
-
-Replication
-
-↓
-
-Schema Integrity
-
-↓
-
-Transactions
-
-↓
-
-Consistency
-
-↓
-
-Validation
-
-↓
-
-Synchronization
-
-↓
-
-Operational Readiness
-
-Database recovery determines business recovery.
-
----
-
-# Stage 9 — Traffic Recovery
-
-Control
-
-DNS Failover
-
-↓
-
-Load Balancing
-
-↓
-
-Regional Routing
-
-↓
-
-Traffic Shifting
-
-↓
-
-Session Recovery
-
-↓
-
-Cache Warmup
-
-↓
-
-Health Validation
-
-↓
-
-User Availability
-
-Users should reach healthy systems automatically.
-
----
-
-# Stage 10 — Security Recovery
-
-Restore
-
-Identity Services
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Secrets
-
-↓
-
-Certificates
-
-↓
-
-Access Policies
-
-↓
-
-Audit Logging
-
-↓
-
-Compliance
-
-Security should remain intact during disasters.
-
----
-
-# Stage 11 — Operational Validation
-
-Verify
-
-Application Health
-
-↓
-
-Infrastructure
-
-↓
-
-Business Transactions
-
-↓
-
-Performance
-
-↓
-
-Availability
-
-↓
-
-Security
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-Recovery is complete only after validation.
-
----
-
-# Stage 12 — Monitoring
-
-Observe
-
-Recovery Progress
-
-↓
-
-Infrastructure Health
-
-↓
-
-Application Status
-
-↓
-
-Error Rates
-
-↓
-
-Latency
-
-↓
-
-Replication
-
-↓
-
-Capacity
-
-↓
-
-Business Metrics
-
-Recovery without visibility is uncertainty.
-
----
-
-# Stage 13 — Reliability
-
-Ensure
-
-Redundancy
-
-↓
-
-Automatic Failover
-
-↓
-
-Health Validation
-
-↓
-
-Failure Isolation
-
-↓
-
-Recovery Consistency
-
-↓
-
-Business Continuity
-
-↓
-
-Operational Confidence
-
-↓
-
-Long-Term Stability
-
-Reliability begins before disasters occur.
-
----
-
-# Stage 14 — Automation
-
-Automate
-
-Disaster Detection
-
-↓
-
-Infrastructure Recovery
-
-↓
-
-Application Recovery
-
-↓
-
-Traffic Switching
-
-↓
-
-Validation
-
-↓
-
-Monitoring
-
-↓
-
-Notifications
-
-↓
-
-Operational Workflows
-
-Automation reduces recovery time.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Recovery Architecture
-
-↓
-
-Recovery Procedures
-
-↓
-
-Runbooks
-
-↓
-
-Escalation Plans
-
-↓
-
-Communication Plans
-
-↓
-
-Operational Decisions
-
-↓
-
-Lessons Learned
-
-↓
-
-Future Evolution
-
-Recovery documentation should remain executable.
-
----
-
-# Stage 16 — Testing
-
-Validate
-
-Backup Restoration
-
-↓
-
-Infrastructure Recovery
-
-↓
-
-Application Recovery
-
-↓
-
-Database Recovery
-
-↓
-
-Regional Failover
-
-↓
-
-Communication Plans
-
-↓
-
-Operational Readiness
-
-↓
-
-Recovery Objectives
-
-Untested recovery plans are assumptions.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Architecture
-
-↓
-
-Recovery Objectives
-
-↓
-
-Automation
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Simplicity
-
-↓
-
-Business Alignment
-
-Recovery strategies deserve executive-level engineering review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Recovery Failure
-
-↓
-
-Backup Failure
-
-↓
-
-Regional Failure
-
-↓
-
-Data Loss
-
-↓
-
-Security Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Communication Failure
-
-↓
-
-Business Impact
-
-Recovery planning should assume imperfect conditions.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Recovery Speed
-
-↓
-
-Automation
-
-↓
-
-Testing
-
-↓
-
-Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Operational Readiness
-
-↓
-
-Engineering Practices
-
-↓
-
-Business Resilience
-
-Every recovery exercise should strengthen future resilience.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Business Continuity
-
-↓
-
-Recoverability
-
-↓
-
-Reliability
-
-↓
-
-Automation
-
-↓
-
-Operational Excellence
-
-↓
-
-Security
-
-↓
-
-Engineering Excellence
-
-↓
-
-Organizational Resilience
-
-Exceptional Disaster Recovery systems become organizational confidence.
-
----
-
-# Disaster Recovery Quality Attributes
-
-Evaluate
-
-Business Continuity
-
-Recoverability
-
-Reliability
-
-Automation
-
-Availability
-
-Data Integrity
-
-Operational Resilience
-
-Maintainability
-
----
-
-# Disaster Recovery Questions
-
-Before production ask
-
-Can every critical business service recover within defined recovery objectives?
-
-↓
-
-Can infrastructure be rebuilt entirely from trusted automation?
-
-↓
-
-Can data be restored without corruption?
-
-↓
-
-Have recovery procedures been tested recently?
-
-↓
-
-Can disaster detection trigger recovery automatically?
-
-↓
-
-Can customers continue using critical services during regional failures?
-
-↓
-
-Would experienced Site Reliability Engineers confidently approve this Disaster Recovery strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Irrecoverable data loss
-
-Business continuity failure
-
-Complete infrastructure loss
-
-Recovery plan failure
-
-Regulatory compliance failure
-
-Major
-
-Regional outage
-
-Backup failure
-
-Application recovery failure
-
-Database recovery issues
-
-Infrastructure recovery delays
-
-Medium
-
-Recovery optimization
-
-Automation improvements
-
-Documentation gaps
-
-Testing improvements
-
-Minor
-
-Naming consistency
-
-Runbook organization
-
-Metadata
-
-Formatting
-
----
-
-# Disaster Recovery Checklist
-
-✓ Business impact analysis completed
-
-✓ Risks identified
-
-✓ Recovery architecture designed
-
-✓ Data protection implemented
-
-✓ Backup strategy validated
-
-✓ Infrastructure recovery automated
-
-✓ Application recovery documented
-
-✓ Database recovery verified
-
-✓ Traffic recovery configured
-
-✓ Security recovery planned
-
-✓ Operational validation completed
-
-✓ Monitoring enabled
-
-✓ Reliability ensured
-
-✓ Automation implemented
-
-✓ Documentation completed
-
-✓ Recovery testing performed
-
-✓ Reviews completed
-
-✓ Risks reassessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Treating backups as Disaster Recovery
-
-Never testing recovery plans
-
-Keeping backups in the same region
-
-Ignoring Recovery Time Objectives
-
-Ignoring Recovery Point Objectives
-
-Manual disaster recovery
-
-Single-region architecture
-
-Recovering infrastructure before validating data
-
-Skipping communication planning
-
-Ignoring dependency ordering
-
-Optimizing cost before resilience
-
-Treating Disaster Recovery as a compliance checklist
-
-Learning nothing from recovery exercises
-
----
-
-# Definition of Done
-
-A Disaster Recovery strategy is considered production-ready when
-
-- Every critical business service has documented, validated, automated, and repeatable recovery procedures capable of meeting defined Recovery Time Objectives (RTOs) and Recovery Point Objectives (RPOs).
-- Recovery architecture eliminates single points of failure through multi-region infrastructure, redundant networking, resilient storage, automated failover, independent identity services, and geographically distributed operational capabilities.
-- Data protection continuously preserves application state, databases, configuration, secrets, audit records, and business-critical information through encrypted, immutable, versioned, and regularly validated backup strategies.
-- Infrastructure recovery is fully automated through Infrastructure as Code, reproducible deployment workflows, validated configurations, dependency-aware orchestration, and deterministic recovery procedures.
-- Application recovery restores services in dependency-aware order while validating availability, operational health, business workflows, performance, security posture, and customer accessibility before declaring recovery complete.
-- Monitoring continuously observes disaster detection, recovery progress, infrastructure health, application status, replication integrity, business metrics, operational risks, and long-term platform stability throughout every recovery event.
-- Security remains fully operational throughout disaster recovery by preserving identity services, authentication, authorization, encryption, secrets management, certificates, compliance controls, and auditability.
-- Recovery exercises are performed regularly to validate infrastructure restoration, application recovery, database recovery, regional failover, communication procedures, operational readiness, and organizational response capabilities.
-- Documentation preserves recovery architecture, runbooks, escalation procedures, communication plans, engineering decisions, testing history, lessons learned, and future resilience improvements.
-- The Disaster Recovery platform consistently demonstrates business continuity, operational resilience, engineering discipline, recoverability, maintainability, automation maturity, organizational preparedness, and long-term sustainability.
-
-Exceptional Disaster Recovery platforms rarely experience true disasters.
-
-Infrastructure failures become controlled engineering events, regional outages trigger predictable failover, data remains protected through validated recovery mechanisms, business operations continue within established recovery objectives, engineering teams execute trusted runbooks instead of improvising under pressure, and organizational resilience becomes the result of disciplined preparation rather than fortunate outcomes.
+# Checklist
+
+- [ ] Verify: RPO and RTO are agreed and documented per service tier
+- [ ] Verify: The architecture actually meets the stated numbers, verified by drill
+- [ ] Verify: Failure scenarios are enumerated, including human error and compromise
+- [ ] Verify: Point-in-time recovery covers destructive mistakes
+- [ ] Verify: Backups are isolated and immutable against account compromise
+- [ ] Verify: Runbooks exist for every scenario with exact commands and decision criteria
+- [ ] Verify: Runbooks are reachable when the primary platform is down
+- [ ] Verify: Incident roles are defined, with a commander who does not debug
+- [ ] Verify: A communications channel independent of the infrastructure exists
+- [ ] Verify: Database restore is drilled monthly; failover quarterly
+- [ ] Verify: Region failover is drilled or tabletopped annually
+- [ ] Verify: Secret and configuration recovery is drilled
+- [ ] Verify: Drills are executed by someone who did not write the runbook, and timed
+- [ ] Verify: Every drill produces runbook corrections
+- [ ] Verify: Chaos experiments run with a hypothesis and an abort condition
+- [ ] Verify: Every incident produces a blameless postmortem with tracked actions

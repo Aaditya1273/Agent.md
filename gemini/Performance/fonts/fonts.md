@@ -5,1137 +5,179 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: fonts
+category: Performance
+description: Web font delivery — self-hosting, subsetting, font-display, metric-compatible fallbacks, and eliminating the layout shift a font swap causes.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# fonts.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, font delivery methodologies, typography optimization strategies, rendering efficiency practices, accessibility standards, and long-term best practices for delivering readable, performant, maintainable, and scalable typography across modern applications.
+Rules for web fonts. Fonts are render-blocking in effect — text either does not
+appear or appears twice — so they affect LCP and CLS directly while usually being
+a small share of total bytes.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- Dashboards
-- Design Systems
-- Documentation Platforms
-- Progressive Web Applications
-- Mobile Web
-- Interactive Applications
-
-Fonts are not decorative assets.
-
-Fonts are critical user interface resources that directly influence readability, accessibility, rendering performance, memory usage, network transfer, visual stability, and overall user experience.
-
-Typography should communicate information efficiently while consuming the minimum engineering resources necessary.
+Four decisions: **how many**, **where from**, **what happens while loading**, and
+**how much the swap shifts the layout**.
 
 ---
 
-# Core Philosophy
+# Ship fewer fonts
 
-Understand Content
+Each family, weight and style is a separate file and a separate request.
 
-↓
+| Ship | Skip |
+| --- | --- |
+| One family, 2–3 weights | Five weights "for flexibility" |
+| A variable font, one file | Nine static weights of the same family |
+| Real italics if used | Italics that are never rendered |
+| Latin subset by default | Full Unicode coverage nobody needs |
 
-Understand Users
+A **variable font** replaces many weights with one file and interpolates between
+them. It is usually smaller than three static weights and always fewer requests.
 
-↓
+Never rely on synthesised bold or italic (the browser skewing a regular face) for
+a design that matters — but also do not ship a weight to avoid a synthesis nobody
+notices.
 
-Choose Appropriate Typography
+Consider whether a system font stack is enough. It costs zero bytes and zero
+requests, and for body text it is frequently indistinguishable to users:
 
-↓
-
-Deliver Only Required Fonts
-
-↓
-
-Optimize Rendering
-
-↓
-
-Maintain Readability
-
-↓
-
-Validate Performance
-
-↓
-
-Continuously Improve
-
-Typography should improve communication rather than increase rendering complexity.
+```css
+font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+```
 
 ---
 
-# Primary Objective
+# Self-host, always
 
-Every typography strategy should maximize
+```html
+<link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
+```
 
-Readability
+A third-party font host costs a DNS lookup, a TCP connection and a TLS handshake
+**before the font request begins** — three round trips on a cold connection,
+roughly 300 ms on mobile, before any text can render in the intended face.
 
-+
+Cross-origin caches are also partitioned per site in modern browsers, so the
+"someone else already downloaded it" argument no longer holds.
 
-Accessibility
+Self-hosting also removes a privacy and availability dependency: a font CDN sees
+every one of your users, and its outage is your outage.
 
-+
+`crossorigin` on the preload is mandatory — fonts are fetched in CORS mode, and a
+preload without it downloads the file **twice**.
 
-Performance
-
-+
-
-Visual Consistency
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Reliability
-
-+
-
-Long-Term Sustainability
-
-Typography should support users before aesthetics.
+Serve `woff2` only. It is universally supported and ~30% smaller than `woff`;
+shipping `ttf` or `eot` fallbacks is dead weight.
 
 ---
 
-# Engineering Principles
+# Subset
 
-Always prioritize
+A full Latin + Cyrillic + Greek font is often 5–10× the size of the Latin subset
+you actually render.
 
-Readable Content
+```bash
+# pyftsubset from fonttools — keep only what the site uses
+pyftsubset inter.ttf --output-file=inter-latin.woff2 --flavor=woff2 \
+  --layout-features='kern,liga' \
+  --unicodes="U+0000-00FF,U+0131,U+2000-206F,U+2122"
+```
 
-↓
-
-Minimal Resource Usage
-
-↓
-
-Accessible Typography
-
-↓
-
-Efficient Rendering
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Every font should have a measurable purpose.
+- Use `unicode-range` in `@font-face` so the browser downloads only the subsets a
+  page needs.
+- For icon fonts: do not use icon fonts. Inline SVG is smaller, accessible, and
+  does not fail into unreadable glyph boxes. → `Performance/images`
 
 ---
 
-# Font Engineering Lifecycle
+# `font-display` and the swap
 
-Understand Content
+```css
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-var.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+}
+```
 
-↓
+| Value | Behaviour | Use when |
+| --- | --- | --- |
+| `swap` | Fallback immediately, swap when loaded | **Default** — content is readable at once |
+| `optional` | Fallback; use the font only if it arrives almost instantly | Zero CLS matters more than the typeface |
+| `fallback` | Short block, then fallback, short swap window | Compromise |
+| `block` | Invisible text up to 3s | Almost never — logos at most |
+| `auto` | Browser default, effectively `block` | Never rely on it |
 
-Analyze Typography Requirements
+`swap` avoids invisible text (FOIT) but causes a visible reflow when the real font
+arrives — which is a CLS contribution. Fix the reflow rather than reverting to
+`block`:
 
-↓
+```css
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial");
+  size-adjust: 107%;          /* match the real font's rendered size */
+  ascent-override: 90%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+body { font-family: "Inter", "Inter Fallback", sans-serif; }
+```
 
-Select Font Strategy
+Metric overrides make the fallback occupy the **same space** as the real font, so
+the swap changes glyph shapes without moving anything. Tools like `fontaine` and
+Next.js `next/font` generate these automatically — which is the main reason to use
+them.
 
-↓
-
-Optimize Delivery
-
-↓
-
-Render Efficiently
-
-↓
-
-Validate Readability
-
-↓
-
-Measure Performance
-
-↓
-
-Continuously Improve
-
-Typography should be engineered intentionally.
-
----
-
-# Stage 1 — Content Analysis
-
-Understand
-
-Business Objectives
-
-↓
-
-User Needs
-
-↓
-
-Reading Patterns
-
-↓
-
-Content Density
-
-↓
-
-Language Support
-
-↓
-
-Accessibility Requirements
-
-↓
-
-Brand Identity
-
-↓
-
-Future Growth
-
-Typography begins with communication.
+Preload **only** the fonts used above the fold, typically one. Preloading every
+weight competes with the resources that actually block rendering.
 
 ---
 
-# Stage 2 — Font Analysis
+# Anti-patterns
 
-Identify
-
-Primary Fonts
-
-↓
-
-Secondary Fonts
-
-↓
-
-Heading Fonts
-
-↓
-
-Body Fonts
-
-↓
-
-Monospace Fonts
-
-↓
-
-Icons
-
-↓
-
-Variable Fonts
-
-↓
-
-Fallback Fonts
-
-Every font increases engineering cost.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Third-party font host | Three round trips before the font request | Self-host |
+| `@import` for fonts | Serialised after CSS parsing; worst case | `<link>` or `@font-face` |
+| Preload without `crossorigin` | Downloads the file twice | Add `crossorigin` |
+| Preloading every weight | Competes with render-critical resources | Preload one |
+| Shipping `ttf`/`woff`/`eot` | Dead weight | `woff2` only |
+| Full Unicode coverage | 5–10× the needed size | Subset with `unicode-range` |
+| Many static weights | One request each | Variable font |
+| `font-display: block` | Invisible text for up to 3 seconds | `swap` |
+| No `font-display` | Defaults to block-like behaviour | Set it explicitly |
+| `swap` without metric overrides | Visible reflow; CLS | `size-adjust`, `ascent-override` |
+| Icon fonts | Large, inaccessible, fail badly | Inline SVG |
+| Fonts loaded via JavaScript | Delayed until scripts execute | CSS and preload |
+| Synthesised bold used as design | Poor rendering | Ship the real weight, if needed |
+| Ignoring the system font option | Bytes and requests for little gain | Consider `system-ui` |
 
 ---
 
-# Stage 3 — Typography Evaluation
-
-Evaluate
-
-Readability
-
-↓
-
-Consistency
-
-↓
-
-Character Coverage
-
-↓
-
-Language Support
-
-↓
-
-Accessibility
-
-↓
-
-Visual Hierarchy
-
-↓
-
-Performance Cost
-
-↓
-
-Maintainability
-
-Typography should improve understanding.
-
----
-
-# Stage 4 — Delivery Strategy
-
-Define
-
-Critical Fonts
-
-↓
-
-Deferred Fonts
-
-↓
-
-Fallback Strategy
-
-↓
-
-Loading Priority
-
-↓
-
-Caching
-
-↓
-
-Reuse
-
-↓
-
-Recovery Strategy
-
-↓
-
-Future Expansion
-
-Fonts should become available when users need them.
-
----
-
-# Stage 5 — Resource Optimization
-
-Optimize
-
-Font Files
-
-↓
-
-Character Sets
-
-↓
-
-Weights
-
-↓
-
-Styles
-
-↓
-
-Storage
-
-↓
-
-Transfer Size
-
-↓
-
-Rendering Cost
-
-↓
-
-Memory Usage
-
-Optimization should reduce resource consumption without reducing readability.
-
----
-
-# Stage 6 — Rendering Strategy
-
-Render
-
-Primary Typography
-
-↓
-
-Fallback Typography
-
-↓
-
-Interactive Content
-
-↓
-
-Dynamic Content
-
-↓
-
-Responsive Layouts
-
-↓
-
-Visual Stability
-
-↓
-
-Accessibility
-
-↓
-
-Consistency
-
-Typography should render predictably.
-
----
-
-# Stage 7 — Accessibility
-
-Validate
-
-Readable Text
-
-↓
-
-Contrast
-
-↓
-
-Language Support
-
-↓
-
-Scaling
-
-↓
-
-Assistive Technology
-
-↓
-
-Keyboard Navigation
-
-↓
-
-Visual Clarity
-
-↓
-
-Inclusive Experience
-
-Typography should remain accessible for every user.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Transfer Size
-
-↓
-
-Loading Time
-
-↓
-
-Rendering Time
-
-↓
-
-Layout Stability
-
-↓
-
-Memory Usage
-
-↓
-
-CPU Usage
-
-↓
-
-Caching Efficiency
-
-↓
-
-User Experience
-
-Typography performance should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Unused Fonts
-
-↓
-
-Unused Weights
-
-↓
-
-Duplicate Resources
-
-↓
-
-Oversized Character Sets
-
-↓
-
-Rendering Delays
-
-↓
-
-Caching Improvements
-
-↓
-
-Memory Waste
-
-↓
-
-Network Overhead
-
-Optimization should eliminate unnecessary typography cost.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Typography System
-
-↓
-
-Design Consistency
-
-↓
-
-Shared Resources
-
-↓
-
-Dependency Relationships
-
-↓
-
-Loading Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Future Evolution
-
-Architecture determines typography sustainability.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Applications
-
-↓
-
-Multiple Languages
-
-↓
-
-Large Content
-
-↓
-
-Design Systems
-
-↓
-
-Enterprise Platforms
-
-↓
-
-Global Users
-
-↓
-
-Future Expansion
-
-↓
-
-Operational Stability
-
-Typography should scale with the product.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Loading Behavior
-
-↓
-
-Fallback Rendering
-
-↓
-
-Error Recovery
-
-↓
-
-Offline Support
-
-↓
-
-Rendering Consistency
-
-↓
-
-Visual Stability
-
-↓
-
-Operational Reliability
-
-↓
-
-Engineering Quality
-
-Typography should remain dependable.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Typography Standards
-
-↓
-
-Font Strategy
-
-↓
-
-Optimization Decisions
-
-↓
-
-Accessibility Guidelines
-
-↓
-
-Engineering Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves typography knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Missing Fonts
-
-↓
-
-Layout Shift
-
-↓
-
-Rendering Delays
-
-↓
-
-Accessibility Issues
-
-↓
-
-Performance Regression
-
-↓
-
-Storage Waste
-
-↓
-
-Operational Risks
-
-↓
-
-Technical Debt
-
-Typography risks should remain visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Readability
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Architecture
-
-↓
-
-Scalability
-
-↓
-
-Future Evolution
-
-Typography decisions should balance user experience with engineering efficiency.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Typography Quality
-
-↓
-
-Readability
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Typography improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Typography Summary
-
-↓
-
-Performance Metrics
-
-↓
-
-Accessibility Review
-
-↓
-
-Optimization Results
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports preserve typography engineering decisions.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Delivery
-
-↓
-
-Caching
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Maintainability
-
-Typography should remain reliable under production workloads.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Typography Standards
-
-↓
-
-Performance Reviews
-
-↓
-
-Accessibility Reviews
-
-↓
-
-Architecture Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Engineering Discipline
-
-Typography quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Typography Quality
-
-↓
-
-Readability
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional typography continuously improves communication while consuming only the resources necessary to deliver an outstanding reading experience.
-
----
-
-# Font Quality Attributes
-
-Evaluate
-
-Readability
-
-Accessibility
-
-Performance
-
-Visual Consistency
-
-Maintainability
-
-Scalability
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every font serve a measurable purpose?
-
-↓
-
-Can typography remain readable without unnecessary resources?
-
-↓
-
-Have unnecessary font weights and styles been eliminated?
-
-↓
-
-Does typography support accessibility requirements?
-
-↓
-
-Can the typography architecture scale as the application grows?
-
-↓
-
-Will future engineers understand these typography decisions?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this typography strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Unreadable content
-
-Broken typography
-
-Accessibility failure
-
-Application instability
-
-Major
-
-Oversized font resources
-
-Rendering delays
-
-Layout instability
-
-Performance degradation
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Font Checklist
-
-✓ Content analyzed
-
-✓ Typography evaluated
-
-✓ Font resources identified
-
-✓ Delivery strategy defined
-
-✓ Resources optimized
-
-✓ Rendering validated
-
-✓ Accessibility verified
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Loading unnecessary fonts
-
-Multiple fonts without purpose
-
-Excessive font weights
-
-Ignoring accessibility
-
-Blocking rendering with typography
-
-Duplicate font resources
-
-Oversized character sets
-
-Typography driven only by branding
-
-Ignoring fallback strategies
-
-Optimizing without measurement
-
-Growing typography systems without governance
-
-Treating fonts as purely visual assets
-
----
-
-# Definition of Done
-
-A typography strategy is considered complete when
-
-- Fonts are selected, delivered, rendered, and maintained according to measurable user needs while preserving readability, accessibility, performance, architectural integrity, maintainability, and long-term scalability.
-- Font resources are optimized through evidence-based engineering decisions that eliminate unnecessary files, duplicate resources, unused styles, excessive character coverage, redundant weights, avoidable rendering cost, and unnecessary network transfer while maintaining visual quality.
-- Typography architecture supports consistent rendering, reliable fallback behavior, scalable language support, efficient resource utilization, operational reliability, future product evolution, and sustainable engineering practices without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate typography quality, accessibility, rendering behavior, performance characteristics, architectural consistency, documentation quality, maintainability, scalability, and production readiness before deployment.
-- Documentation clearly explains typography standards, font selection rationale, accessibility requirements, optimization decisions, engineering trade-offs, validation evidence, governance expectations, known limitations, and future improvement opportunities.
-- Typography decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than aesthetic preference alone.
-- The resulting application demonstrates engineering discipline, exceptional readability, accessible communication, efficient resource utilization, architectural clarity, operational excellence, maintainability, predictable scalability, and long-term software sustainability.
-
-Exceptional typography is not measured by how many fonts an application uses.
-
-It is measured by how effectively information is communicated through readable, accessible, consistent, and efficiently delivered text while consuming the minimum engineering resources necessary to create an exceptional user experience.
+# Checklist
+
+- [ ] Verify: The number of families, weights and styles is minimal and justified
+- [ ] Verify: A variable font replaces multiple static weights where applicable
+- [ ] Verify: Using a system font stack was considered
+- [ ] Verify: Fonts are self-hosted, not fetched from a third party
+- [ ] Verify: Only `woff2` is served
+- [ ] Verify: Fonts are subset to the characters actually rendered
+- [ ] Verify: `unicode-range` limits downloads to needed subsets
+- [ ] Verify: `font-display: swap` (or `optional`) is set on every `@font-face`
+- [ ] Verify: A metric-compatible fallback with `size-adjust` and overrides is defined
+- [ ] Verify: Only above-the-fold fonts are preloaded
+- [ ] Verify: Preload links include `crossorigin`
+- [ ] Verify: No icon font is used; icons are inline SVG
+- [ ] Verify: Fonts are not loaded via JavaScript
+- [ ] Verify: Fonts are served from a CDN with immutable, content-hashed caching
+- [ ] Verify: CLS is measured after the font swap, not only before

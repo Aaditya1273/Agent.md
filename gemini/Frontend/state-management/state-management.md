@@ -5,1143 +5,195 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: state-management
+category: Frontend
+description: Choosing where state lives — server cache versus client state, URL as state, and picking a library only when local state genuinely cannot serve.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# state-management.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, ownership rules, synchronization strategies, and long-term best practices for managing application state in modern software systems.
+Rules for deciding where application state lives. Most "state management problems"
+are really one mistake: **treating server data as client state.**
 
-It applies to
-
-- React Applications
-- Next.js Applications
-- Enterprise Frontends
-- SaaS Platforms
-- AI Applications
-- Dashboards
-- Mobile Web Applications
-- Component Libraries
-- Full-Stack Systems
-
-State management is not choosing a library.
-
-State management is the engineering discipline of ensuring that every piece of information has a single source of truth, predictable ownership, controlled updates, and a well-defined lifecycle.
-
-Libraries implement state.
-
-Architecture governs it.
+Server data is a cache of something you do not own. It goes stale, it needs
+revalidation, it can fail and retry. Client state is yours and is always correct.
+Managing the first with the tools for the second produces most of the complexity
+people attribute to React.
 
 ---
 
-# Core Philosophy
+# Classify first, then choose
 
-Understand Data
+| Kind | Example | Where it belongs |
+| --- | --- | --- |
+| Server data | Orders, profile, search results | A server-cache library |
+| URL state | Filters, page, tab, selected id | The URL |
+| Form state | Field values while editing | The form, locally |
+| Local UI state | Dropdown open, hover | `useState` in the component |
+| Shared UI state | Theme, sidebar, toasts | Context, or a small store |
+| Session identity | Current user, permissions | Server-provided; cached, never authoritative |
 
-↓
-
-Classify State
-
-↓
-
-Assign Ownership
-
-↓
-
-Control Updates
-
-↓
-
-Synchronize Changes
-
-↓
-
-Prevent Duplication
-
-↓
-
-Review Consistency
-
-↓
-
-Continuously Improve
-
-Good state architecture minimizes complexity before introducing tooling.
+Walk down this list before reaching for a library. Most applications need **no**
+global state library once server data moves to a cache and filters move to the
+URL.
 
 ---
 
-# Primary Objective
+# Server data belongs in a server cache
 
-Every state management system should maximize
+```tsx
+// Manual: no deduplication, no revalidation, no retry, no cache — reimplemented
+// slightly differently in every component that needs orders.
+const [orders, setOrders] = useState([]);
+useEffect(() => { fetch("/api/orders").then(r => r.json()).then(setOrders); }, []);
 
-Predictability
+// A cache: deduplicated, revalidated, retried, shared across components
+const { data, error, isPending } = useQuery({
+  queryKey: ["orders", { status }],
+  queryFn: () => api.orders.list({ status }),
+  staleTime: 30_000,
+});
+```
 
-+
+`@tanstack/react-query`, SWR, Apollo, RTK Query, or a framework loader
+(Next.js server components, Remix loaders) all solve this. What they give you and
+hand-rolled effects do not:
 
-Consistency
+- Request deduplication across components mounting simultaneously
+- Background revalidation and stale-while-revalidate
+- Retry with backoff, and error and loading states as data
+- Cache invalidation by key after a mutation
+- Race-condition handling for out-of-order responses
 
-+
+**Never** copy fetched data into a global store. You then own invalidation,
+and the store and the server diverge silently.
 
-Maintainability
-
-+
-
-Performance
-
-+
-
-Scalability
-
-+
-
-Reliability
-
-+
-
-Developer Experience
-
-+
-
-Long-Term Sustainability
-
-State should always explain itself through its architecture.
+The query key **is** the cache identity: include every parameter that changes the
+result, or two different filters will share one cache entry.
 
 ---
 
-# Engineering Principles
+# The URL is state
 
-Always prioritize
+Filters, sort, pagination, the open tab, the selected record — all belong in the
+URL.
 
-Single Source of Truth
+```tsx
+const [params, setParams] = useSearchParams();
+const status = params.get("status") ?? "all";
+```
 
-↓
+If it is not in the URL, the user cannot bookmark it, share it, or use the back
+button — and a refresh loses it. This is a user-facing bug that appears as
+"the link I sent shows something different".
 
-Explicit Ownership
-
-↓
-
-Minimal State
-
-↓
-
-Derived Data
-
-↓
-
-Immutable Updates
-
-↓
-
-Predictable Flow
-
-↓
-
-Performance
-
-↓
-
-Continuous Improvement
-
-State should exist only when it cannot be derived.
+Keep it clean: omit defaults rather than serialising `?status=all&page=1`, and
+never put a secret or personal data in a query string, where it lands in logs and
+`Referer` headers. → `API/api-security`
 
 ---
 
-# State Management Lifecycle
+# Client state: local first
 
-Understand Requirements
+Start with `useState` in the component that owns it. Lift only when a second
+component genuinely needs the same value, and only to the lowest common parent.
 
-↓
+**Context is not a state manager.** Every consumer re-renders when the value
+changes, so a single context holding everything re-renders the whole tree on any
+change.
 
-Classify State
+- Split contexts by update frequency: a rarely-changing `ThemeContext` and a
+  frequently-changing one should not be the same provider.
+- Memoise the context value, or every provider render invalidates all consumers.
+- Context is right for dependency injection (theme, locale, the current user) and
+  wrong for high-frequency state.
 
-↓
+| Library | Model | Reach for it when |
+| --- | --- | --- |
+| `@tanstack/react-query` | Server cache | Any remote data — this is the default |
+| `zustand` | Single store, selector subscriptions | Shared client state, minimal boilerplate |
+| `jotai` | Atomic, bottom-up | Many independent pieces of fine-grained state |
+| `@reduxjs/toolkit` | Single store, reducers, devtools | Large apps needing traceable transitions |
+| `xstate` | Explicit state machines | Multi-step flows with complex legal transitions |
+| React `useReducer` + context | Built in | A handful of values, low update frequency |
 
-Assign Ownership
-
-↓
-
-Implement Updates
-
-↓
-
-Synchronize Changes
-
-↓
-
-Validate Consistency
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Architecture should define state before implementation begins.
+When a store is genuinely warranted — shared, frequently updated client state
+across distant components — pick a small one with selector-based subscriptions
+(`zustand`, `jotai`, `valtio`). Redux Toolkit remains reasonable for large
+applications that need strict traceability of every transition.
 
 ---
 
-# Stage 1 — State Classification
+# Keep state modelling honest
 
-Identify
+```ts
+// Permits { isLoading: true, error: Error, data: Data } — three impossible states
+{ isLoading: boolean; error: Error | null; data: Data | null }
 
-Local State
+// One value; illegal combinations cannot be represented
+type State = { status: "idle" } | { status: "loading" }
+           | { status: "error"; error: Error } | { status: "success"; data: Data };
+```
 
-↓
+- Never store derived data. Compute it. A `totalCents` alongside `items` will
+  diverge.
+- Never duplicate the same value in two stores.
+- Normalise collections by id rather than nesting the same entity in several
+  places, so one update does not need to find every copy.
+- Persisted state (`localStorage`) must be **versioned and migrated**, or a
+  returning user with an old shape crashes the application. Never persist tokens
+  or personal data there. → `Frontend/hooks`
 
-Shared State
-
-↓
-
-Server State
-
-↓
-
-Session State
-
-↓
-
-Persistent State
-
-↓
-
-Derived State
-
-↓
-
-UI State
-
-↓
-
-Business State
-
-Different categories require different management strategies.
+Optimistic updates need a rollback path. Applying the change and only then
+discovering the mutation failed, with no way back, is worse than a spinner.
 
 ---
 
-# Stage 2 — Ownership
+# Anti-patterns
 
-Define
-
-Single Owner
-
-↓
-
-State Boundaries
-
-↓
-
-Access Rules
-
-↓
-
-Update Responsibility
-
-↓
-
-Lifecycle
-
-↓
-
-Visibility
-
-↓
-
-Dependencies
-
-↓
-
-Consistency
-
-Every state should have exactly one authoritative owner.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Server data in a global store | You own invalidation; it diverges | Server-cache library |
+| `useEffect` + `useState` fetching | No dedup, retry, cache or race handling | Query library or loader |
+| Query key missing a parameter | Two filters share one cache entry | Include everything that affects the result |
+| Filters and pagination in local state | Not shareable, lost on refresh, back button broken | Put them in the URL |
+| Secrets in query strings | Logged and leaked via `Referer` | Never |
+| Reaching for Redux by default | Large surface for a problem you may not have | Local state first |
+| One context for everything | Whole tree re-renders on any change | Split by update frequency |
+| Unmemoised context value | Every provider render invalidates consumers | Memoise |
+| Context for high-frequency state | Re-render storms | A store with selectors |
+| Boolean flags for a state machine | Impossible states become reachable | Discriminated union |
+| Derived data stored | Two sources of truth diverge | Compute it |
+| Same value in two stores | Guaranteed to diverge | One owner |
+| Deeply nested entity copies | One update must find every copy | Normalise by id |
+| Unversioned persisted state | An old shape crashes returning users | Version and migrate |
+| Tokens in `localStorage` | XSS becomes account takeover | `HttpOnly` cookie |
+| Optimistic update with no rollback | Failed mutations leave wrong UI | Roll back on error |
 
 ---
 
-# Stage 3 — State Architecture
-
-Design
-
-Feature Boundaries
-
-↓
-
-Domain Separation
-
-↓
-
-Shared Stores
-
-↓
-
-Component State
-
-↓
-
-Application State
-
-↓
-
-Infrastructure State
-
-↓
-
-External Data
-
-↓
-
-Future Evolution
-
-Architecture determines maintainability.
-
----
-
-# Stage 4 — Data Flow
-
-Maintain
-
-Top-Down Updates
-
-↓
-
-Explicit Actions
-
-↓
-
-Controlled Mutations
-
-↓
-
-Derived Values
-
-↓
-
-Consistent Synchronization
-
-↓
-
-Observable Changes
-
-↓
-
-Predictable Rendering
-
-↓
-
-Reliable Behavior
-
-Data should move predictably throughout the application.
-
----
-
-# Stage 5 — Derived State
-
-Prefer
-
-Computed Values
-
-↓
-
-Selectors
-
-↓
-
-Memoization
-
-↓
-
-Reusable Logic
-
-↓
-
-Minimal Storage
-
-↓
-
-Consistent Calculations
-
-↓
-
-Shared Rules
-
-↓
-
-Reduced Duplication
-
-Never store information that can be calculated reliably.
-
----
-
-# Stage 6 — State Updates
-
-Ensure
-
-Immutable Updates
-
-↓
-
-Atomic Changes
-
-↓
-
-Explicit Actions
-
-↓
-
-Validation
-
-↓
-
-Error Recovery
-
-↓
-
-Transaction Safety
-
-↓
-
-Consistency
-
-↓
-
-Observability
-
-Updates should be deterministic.
-
----
-
-# Stage 7 — Server State
-
-Manage
-
-Fetching
-
-↓
-
-Caching
-
-↓
-
-Revalidation
-
-↓
-
-Synchronization
-
-↓
-
-Pagination
-
-↓
-
-Optimistic Updates
-
-↓
-
-Offline Behavior
-
-↓
-
-Consistency
-
-Server state follows different rules than application state.
-
----
-
-# Stage 8 — Synchronization
-
-Coordinate
-
-Shared Components
-
-↓
-
-Multiple Views
-
-↓
-
-Background Updates
-
-↓
-
-External APIs
-
-↓
-
-Real-Time Data
-
-↓
-
-Persistence
-
-↓
-
-Conflict Resolution
-
-↓
-
-Consistency
-
-Synchronization should minimize stale data.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Rendering Frequency
-
-↓
-
-State Granularity
-
-↓
-
-Subscriptions
-
-↓
-
-Memoization
-
-↓
-
-Selectors
-
-↓
-
-Batch Updates
-
-↓
-
-Lazy Loading
-
-↓
-
-Resource Usage
-
-Performance begins with good architecture.
-
----
-
-# Stage 10 — Error Handling
-
-Handle
-
-Invalid State
-
-↓
-
-Synchronization Failures
-
-↓
-
-Network Errors
-
-↓
-
-Persistence Failures
-
-↓
-
-Recovery
-
-↓
-
-Fallback State
-
-↓
-
-Logging
-
-↓
-
-Observability
-
-Applications should recover gracefully from inconsistent state.
-
----
-
-# Stage 11 — Persistence
-
-Persist
-
-User Preferences
-
-↓
-
-Authentication
-
-↓
-
-Draft Data
-
-↓
-
-Offline Data
-
-↓
-
-Application Settings
-
-↓
-
-Session Recovery
-
-↓
-
-Versioning
-
-↓
-
-Migration
-
-Persist only information that provides long-term value.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Feature Stores
-
-↓
-
-Domain Models
-
-↓
-
-Selectors
-
-↓
-
-Actions
-
-↓
-
-Utilities
-
-↓
-
-Shared Logic
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-Organization should simplify understanding.
-
----
-
-# Stage 13 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-Shared State
-
-↓
-
-Independent Modules
-
-↓
-
-Large Applications
-
-↓
-
-Real-Time Systems
-
-↓
-
-Future Requirements
-
-↓
-
-Long-Term Evolution
-
-State architecture should grow without becoming fragile.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Ownership
-
-↓
-
-State Categories
-
-↓
-
-Synchronization Rules
-
-↓
-
-Update Flows
-
-↓
-
-Architectural Decisions
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves architectural intent.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Ownership
-
-↓
-
-Predictability
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-State architecture should be reviewed before implementation details.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Duplicated State
-
-↓
-
-Conflicting Ownership
-
-↓
-
-Synchronization Problems
-
-↓
-
-Performance Bottlenecks
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Maintenance Cost
-
-↓
-
-Operational Risk
-
-Poor state architecture compounds over time.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Ownership
-
-↓
-
-Performance
-
-↓
-
-Synchronization
-
-↓
-
-Developer Experience
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Refine architecture before introducing additional tooling.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Consistency
-
-↓
-
-Synchronization
-
-↓
-
-Performance
-
-↓
-
-Recovery
-
-↓
-
-Persistence
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Reliable state management supports reliable software.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Architecture Standards
-
-↓
-
-Review Process
-
-↓
-
-Naming Standards
-
-↓
-
-Ownership Rules
-
-↓
-
-Documentation
-
-↓
-
-Version Management
-
-↓
-
-Engineering Discipline
-
-↓
-
-Continuous Evolution
-
-State architecture requires governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Architecture
-
-↓
-
-Consistency
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-Software Longevity
-
-Exceptional applications maintain predictable state regardless of scale.
-
----
-
-# State Management Quality Attributes
-
-Evaluate
-
-Predictability
-
-Consistency
-
-Maintainability
-
-Performance
-
-Scalability
-
-Reliability
-
-Developer Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every state have exactly one owner?
-
-↓
-
-Can any stored value be derived instead?
-
-↓
-
-Are updates predictable and immutable?
-
-↓
-
-Can synchronization failures be recovered safely?
-
-↓
-
-Is server state separated from application state?
-
-↓
-
-Can future engineers understand the ownership model?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this state architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Duplicated source of truth
-
-Conflicting ownership
-
-Unpredictable state updates
-
-State synchronization failures
-
-Major
-
-Excessive global state
-
-Poor performance
-
-Weak architecture
-
-Inconsistent update flow
-
-Medium
-
-Naming inconsistencies
-
-Weak organization
-
-Documentation gaps
-
-Minor
-
-Formatting
-
-Comments
-
-Metadata
-
-Repository consistency
-
----
-
-# State Management Checklist
-
-✓ State categories identified
-
-✓ Ownership defined
-
-✓ Architecture designed
-
-✓ Data flow established
-
-✓ Derived state minimized
-
-✓ Immutable updates implemented
-
-✓ Server state separated
-
-✓ Synchronization validated
-
-✓ Performance reviewed
-
-✓ Error handling implemented
-
-✓ Persistence evaluated
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Multiple sources of truth
-
-Duplicated state
-
-Global state for local concerns
-
-Storing derived values
-
-Mutable shared objects
-
-Uncontrolled updates
-
-Mixing server and client state
-
-Overusing context
-
-Premature state libraries
-
-Business logic inside UI state
-
-Ignoring ownership boundaries
-
-Optimizing tooling before architecture
-
-State synchronization without clear ownership
-
----
-
-# Definition of Done
-
-A state management architecture is considered production-ready when
-
-- Every piece of application data belongs to a clearly defined category, has exactly one authoritative owner, follows predictable lifecycle rules, and supports deterministic updates throughout the system.
-- Local state, shared state, server state, persistent state, session state, and derived state are intentionally separated according to their responsibilities, consistency requirements, and operational lifecycles.
-- State updates are immutable, explicit, observable, and resilient to synchronization failures while minimizing unnecessary rendering, duplication, and architectural complexity.
-- Data synchronization, persistence, caching, recovery, real-time updates, and external integrations preserve consistency without violating ownership boundaries or introducing conflicting sources of truth.
-- Engineering reviews validate state architecture, ownership models, synchronization strategies, performance characteristics, documentation quality, maintainability, and long-term scalability before production deployment.
-- Documentation preserves architectural intent through clearly defined ownership models, update flows, synchronization rules, design decisions, known constraints, and future evolution strategies.
-- The resulting application demonstrates engineering discipline, architectural clarity, predictable behavior, operational reliability, maintainability, scalability, and long-term software sustainability.
-
-Exceptional state management is not determined by the library chosen.
-
-It is determined by the clarity of ownership, the predictability of data flow, the elimination of conflicting sources of truth, and the confidence with which future engineers can evolve the system while preserving architectural integrity.
+# Checklist
+
+- [ ] Verify: Every piece of state is classified before choosing where it lives
+- [ ] Verify: Server data lives in a server-cache library or framework loader
+- [ ] Verify: Query keys include every parameter that affects the result
+- [ ] Verify: Fetched data is not copied into a global store
+- [ ] Verify: Filters, sort, pagination and selection live in the URL
+- [ ] Verify: Default values are omitted from the URL; no secrets appear in it
+- [ ] Verify: Client state starts local and is lifted only when genuinely shared
+- [ ] Verify: Contexts are split by update frequency and their values memoised
+- [ ] Verify: High-frequency shared state uses a store with selector subscriptions
+- [ ] Verify: A global state library is introduced only after local state proved insufficient
+- [ ] Verify: Related state is modelled as a discriminated union
+- [ ] Verify: No derived data is stored; no value is duplicated across stores
+- [ ] Verify: Collections are normalised by id
+- [ ] Verify: Persisted state is versioned with a migration path
+- [ ] Verify: No tokens or personal data are persisted client-side
+- [ ] Verify: Optimistic updates roll back on failure

@@ -5,1153 +5,179 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: transactions
+category: Database
+description: Using transactions correctly — isolation levels and what each permits, keeping them short, and handling the retries serialisable mode requires.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# transactions.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, implementing, and managing database transactions.
+Rules for transaction boundaries, isolation and concurrency control.
 
-It applies to
-
-- PostgreSQL
-- MySQL
-- MariaDB
-- SQL Server
-- Oracle
-- CockroachDB
-- Distributed SQL Databases
-- Financial Systems
-- Enterprise Applications
-- SaaS Platforms
-
-Transactions are not database features.
-
-Transactions are business guarantees.
-
-Every transaction exists to protect the correctness of business operations.
-
-Speed is valuable.
-
-Correctness is mandatory.
+The two failures that account for most incidents: **transactions held open too
+long**, which exhausts the connection pool and blocks vacuum, and **assuming
+`READ COMMITTED` prevents anomalies it does not** — the read-modify-write race
+that silently corrupts a balance.
 
 ---
 
-# Core Philosophy
+# Isolation levels and what each permits
 
-Business Intent
+| Level | Dirty read | Non-repeatable read | Phantom | Lost update |
+| --- | --- | --- | --- | --- |
+| `READ UNCOMMITTED` | Possible* | Possible | Possible | Possible |
+| **`READ COMMITTED`** (PG default) | No | **Possible** | **Possible** | **Possible** |
+| `REPEATABLE READ` | No | No | No† | No |
+| `SERIALIZABLE` | No | No | No | No |
 
-↓
+\* PostgreSQL treats `READ UNCOMMITTED` as `READ COMMITTED`.
+† PostgreSQL's `REPEATABLE READ` uses snapshot isolation and prevents phantoms,
+unlike the SQL standard's minimum guarantee.
 
-Atomic Execution
-
-↓
-
-Consistent State
-
-↓
-
-Reliable Recovery
-
-↓
-
-Concurrent Safety
-
-↓
-
-Operational Predictability
-
-↓
-
-Scalable Systems
-
-↓
-
-Long-Term Integrity
-
-A failed transaction is recoverable.
-
-An inconsistent transaction is unacceptable.
+The row that matters: **`READ COMMITTED` permits lost updates.** Two concurrent
+transactions each read a balance of 100, each subtract 30, and the result is 70
+instead of 40. No error is raised.
 
 ---
 
-# Primary Objective
+# The read-modify-write race
 
-Every transaction should maximize
+```js
+// BROKEN under READ COMMITTED — two concurrent runs both read the old value
+const account = await tx.account.findUnique({ where: { id } });
+await tx.account.update({ where: { id }, data: { balance: account.balance - 30 } });
+```
 
-Correctness
+Three correct fixes, in order of preference:
 
-+
+```sql
+-- 1. Atomic update — no read-then-write at all. Prefer this.
+UPDATE accounts SET balance = balance - 30
+WHERE id = $1 AND balance >= 30
+RETURNING balance;
 
-Atomicity
+-- 2. Pessimistic lock — serialises the readers on this row
+SELECT balance FROM accounts WHERE id = $1 FOR UPDATE;
 
-+
+-- 3. Optimistic lock — no lock held; retry on conflict
+UPDATE accounts SET balance = $2, version = version + 1
+WHERE id = $1 AND version = $3;      -- 0 rows affected means someone else won
+```
 
-Consistency
+Option 1 is best where the operation is expressible in SQL. `FOR UPDATE` costs
+concurrency on hot rows. Optimistic locking suits low-contention data and requires
+the caller to handle the retry.
 
-+
-
-Isolation
-
-+
-
-Durability
-
-+
-
-Reliability
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-Transactions should protect business truth under every circumstance.
+**Never** rely on reading a value, checking it in application code, and writing it
+back without one of these.
 
 ---
 
-# Engineering Principles
+# Keep transactions short
 
-Always prioritize
+A transaction holds locks and a connection for its entire life.
 
-Business Correctness
+**Never** do these inside a transaction:
 
-↓
+- An HTTP call to a third party. A 30-second timeout becomes a 30-second lock.
+- Sending an email or publishing to a queue — if the transaction rolls back, the
+  message has already gone. Use the outbox pattern.
+- Waiting for user input.
+- Processing a large file.
 
-Atomic Operations
+```js
+// Right: read, close, do slow work, reopen for the write
+const order = await db.order.findUnique({ where: { id } });
+const charge = await stripe.charges.create({ amount: order.total });   // outside
 
-↓
+await db.$transaction(async (tx) => {
+  await tx.order.update({ where: { id }, data: { chargeId: charge.id } });
+  await tx.ledger.create({ data: { orderId: id, amount: order.total } });
+});
+```
 
-Consistent State
-
-↓
-
-Minimal Transaction Scope
-
-↓
-
-Predictable Locking
-
-↓
-
-Reliable Recovery
-
-↓
-
-Observability
-
-↓
-
-Continuous Improvement
-
-Business rules should never depend on luck.
+Watch `idle in transaction` in `pg_stat_activity` — a non-zero steady count means
+transactions are open with nothing running, which is the pool exhaustion signature.
+Set `idle_in_transaction_session_timeout` so a leaked transaction cannot hold a
+connection indefinitely.
 
 ---
 
-# Transaction Lifecycle
+# Serialisable and retries
 
-Business Request
+`SERIALIZABLE` gives correctness without manual locking, at the cost of
+**serialisation failures the caller must retry**.
 
-↓
+```js
+async function withRetry(fn, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await db.$transaction(fn, { isolationLevel: "Serializable" });
+    } catch (e) {
+      // 40001 serialization_failure, 40P01 deadlock_detected
+      if (!["40001", "40P01"].includes(e.code) || i === attempts - 1) throw e;
+      await sleep(Math.random() * 2 ** i * 50);      // backoff with jitter
+    }
+  }
+}
+```
 
-Validation
+A `SERIALIZABLE` transaction **without** retry handling is worse than
+`READ COMMITTED` — it converts a rare silent anomaly into a frequent visible error.
 
-↓
-
-Begin Transaction
-
-↓
-
-Execute Operations
-
-↓
-
-Validate Consistency
-
-↓
-
-Commit
-
-↓
-
-Monitor
-
-↓
-
-Continuous Optimization
+Deadlocks: the database detects and kills one participant. Reduce them by always
+acquiring locks in a **consistent order** (for example, always the lower account
+id first).
 
 ---
 
-# Stage 1 — Business Analysis
+# Boundaries and correctness
 
-Understand
-
-Business Process
-
-↓
-
-Critical Operations
-
-↓
-
-Consistency Requirements
-
-↓
-
-Failure Scenarios
-
-↓
-
-Concurrency
-
-↓
-
-Recovery Requirements
-
-↓
-
-Compliance
-
-↓
-
-Business Value
-
-Every transaction should represent one complete business operation.
+- One transaction per **unit of business work** — not per statement, not per
+  request. If two writes must both succeed or both fail, they share a transaction.
+- **Never** nest transactions expecting independent rollback. Most drivers map an
+  inner "transaction" to a savepoint or ignore it.
+- Anything with an external side effect belongs in an **outbox**: write the
+  intent inside the transaction, deliver it afterwards from a worker.
+- Make retried operations **idempotent** — a retry after an ambiguous timeout must
+  not charge twice. Use an idempotency key.
 
 ---
 
-# Stage 2 — Transaction Boundaries
+# Anti-patterns
 
-Define
-
-Start Point
-
-↓
-
-Business Logic
-
-↓
-
-Validation
-
-↓
-
-Database Operations
-
-↓
-
-External Dependencies
-
-↓
-
-Completion
-
-↓
-
-Commit
-
-↓
-
-Rollback
-
-Transactions should remain as small as possible.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Read, modify, write under `READ COMMITTED` | Lost update, silently | Atomic `UPDATE` or `FOR UPDATE` |
+| HTTP call inside a transaction | Locks held for the remote latency | Call outside the boundary |
+| Email or publish inside a transaction | Sent even when the transaction rolls back | Outbox pattern |
+| `SERIALIZABLE` with no retry | Frequent visible `40001` errors | Retry with jitter |
+| Locking rows in varying order | Deadlocks | Consistent lock ordering |
+| Transaction per statement | No atomicity across the unit of work | One per business operation |
+| Nested transactions assumed independent | Inner rollback discards outer work | Savepoints, explicitly |
+| No `idle_in_transaction` timeout | One leak exhausts the pool | Set the timeout |
+| Retry without idempotency | Double charge after an ambiguous timeout | Idempotency key |
+| Long-running report in a transaction | Blocks vacuum; bloat grows | Read outside, or a replica |
 
 ---
 
-# Stage 3 — Atomicity
-
-Ensure
-
-Complete Success
-
-↓
-
-Complete Failure
-
-↓
-
-No Partial Writes
-
-↓
-
-Rollback Safety
-
-↓
-
-State Recovery
-
-↓
-
-Integrity
-
-↓
-
-Consistency
-
-↓
-
-Business Correctness
-
-Partial business operations should never exist.
-
----
-
-# Stage 4 — Consistency
-
-Maintain
-
-Business Rules
-
-↓
-
-Constraints
-
-↓
-
-Relationships
-
-↓
-
-Valid States
-
-↓
-
-Data Integrity
-
-↓
-
-Referential Integrity
-
-↓
-
-Application Rules
-
-↓
-
-Operational Stability
-
-Every transaction should leave the database valid.
-
----
-
-# Stage 5 — Isolation
-
-Protect against
-
-Dirty Reads
-
-↓
-
-Non-Repeatable Reads
-
-↓
-
-Phantom Reads
-
-↓
-
-Race Conditions
-
-↓
-
-Lost Updates
-
-↓
-
-Write Conflicts
-
-↓
-
-Concurrent Modifications
-
-↓
-
-Inconsistent Results
-
-Concurrency should never corrupt business data.
-
----
-
-# Stage 6 — Durability
-
-Guarantee
-
-Committed Data
-
-↓
-
-Crash Recovery
-
-↓
-
-Persistent Storage
-
-↓
-
-Replication
-
-↓
-
-Backup Compatibility
-
-↓
-
-Failure Recovery
-
-↓
-
-Operational Reliability
-
-↓
-
-Long-Term Integrity
-
-Committed transactions must survive failures.
-
----
-
-# Stage 7 — Lock Management
-
-Control
-
-Row Locks
-
-↓
-
-Table Locks
-
-↓
-
-Shared Locks
-
-↓
-
-Exclusive Locks
-
-↓
-
-Deadlock Prevention
-
-↓
-
-Lock Duration
-
-↓
-
-Concurrency
-
-↓
-
-Performance
-
-Lock only what is necessary.
-
----
-
-# Stage 8 — Error Handling
-
-Handle
-
-Validation Errors
-
-↓
-
-Constraint Violations
-
-↓
-
-Deadlocks
-
-↓
-
-Timeouts
-
-↓
-
-Connection Failures
-
-↓
-
-Unexpected Exceptions
-
-↓
-
-Rollback
-
-↓
-
-Recovery
-
-Every failure path should be intentional.
-
----
-
-# Stage 9 — Retry Strategy
-
-Design
-
-Retry Conditions
-
-↓
-
-Transient Errors
-
-↓
-
-Exponential Backoff
-
-↓
-
-Retry Limits
-
-↓
-
-Conflict Resolution
-
-↓
-
-Idempotency
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-Retry only safe operations.
-
----
-
-# Stage 10 — Idempotency
-
-Guarantee
-
-Duplicate Protection
-
-↓
-
-Safe Retries
-
-↓
-
-Request Identity
-
-↓
-
-Business Consistency
-
-↓
-
-Unique Operations
-
-↓
-
-Conflict Detection
-
-↓
-
-Recovery
-
-↓
-
-Reliability
-
-Repeated requests should not create repeated business events.
-
----
-
-# Stage 11 — Performance
-
-Optimize
-
-Transaction Duration
-
-↓
-
-Query Efficiency
-
-↓
-
-Minimal Locking
-
-↓
-
-Batch Operations
-
-↓
-
-Connection Usage
-
-↓
-
-Resource Consumption
-
-↓
-
-Latency
-
-↓
-
-Throughput
-
-Fast transactions reduce contention.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Transaction Duration
-
-↓
-
-Rollback Rate
-
-↓
-
-Deadlocks
-
-↓
-
-Timeouts
-
-↓
-
-Lock Contention
-
-↓
-
-Failures
-
-↓
-
-Latency
-
-↓
-
-Success Rate
-
-Healthy transactions are observable.
-
----
-
-# Stage 13 — Security
-
-Protect
-
-Authorization
-
-↓
-
-Business Permissions
-
-↓
-
-Audit Logging
-
-↓
-
-Sensitive Operations
-
-↓
-
-Compliance
-
-↓
-
-Tamper Resistance
-
-↓
-
-Access Control
-
-↓
-
-Operational Integrity
-
-Security protects business trust.
-
----
-
-# Stage 14 — Scalability
-
-Prepare for
-
-Higher Concurrency
-
-↓
-
-Growing Traffic
-
-↓
-
-Distributed Systems
-
-↓
-
-Replication
-
-↓
-
-Partitioning
-
-↓
-
-Queue Integration
-
-↓
-
-Infrastructure Growth
-
-↓
-
-Future Expansion
-
-Scalable transactions remain predictable under load.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Business Purpose
-
-↓
-
-Transaction Scope
-
-↓
-
-Isolation Level
-
-↓
-
-Rollback Strategy
-
-↓
-
-Retry Policy
-
-↓
-
-Dependencies
-
-↓
-
-Architecture Decisions
-
-↓
-
-Operational Procedures
-
-Documentation prevents incorrect assumptions.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Schema Compatibility
-
-↓
-
-Migration Safety
-
-↓
-
-Rollback Procedures
-
-↓
-
-Release Notes
-
-↓
-
-Review History
-
-↓
-
-Audit Records
-
-↓
-
-Operational Changes
-
-↓
-
-Evolution
-
-Transactions evolve with business requirements.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Business Accuracy
-
-↓
-
-Atomicity
-
-↓
-
-Isolation
-
-↓
-
-Performance
-
-↓
-
-Failure Recovery
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Every critical transaction deserves architectural review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Data Corruption
-
-↓
-
-Deadlocks
-
-↓
-
-Long Transactions
-
-↓
-
-Timeouts
-
-↓
-
-Concurrency Risks
-
-↓
-
-Infrastructure Failures
-
-↓
-
-Recovery Risks
-
-↓
-
-Business Impact
-
-Understand failure before deployment.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Transaction Scope
-
-↓
-
-Concurrency
-
-↓
-
-Performance
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Automation
-
-↓
-
-Documentation
-
-↓
-
-Developer Experience
-
-Reliable systems continuously improve.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Correctness
-
-↓
-
-Reliability
-
-↓
-
-Performance
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-Strong transaction design enables trustworthy systems.
-
----
-
-# Transaction Quality Attributes
-
-Evaluate
-
-Atomicity
-
-Consistency
-
-Isolation
-
-Durability
-
-Reliability
-
-Performance
-
-Scalability
-
-Maintainability
-
----
-
-# Transaction Questions
-
-Before production ask
-
-Does this transaction represent one complete business operation?
-
-↓
-
-Can partial updates ever occur?
-
-↓
-
-Can concurrent requests corrupt data?
-
-↓
-
-Are rollback conditions fully defined?
-
-↓
-
-Can failures recover safely?
-
-↓
-
-Is retry behavior safe?
-
-↓
-
-Would experienced database engineers confidently approve this transaction?
-
----
-
-# Severity Levels
-
-Critical
-
-Data corruption
-
-Partial commits
-
-Lost transactions
-
-Broken consistency
-
-Security violations
-
-Major
-
-Deadlocks
-
-Long-running transactions
-
-Timeouts
-
-Concurrency conflicts
-
-Rollback failures
-
-Medium
-
-Performance optimization
-
-Lock reduction
-
-Retry improvements
-
-Documentation gaps
-
-Minor
-
-Naming consistency
-
-Comments
-
-Formatting
-
-Operational refinements
-
----
-
-# Transaction Checklist
-
-✓ Business operation identified
-
-✓ Transaction boundaries defined
-
-✓ Atomicity verified
-
-✓ Consistency enforced
-
-✓ Isolation selected
-
-✓ Durability guaranteed
-
-✓ Lock strategy reviewed
-
-✓ Error handling implemented
-
-✓ Retry strategy validated
-
-✓ Idempotency ensured
-
-✓ Performance optimized
-
-✓ Monitoring enabled
-
-✓ Security reviewed
-
-✓ Scalability planned
-
-✓ Documentation completed
-
-✓ Version compatibility verified
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Long-running transactions
-
-Holding locks unnecessarily
-
-Mixing unrelated business operations
-
-Calling external services inside transactions
-
-Ignoring rollback behavior
-
-Ignoring isolation levels
-
-Retrying unsafe operations
-
-Missing idempotency
-
-Swallowing transaction errors
-
-Nested transactions without necessity
-
-Optimizing before ensuring correctness
-
-Treating transactions as implementation details
-
----
-
-# Definition of Done
-
-A transaction architecture is considered production-ready when
-
-- Every transaction represents one complete business operation with clearly defined boundaries, responsibilities, and expected outcomes.
-- Atomicity guarantees ensure that operations either complete successfully as a whole or leave no persistent changes after failure.
-- Consistency is preserved through database constraints, business rules, validation logic, and transactional guarantees that prevent invalid system states.
-- Isolation levels, locking strategies, and concurrency controls eliminate race conditions, lost updates, dirty reads, and inconsistent behavior under parallel workloads.
-- Durability mechanisms ensure committed data survives crashes, infrastructure failures, replication events, and recovery procedures.
-- Error handling, rollback logic, retry policies, and idempotency strategies provide predictable recovery from transient and permanent failures.
-- Transaction scope remains intentionally minimal to reduce contention, improve throughput, and maintain high concurrency across production workloads.
-- Monitoring continuously measures latency, deadlocks, rollback frequency, timeout rates, lock contention, and operational health.
-- Documentation clearly explains business purpose, transactional boundaries, recovery behavior, architectural decisions, and operational procedures.
-- The transaction system consistently demonstrates correctness, reliability, scalability, observability, maintainability, and long-term operational excellence.
-
-Exceptional transaction design is rarely visible to users.
-
-Customers simply trust that every payment, order, reservation, message, inventory update, and business operation is completed exactly once, remains permanently correct, survives unexpected failures, and preserves the integrity of the entire system regardless of traffic, infrastructure changes, or operational complexity.
+# Checklist
+
+- [ ] Verify: The isolation level is chosen deliberately, and its anomalies are understood
+- [ ] Verify: No read-modify-write happens without an atomic update or an explicit lock
+- [ ] Verify: Transactions contain no HTTP calls, emails, queue publishes or user waits
+- [ ] Verify: External side effects go through an outbox
+- [ ] Verify: `SERIALIZABLE` transactions are wrapped in retry with backoff and jitter
+- [ ] Verify: Locks are always acquired in a consistent order
+- [ ] Verify: One transaction spans one unit of business work
+- [ ] Verify: Nested transaction behaviour in the driver is known, not assumed
+- [ ] Verify: `idle_in_transaction_session_timeout` is set
+- [ ] Verify: Retryable operations carry an idempotency key
+- [ ] Verify: `idle in transaction` connection counts are monitored

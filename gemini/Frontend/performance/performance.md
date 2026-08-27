@@ -5,1145 +5,176 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: performance
+category: Frontend
+description: Frontend performance — Core Web Vitals, bundle discipline, image and font strategy, rendering cost, and measuring on the devices users actually have.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# performance.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, resource optimization strategies, performance measurement practices, and long-term best practices for building high-performance software systems.
+Rules for making a web application fast. Performance work is worth doing only
+against measurements — and against the right ones: field data from real users, not
+a local build on a fast laptop.
 
-It applies to
-
-- React Applications
-- Next.js Applications
-- Enterprise Platforms
-- SaaS Products
-- AI Applications
-- APIs
-- Dashboards
-- E-Commerce Platforms
-- Production Web Applications
-
-Performance is not optimization.
-
-Performance is the architectural discipline of delivering the greatest possible user value while consuming the smallest practical amount of computational resources.
-
-Optimization improves software.
-
-Architecture prevents inefficiency.
+Optimising what you have not measured is how teams ship a 40 KB saving on a page
+whose problem is a 3-second server response.
 
 ---
 
-# Core Philosophy
+# Measure the right things
 
-Understand Requirements
+| Metric | Target | What it reflects |
+| --- | --- | --- |
+| **LCP** | < 2.5s | When the main content appears |
+| **INP** | < 200ms | Responsiveness to interaction |
+| **CLS** | < 0.1 | Visual stability |
+| TTFB | < 800ms | Server and network before anything renders |
+| Total JS | < 200 KB compressed | The dominant cost on mobile |
 
-↓
+Field data (Chrome UX Report, `web-vitals` in production) beats lab data
+(Lighthouse). Lab data is reproducible; field data is true.
 
-Define Performance Goals
+```ts
+import { onLCP, onINP, onCLS } from "web-vitals";
+onLCP(send); onINP(send); onCLS(send);      // report p75 by route and device class
+```
 
-↓
-
-Measure Current State
-
-↓
-
-Design Efficient Architecture
-
-↓
-
-Optimize Bottlenecks
-
-↓
-
-Validate Improvements
-
-↓
-
-Monitor Continuously
-
-↓
-
-Continuously Improve
-
-Never optimize what has not been measured.
+Track **p75, segmented by device class and connection**. A p50 on desktop hides
+the experience of the median mobile user entirely. Test on a mid-range Android
+device with CPU throttling, not on your development machine.
 
 ---
 
-# Primary Objective
+# JavaScript is the expensive part
 
-Every performance strategy should maximize
+A byte of JavaScript costs far more than a byte of image: it must be downloaded,
+parsed, compiled and executed, on the main thread.
 
-User Experience
+- **Measure the bundle in CI** and fail the build on a regression
+  (`size-limit`, `bundlesize`). Growth is otherwise invisible until it is large.
+- **Analyse before optimising** (`@next/bundle-analyzer`, `rollup-plugin-visualizer`).
+  It is usually one dependency, not a hundred small things.
+- Route-level code splitting first, then component-level for genuinely heavy
+  things — a chart library, a rich text editor, a date picker.
+- Check for duplicate copies of the same library at different versions.
+- Prefer platform APIs: `Intl.DateTimeFormat` instead of a date library,
+  `fetch` instead of a client, `structuredClone` instead of a deep-clone helper.
+- Load third-party scripts with `defer` or `async`, from a consent gate, and
+  audit them regularly — analytics and tag managers are frequently the largest
+  script on the page and nobody owns them.
 
-+
+```tsx
+const Chart = lazy(() => import("./Chart"));   // loaded when rendered, not at boot
+```
 
-Responsiveness
-
-+
-
-Efficiency
-
-+
-
-Scalability
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Developer Experience
-
-+
-
-Long-Term Sustainability
-
-Performance should remain predictable as systems evolve.
+**Never** ship a library for one function. A 70 KB dependency imported for
+`debounce` is the most common single avoidable regression.
 
 ---
 
-# Engineering Principles
+# Images and fonts
 
-Always prioritize
+Images are usually the LCP element, and fonts are usually the cause of layout
+shift.
 
-Measurement
+```html
+<img src="hero.avif" width="1200" height="630" alt="…"
+     fetchpriority="high" decoding="async" />
+<img src="below.avif" width="400" height="300" alt="…" loading="lazy" />
+```
 
-↓
-
-Architecture
-
-↓
-
-Simplicity
-
-↓
-
-Efficient Resource Usage
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Performance begins with architectural decisions rather than implementation optimizations.
+- **Always set `width` and `height`** (or `aspect-ratio`). Without them the layout
+  shifts when the image loads — the main cause of CLS.
+- `loading="lazy"` on everything below the fold; **never** on the LCP image, which
+  needs `fetchpriority="high"`.
+- Serve AVIF or WebP with `srcset`/`sizes` so a phone does not download a
+  desktop-sized image.
+- Fonts: `font-display: swap`, `preload` the one font used above the fold, subset
+  it, and self-host. `@import` from a third party costs an extra connection and
+  round trip before any text renders.
+- Declare `size-adjust`/`ascent-override` on the fallback font so the swap does not
+  shift the layout.
 
 ---
 
-# Performance Lifecycle
+# Rendering cost
 
-Understand Requirements
-
-↓
-
-Establish Performance Budgets
-
-↓
-
-Measure Baseline
-
-↓
-
-Identify Bottlenecks
-
-↓
-
-Improve Architecture
-
-↓
-
-Validate Results
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Engineering decisions should be driven by evidence rather than assumptions.
+- Virtualise long lists (`@tanstack/virtual`). Rendering 10,000 rows is slow no
+  matter how cheap each row is.
+- Keep the main thread free: heavy computation belongs in a web worker.
+- Debounce or throttle high-frequency handlers; use `useDeferredValue` to keep
+  input responsive while an expensive list catches up.
+- Avoid layout thrash — batch DOM reads and writes rather than interleaving them.
+- Animate `transform` and `opacity` only; animating `width`, `top` or `box-shadow`
+  triggers layout or paint on every frame.
+- Prefer CSS to JavaScript for animation, and honour
+  `prefers-reduced-motion`. → `Frontend/react`
 
 ---
 
-# Stage 1 — Performance Requirements
+# Network and delivery
 
-Define
-
-Business Objectives
-
-↓
-
-User Expectations
-
-↓
-
-Latency Targets
-
-↓
-
-Response Time Goals
-
-↓
-
-Throughput Requirements
-
-↓
-
-Resource Constraints
-
-↓
-
-Infrastructure Limits
-
-↓
-
-Future Growth
-
-Performance requirements should be explicit.
+- Cache static assets immutably with content hashes:
+  `Cache-Control: public, max-age=31536000, immutable`.
+- HTML is `no-cache` or short-lived; it is what points at the hashed assets.
+- Serve from a CDN close to users; compress with Brotli.
+- `preconnect` to critical third-party origins; `preload` genuinely critical
+  resources only — over-preloading competes with the resources that matter.
+- Prefetch the next likely route on intent (hover, viewport), not everything.
+- Server-render or statically generate content-heavy pages; a client-rendered page
+  cannot have a good LCP because nothing renders until the JavaScript arrives.
+  → `Frontend/server-components`
 
 ---
 
-# Stage 2 — Performance Budgets
+# Anti-patterns
 
-Establish
-
-Bundle Budgets
-
-↓
-
-Rendering Budgets
-
-↓
-
-Memory Budgets
-
-↓
-
-CPU Budgets
-
-↓
-
-Network Budgets
-
-↓
-
-Storage Budgets
-
-↓
-
-Infrastructure Budgets
-
-↓
-
-Operational Limits
-
-Budgets create measurable engineering constraints.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Optimising without measuring | Effort on the wrong thing | Field data first |
+| Lab data only | Hides the real user experience | RUM at p75 by device class |
+| Testing on a development machine | Users are on mid-range phones | Throttled real devices |
+| No bundle budget in CI | Growth is invisible until it hurts | `size-limit` gate |
+| A library for one utility | Tens of KB for a few lines | Platform API or inline it |
+| Everything in one bundle | Long time-to-interactive | Route and component splitting |
+| Images without dimensions | Layout shift; poor CLS | `width`/`height` or `aspect-ratio` |
+| Lazy-loading the LCP image | Delays the metric it defines | `fetchpriority="high"` |
+| Unoptimised formats and sizes | Megabytes over mobile networks | AVIF/WebP with `srcset` |
+| Third-party fonts via `@import` | Extra connection before text renders | Self-host and preload |
+| No `font-display` | Invisible text, then a shift | `swap` plus metric overrides |
+| Rendering huge lists | Slow render and interaction | Virtualise |
+| Heavy computation on the main thread | Blocks interaction; ruins INP | Web worker |
+| Animating layout properties | Layout and paint every frame | `transform` and `opacity` |
+| Preloading everything | Competes with what matters | Preload deliberately |
+| Unaudited third-party scripts | Often the largest script; nobody owns them | Inventory and review |
+| Client-rendering content pages | LCP cannot be good | Server-render |
 
 ---
 
-# Stage 3 — Resource Analysis
-
-Analyze
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Disk Operations
-
-↓
-
-Network Requests
-
-↓
-
-Rendering Cost
-
-↓
-
-Database Queries
-
-↓
-
-External Services
-
-↓
-
-Energy Consumption
-
-Every resource should have measurable value.
-
----
-
-# Stage 4 — Architecture
-
-Design
-
-Execution Boundaries
-
-↓
-
-Efficient Data Flow
-
-↓
-
-Caching Layers
-
-↓
-
-Asynchronous Processing
-
-↓
-
-Parallel Operations
-
-↓
-
-Resource Isolation
-
-↓
-
-Fault Tolerance
-
-↓
-
-Scalable Systems
-
-Architecture determines long-term performance.
-
----
-
-# Stage 5 — Rendering Performance
-
-Optimize
-
-Rendering Frequency
-
-↓
-
-Component Boundaries
-
-↓
-
-Hydration Cost
-
-↓
-
-Code Splitting
-
-↓
-
-Streaming
-
-↓
-
-Progressive Rendering
-
-↓
-
-Visual Stability
-
-↓
-
-User Experience
-
-Rendering should maximize responsiveness.
-
----
-
-# Stage 6 — Network Performance
-
-Optimize
-
-Request Count
-
-↓
-
-Payload Size
-
-↓
-
-Compression
-
-↓
-
-Caching
-
-↓
-
-Connection Reuse
-
-↓
-
-Latency
-
-↓
-
-Bandwidth Usage
-
-↓
-
-Reliability
-
-Networks should transfer only necessary information.
-
----
-
-# Stage 7 — Data Performance
-
-Optimize
-
-Queries
-
-↓
-
-Caching
-
-↓
-
-Indexes
-
-↓
-
-Serialization
-
-↓
-
-Data Transfer
-
-↓
-
-Transformations
-
-↓
-
-Storage Efficiency
-
-↓
-
-Consistency
-
-Move data efficiently rather than frequently.
-
----
-
-# Stage 8 — Client Performance
-
-Improve
-
-Bundle Size
-
-↓
-
-Hydration
-
-↓
-
-JavaScript Execution
-
-↓
-
-Memory Usage
-
-↓
-
-Animations
-
-↓
-
-Browser APIs
-
-↓
-
-Rendering
-
-↓
-
-Battery Efficiency
-
-The browser should execute only valuable work.
-
----
-
-# Stage 9 — Server Performance
-
-Optimize
-
-Concurrency
-
-↓
-
-Request Processing
-
-↓
-
-Resource Allocation
-
-↓
-
-Caching
-
-↓
-
-Scheduling
-
-↓
-
-Background Tasks
-
-↓
-
-Infrastructure Efficiency
-
-↓
-
-Scalability
-
-Servers should maximize useful throughput.
-
----
-
-# Stage 10 — Scalability
-
-Design for
-
-Growing Users
-
-↓
-
-Growing Traffic
-
-↓
-
-Growing Data
-
-↓
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-Distributed Systems
-
-↓
-
-Global Deployment
-
-↓
-
-Future Evolution
-
-Scalability preserves performance over time.
-
----
-
-# Stage 11 — Observability
-
-Measure
-
-Latency
-
-↓
-
-Response Time
-
-↓
-
-Throughput
-
-↓
-
-Resource Usage
-
-↓
-
-Failures
-
-↓
-
-Errors
-
-↓
-
-Capacity
-
-↓
-
-Operational Health
-
-Performance cannot improve without visibility.
-
----
-
-# Stage 12 — Error Recovery
-
-Handle
-
-Resource Exhaustion
-
-↓
-
-Timeouts
-
-↓
-
-Slow Dependencies
-
-↓
-
-Partial Failures
-
-↓
-
-Retries
-
-↓
-
-Graceful Degradation
-
-↓
-
-Fallback Strategies
-
-↓
-
-Recovery
-
-Performance includes resilience.
-
----
-
-# Stage 13 — Code Organization
-
-Maintain
-
-Feature Modules
-
-↓
-
-Shared Libraries
-
-↓
-
-Performance Utilities
-
-↓
-
-Caching Layers
-
-↓
-
-Infrastructure
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-↓
-
-Maintainability
-
-Organization simplifies optimization.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Performance Budgets
-
-↓
-
-Architecture Decisions
-
-↓
-
-Optimization Strategies
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Measurement Results
-
-↓
-
-Operational Guidelines
-
-↓
-
-Future Improvements
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Architecture
-
-↓
-
-Budgets
-
-↓
-
-Measurements
-
-↓
-
-Scalability
-
-↓
-
-Maintainability
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-Performance reviews should evaluate systems rather than isolated optimizations.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Performance Regression
-
-↓
-
-Resource Waste
-
-↓
-
-Infrastructure Cost
-
-↓
-
-Scalability Limits
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Operational Risk
-
-↓
-
-Maintenance Cost
-
-Unmeasured performance risks accumulate over time.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Architecture
-
-↓
-
-Measurements
-
-↓
-
-Efficiency
-
-↓
-
-Developer Experience
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Optimization should be incremental and evidence-based.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Budgets
-
-↓
-
-Latency
-
-↓
-
-Throughput
-
-↓
-
-Resource Usage
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Performance validation belongs in every release.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Performance Standards
-
-↓
-
-Budget Enforcement
-
-↓
-
-Review Process
-
-↓
-
-Architecture Ownership
-
-↓
-
-Documentation
-
-↓
-
-Engineering Discipline
-
-↓
-
-Version Management
-
-↓
-
-Continuous Evolution
-
-Performance requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Architecture
-
-↓
-
-Efficiency
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-Operational Excellence
-
-↓
-
-Software Longevity
-
-Exceptional systems remain fast because they evolve intentionally.
-
----
-
-# Performance Quality Attributes
-
-Evaluate
-
-Responsiveness
-
-Efficiency
-
-Scalability
-
-Reliability
-
-Resource Utilization
-
-Maintainability
-
-Developer Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every optimization solve a measured problem?
-
-↓
-
-Are performance budgets clearly defined?
-
-↓
-
-Is architecture responsible for efficiency rather than implementation tricks?
-
-↓
-
-Can the system scale without significant redesign?
-
-↓
-
-Are resource costs observable?
-
-↓
-
-Will future engineers understand why these optimizations exist?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this performance architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Performance regressions
-
-Resource exhaustion
-
-Critical latency failures
-
-Scalability bottlenecks
-
-Major
-
-Budget violations
-
-Slow rendering
-
-Inefficient architecture
-
-Excessive infrastructure usage
-
-Medium
-
-Weak observability
-
-Documentation gaps
-
-Naming inconsistencies
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Performance Checklist
-
-✓ Requirements defined
-
-✓ Performance budgets established
-
-✓ Baseline measured
-
-✓ Resource analysis completed
-
-✓ Architecture optimized
-
-✓ Rendering reviewed
-
-✓ Network optimized
-
-✓ Data performance validated
-
-✓ Client performance reviewed
-
-✓ Server performance validated
-
-✓ Scalability considered
-
-✓ Observability implemented
-
-✓ Recovery strategies verified
-
-✓ Code organized
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Optimizing before measuring
-
-Premature optimization
-
-Ignoring architectural bottlenecks
-
-Large monolithic bundles
-
-Excessive network requests
-
-Over-fetching data
-
-Redundant rendering
-
-Blocking operations
-
-Duplicated computations
-
-Ignoring caching opportunities
-
-Optimizing microseconds while wasting seconds
-
-Trading maintainability for insignificant gains
-
-Treating performance as a post-release activity
-
----
-
-# Definition of Done
-
-A performance architecture is considered production-ready when
-
-- Performance requirements, latency objectives, throughput expectations, resource budgets, scalability targets, and operational constraints are explicitly defined, measurable, continuously monitored, and validated throughout the software lifecycle.
-- System architecture minimizes computational waste through efficient execution boundaries, optimized rendering, intelligent data movement, effective caching, asynchronous processing, and predictable resource utilization without compromising maintainability or correctness.
-- Client execution, server processing, network communication, storage operations, infrastructure utilization, and external service interactions collectively deliver responsive user experiences while respecting established performance budgets and operational objectives.
-- Performance improvements are based on empirical measurement, validated through repeatable benchmarks, protected against regression, and supported by comprehensive observability, monitoring, and capacity planning.
-- Engineering reviews validate architectural efficiency, scalability characteristics, resource utilization, documentation quality, maintainability, operational readiness, and long-term sustainability before production deployment.
-- Documentation preserves performance philosophy through clearly defined budgets, architectural decisions, optimization strategies, known constraints, trade-offs, measurement methodologies, and future evolution plans.
-- The resulting system demonstrates engineering discipline, architectural clarity, predictable responsiveness, operational reliability, efficient resource utilization, maintainability, scalability, developer productivity, and long-term software sustainability.
-
-Exceptional performance is not achieved through isolated optimizations.
-
-It is achieved through thoughtful architecture, disciplined measurement, efficient resource utilization, continuous observation, and engineering decisions that allow software to remain fast, reliable, and sustainable as complexity, traffic, data, and organizational scale continue to grow.
+# Checklist
+
+- [ ] Verify: LCP, INP and CLS are collected from real users and reviewed at p75
+- [ ] Verify: Metrics are segmented by device class and route
+- [ ] Verify: Testing includes a throttled mid-range mobile device
+- [ ] Verify: A bundle-size budget is enforced in CI
+- [ ] Verify: The bundle has been analysed and large dependencies justified
+- [ ] Verify: Routes are code-split; heavy components load on demand
+- [ ] Verify: No dependency is included for a single small utility
+- [ ] Verify: Third-party scripts are inventoried, deferred and consent-gated
+- [ ] Verify: Every image declares dimensions or an aspect ratio
+- [ ] Verify: The LCP image is prioritised and never lazy-loaded
+- [ ] Verify: Images are served in modern formats with responsive sizes
+- [ ] Verify: Fonts are self-hosted, subset, preloaded, with `font-display: swap`
+- [ ] Verify: Fallback font metrics are adjusted to avoid swap shift
+- [ ] Verify: Long lists are virtualised
+- [ ] Verify: Expensive computation runs off the main thread
+- [ ] Verify: Animations use only `transform` and `opacity`, honouring reduced motion
+- [ ] Verify: Static assets are content-hashed and cached immutably
+- [ ] Verify: Content-heavy pages are server-rendered or statically generated

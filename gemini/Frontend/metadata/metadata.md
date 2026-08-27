@@ -5,1143 +5,186 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: metadata
+category: Frontend
+description: Page metadata — titles, descriptions, Open Graph, icons and canonical tags generated on the server, per route, without duplication or leaks.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# metadata.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, metadata ownership, content description strategies, discoverability rules, and long-term best practices for designing metadata systems in modern web applications.
+Rules for the `<head>`: titles, descriptions, social cards, icons, canonical links
+and robots directives.
 
-It applies to
+Two constraints shape everything: metadata must be **in the server response**
+(crawlers and social preview bots do not run your JavaScript), and it must be
+**unique per page** (duplicated metadata is the most common technical SEO fault).
 
-- Next.js Applications
-- React Applications
-- SaaS Platforms
-- Enterprise Websites
-- AI Applications
-- E-Commerce Platforms
-- Documentation Systems
-- Marketing Websites
-- Production Web Applications
-
-Metadata is not a collection of HTML tags.
-
-Metadata is the architectural layer that describes application identity, content meaning, ownership, relationships, and presentation to browsers, search engines, social platforms, AI systems, and external consumers.
-
-Content provides information.
-
-Metadata provides context.
+Search strategy is `Frontend/seo`.
 
 ---
 
-# Core Philosophy
+# Generate it on the server, per route
 
-Understand Content
+```tsx
+// Next.js App Router — resolved during the server render
+export async function generateMetadata({ params }): Promise<Metadata> {
+  const product = await getProduct(params.id);
+  if (!product) return { title: "Not found", robots: { index: false } };
 
-↓
+  return {
+    title: product.name,                                  // template applies the suffix
+    description: truncate(product.summary, 155),
+    alternates: { canonical: `/products/${product.slug}` },
+    openGraph: {
+      title: product.name,
+      images: [{ url: `/og/products/${product.slug}.png`, width: 1200, height: 630 }],
+      type: "website",
+    },
+    twitter: { card: "summary_large_image" },
+  };
+}
+```
 
-Define Meaning
+A root layout defines the defaults and the title template:
 
-↓
+```ts
+export const metadata: Metadata = {
+  metadataBase: new URL("https://example.com"),     // makes relative URLs absolute
+  title: { default: "Acme", template: "%s — Acme" },
+  description: "…",
+};
+```
 
-Establish Ownership
+`metadataBase` matters more than it looks: without it, Open Graph image paths stay
+relative, and **every social preview silently fails**. Preview bots do not resolve
+relative URLs.
 
-↓
-
-Describe Relationships
-
-↓
-
-Enable Discoverability
-
-↓
-
-Maintain Consistency
-
-↓
-
-Review Quality
-
-↓
-
-Continuously Improve
-
-Metadata should accurately describe content rather than manipulate its presentation.
-
----
-
-# Primary Objective
-
-Every metadata architecture should maximize
-
-Clarity
-
-+
-
-Consistency
-
-+
-
-Discoverability
-
-+
-
-Maintainability
-
-+
-
-Accessibility
-
-+
-
-Scalability
-
-+
-
-Interoperability
-
-+
-
-Long-Term Sustainability
-
-Metadata should remain trustworthy across every platform that consumes it.
+**Never** set metadata in `useEffect` or with a client-side helper. It runs after
+the crawler has already taken the response.
 
 ---
 
-# Engineering Principles
+# Write it for the result, not for the page
 
-Always prioritize
+| Tag | Limit | Rule |
+| --- | --- | --- |
+| `<title>` | ~60 characters | Most specific first: `Widget — Acme`, not `Acme — Widget` |
+| `description` | ~155 characters | A sentence a human would click; not keyword filler |
+| `og:title` | ~60 | May differ from `<title>` — social context is different |
+| `og:image` | 1200×630, < 8 MB | **Absolute URL**, PNG or JPEG |
+| `og:description` | ~200 | |
+| `twitter:card` | — | `summary_large_image` for anything with an image |
 
-Content Accuracy
+Every page needs its own title and description. A catalogue where 400 products
+share one description is a catalogue where 399 pages do not rank.
 
-↓
+Truncate generated descriptions on a word boundary, and strip markup — a
+description containing raw HTML is rendered literally in results.
 
-Single Source of Truth
-
-↓
-
-Consistency
-
-↓
-
-Semantic Meaning
-
-↓
-
-Platform Compatibility
-
-↓
-
-Automation
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Metadata should describe reality rather than marketing ambitions.
+Dynamic Open Graph images (`@vercel/og`, Satori) generate a per-page card from the
+same data the page shows. Cache them immutably by content hash; regenerating an
+image on every crawl is wasted work.
 
 ---
 
-# Metadata Lifecycle
+# Robots directives
 
-Understand Content
+```ts
+robots: { index: false, follow: true }        // → <meta name="robots" content="noindex,follow">
+```
 
-↓
+Set `noindex` deliberately on: staging environments, search-result pages, filtered
+and sorted views, thank-you and confirmation pages, user-specific pages, and
+anything behind authentication.
 
-Define Metadata
+**Guard against shipping `noindex` to production.** A staging default that leaks
+into a production build removes a site from search results, and recovery takes
+weeks. Make it explicit per environment and assert it in a smoke test:
 
-↓
+```bash
+curl -sI https://example.com/ | grep -i "x-robots-tag" && exit 1   # must be absent
+```
 
-Assign Ownership
-
-↓
-
-Generate Values
-
-↓
-
-Validate Accuracy
-
-↓
-
-Review
-
-↓
-
-Publish
-
-↓
-
-Continuously Improve
-
-Metadata architecture should be designed before implementation.
+`robots.txt` blocks crawling, not indexing — and a page blocked there can never
+have its `noindex` read. To remove a page from the index, allow the crawl and use
+the meta tag.
 
 ---
 
-# Stage 1 — Content Analysis
+# Icons, manifest and language
 
-Understand
+```html
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" href="/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />   <!-- 180×180 -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
+```
 
-Business Goals
-
-↓
-
-Content Purpose
-
-↓
-
-Target Audience
-
-↓
-
-Resource Type
-
-↓
-
-Search Intent
-
-↓
-
-Relationships
-
-↓
-
-Success Metrics
-
-↓
-
-Future Evolution
-
-Every metadata value should originate from meaningful content.
+- `<html lang="en">` on every page, matching the actual content language.
+  Screen readers choose pronunciation from it. → `Testing/accessibility`
+- `<meta name="viewport" content="width=device-width, initial-scale=1">` — required
+  for mobile rendering, and its absence is a mobile-usability failure.
+- `dir="rtl"` where the content requires it.
 
 ---
 
-# Stage 2 — Metadata Ownership
+# Do not leak through metadata
 
-Define
-
-Global Metadata
-
-↓
-
-Page Metadata
-
-↓
-
-Feature Metadata
-
-↓
-
-Content Metadata
-
-↓
-
-Shared Values
-
-↓
-
-Inherited Values
-
-↓
-
-Overrides
-
-↓
-
-Governance
-
-Every metadata field should have one authoritative owner.
+- Metadata is public. Never put an internal identifier, an email address, a draft
+  title, or anything user-specific into a tag on a public page.
+- Pages behind authentication should be `noindex` and should not generate social
+  cards containing the user's data.
+- A `404` must return a real `404` status **and** `noindex` — a soft 404 returning
+  `200` with generic metadata gets indexed as a real page. → `Frontend/routing`
+- Do not include version numbers, framework fingerprints or build paths in
+  `<meta>` tags.
 
 ---
 
-# Stage 3 — Information Architecture
+# Anti-patterns
 
-Design
-
-Application Identity
-
-↓
-
-Content Hierarchy
-
-↓
-
-Relationships
-
-↓
-
-Categories
-
-↓
-
-Navigation Context
-
-↓
-
-Resource Types
-
-↓
-
-Canonical Structure
-
-↓
-
-Future Expansion
-
-Metadata should reflect application architecture.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Metadata set client-side | Crawlers and preview bots never see it | Server-generated |
+| One title for the whole application | Every page competes with itself | Per-route metadata |
+| Duplicate descriptions across a catalogue | Pages do not differentiate | Generate per record |
+| No `metadataBase` | Relative OG images break every preview | Set it once at the root |
+| Relative `og:image` | Social previews silently fail | Absolute URL |
+| Titles over 60 characters | Truncated in results | Keep them short, specific first |
+| Keyword-stuffed descriptions | Ignored or penalised; poor click-through | Write for a human |
+| Raw HTML in a description | Rendered literally | Strip markup |
+| `noindex` leaking to production | Site removed from search for weeks | Environment-explicit; smoke test |
+| `robots.txt` used to deindex | `noindex` can never be read | Allow crawl, use the meta tag |
+| Missing `<html lang>` | Wrong screen-reader pronunciation | Set it per locale |
+| Missing viewport meta | Mobile rendering breaks | Add it |
+| Soft 404 with generic metadata | Empty pages indexed | Real `404` plus `noindex` |
+| User data in social cards | Public disclosure | `noindex`, no personalised cards |
+| OG images regenerated per request | Wasted compute | Cache immutably |
 
 ---
 
-# Stage 4 — Semantic Modeling
-
-Describe
-
-Titles
-
-↓
-
-Descriptions
-
-↓
-
-Authors
-
-↓
-
-Organizations
-
-↓
-
-Categories
-
-↓
-
-Relationships
-
-↓
-
-Content Types
-
-↓
-
-Context
-
-Metadata should communicate meaning instead of implementation.
-
----
-
-# Stage 5 — Discoverability
-
-Support
-
-Search Engines
-
-↓
-
-Browsers
-
-↓
-
-Social Platforms
-
-↓
-
-AI Systems
-
-↓
-
-Documentation
-
-↓
-
-Knowledge Graphs
-
-↓
-
-External Integrations
-
-↓
-
-Future Consumers
-
-Metadata should remain useful beyond today's platforms.
-
----
-
-# Stage 6 — Consistency
-
-Maintain
-
-Naming Standards
-
-↓
-
-Descriptions
-
-↓
-
-Canonical Identity
-
-↓
-
-Branding
-
-↓
-
-Localization
-
-↓
-
-Versioning
-
-↓
-
-Formatting
-
-↓
-
-Quality
-
-Consistency builds trust across platforms.
-
----
-
-# Stage 7 — Automation
-
-Automate
-
-Generation
-
-↓
-
-Inheritance
-
-↓
-
-Templates
-
-↓
-
-Validation
-
-↓
-
-Updates
-
-↓
-
-Localization
-
-↓
-
-Version Control
-
-↓
-
-Quality Assurance
-
-Automated metadata reduces operational errors.
-
----
-
-# Stage 8 — Structured Information
-
-Represent
-
-Entities
-
-↓
-
-Relationships
-
-↓
-
-Organizations
-
-↓
-
-Products
-
-↓
-
-Documentation
-
-↓
-
-Articles
-
-↓
-
-Collections
-
-↓
-
-Knowledge
-
-Structure improves machine understanding.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Generation
-
-↓
-
-Delivery
-
-↓
-
-Caching
-
-↓
-
-Rendering
-
-↓
-
-Resource Usage
-
-↓
-
-Scalability
-
-↓
-
-Operational Efficiency
-
-↓
-
-Maintainability
-
-Metadata should contribute minimal operational overhead.
-
----
-
-# Stage 10 — Accessibility
-
-Ensure
-
-Meaningful Titles
-
-↓
-
-Readable Descriptions
-
-↓
-
-Semantic Structure
-
-↓
-
-Language Information
-
-↓
-
-Alternative Descriptions
-
-↓
-
-Inclusive Terminology
-
-↓
-
-Consistency
-
-↓
-
-Clarity
-
-Good metadata supports accessible experiences.
-
----
-
-# Stage 11 — Internationalization
-
-Support
-
-Multiple Languages
-
-↓
-
-Regional Variants
-
-↓
-
-Localized Metadata
-
-↓
-
-Canonical Relationships
-
-↓
-
-Translations
-
-↓
-
-Cultural Adaptation
-
-↓
-
-Consistency
-
-↓
-
-Scalability
-
-Metadata should evolve globally without fragmentation.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Metadata Modules
-
-↓
-
-Templates
-
-↓
-
-Shared Definitions
-
-↓
-
-Utilities
-
-↓
-
-Validation
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-↓
-
-Maintainability
-
-Organization should simplify metadata management.
-
----
-
-# Stage 13 — Scalability
-
-Design for
-
-Growing Content
-
-↓
-
-Growing Products
-
-↓
-
-Growing Teams
-
-↓
-
-Regional Expansion
-
-↓
-
-Multiple Brands
-
-↓
-
-Independent Modules
-
-↓
-
-Platform Evolution
-
-↓
-
-Future Growth
-
-Metadata architecture should scale naturally.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Ownership
-
-↓
-
-Standards
-
-↓
-
-Inheritance
-
-↓
-
-Generation Rules
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Architecture Decisions
-
-↓
-
-Future Improvements
-
-Documentation preserves metadata architecture.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Accuracy
-
-↓
-
-Consistency
-
-↓
-
-Discoverability
-
-↓
-
-Semantic Quality
-
-↓
-
-Maintainability
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-Metadata reviews should focus on meaning before implementation.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Duplicate Metadata
-
-↓
-
-Missing Metadata
-
-↓
-
-Conflicting Ownership
-
-↓
-
-Weak Discoverability
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Operational Risk
-
-↓
-
-Maintenance Cost
-
-Metadata quality degrades without governance.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Accuracy
-
-↓
-
-Consistency
-
-↓
-
-Automation
-
-↓
-
-Developer Experience
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Metadata should evolve alongside application architecture.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Completeness
-
-↓
-
-Consistency
-
-↓
-
-Discoverability
-
-↓
-
-Accessibility
-
-↓
-
-Automation
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-↓
-
-Platform Compatibility
-
-Reliable metadata strengthens reliable applications.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Metadata Standards
-
-↓
-
-Review Process
-
-↓
-
-Ownership
-
-↓
-
-Version Management
-
-↓
-
-Documentation
-
-↓
-
-Engineering Discipline
-
-↓
-
-Quality Standards
-
-↓
-
-Continuous Evolution
-
-Metadata requires long-term governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Metadata Architecture
-
-↓
-
-Semantic Accuracy
-
-↓
-
-Discoverability
-
-↓
-
-Maintainability
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-System Consistency
-
-↓
-
-Software Longevity
-
-Exceptional metadata systems remain valuable regardless of platform evolution.
-
----
-
-# Metadata Quality Attributes
-
-Evaluate
-
-Accuracy
-
-Consistency
-
-Discoverability
-
-Maintainability
-
-Scalability
-
-Accessibility
-
-Interoperability
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every metadata field accurately describe the content?
-
-↓
-
-Is there exactly one authoritative owner for every metadata value?
-
-↓
-
-Can metadata be generated automatically where appropriate?
-
-↓
-
-Will external systems correctly understand this resource?
-
-↓
-
-Can future platforms consume this metadata without changes?
-
-↓
-
-Will future engineers understand the ownership model?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this metadata architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Incorrect metadata
-
-Duplicate canonical identity
-
-Conflicting ownership
-
-Broken discoverability
-
-Major
-
-Missing metadata
-
-Weak semantic structure
-
-Poor consistency
-
-Weak automation
-
-Medium
-
-Documentation gaps
-
-Naming inconsistencies
-
-Weak organization
-
-Minor
-
-Formatting
-
-Metadata style inconsistencies
-
-Comments
-
-Repository consistency
-
----
-
-# Metadata Checklist
-
-✓ Content analyzed
-
-✓ Ownership established
-
-✓ Information architecture designed
-
-✓ Semantic modeling completed
-
-✓ Discoverability validated
-
-✓ Consistency reviewed
-
-✓ Automation implemented
-
-✓ Structured information validated
-
-✓ Performance considered
-
-✓ Accessibility ensured
-
-✓ Internationalization supported
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Duplicated metadata
-
-Conflicting ownership
-
-Keyword stuffing
-
-Hardcoded metadata
-
-Manual repetition
-
-Platform-specific assumptions
-
-Missing canonical identity
-
-Ignoring localization
-
-Inconsistent branding
-
-Weak semantic descriptions
-
-Implementation-driven metadata
-
-Treating metadata as an afterthought
-
-Ignoring future interoperability
-
----
-
-# Definition of Done
-
-A metadata architecture is considered production-ready when
-
-- Every metadata value accurately represents the underlying content through clearly defined ownership, semantic meaning, consistent generation rules, and a single authoritative source of truth across the entire application.
-- Global metadata, page metadata, content metadata, structured information, canonical identity, localization, discoverability, and platform-specific presentation operate together as a cohesive architecture that preserves consistency while minimizing duplication and operational complexity.
-- Metadata generation supports search engines, browsers, social platforms, AI systems, documentation tools, and future consumers through standardized semantic representations rather than implementation-specific assumptions.
-- Automation, inheritance, validation, versioning, internationalization, governance, and quality assurance collectively ensure that metadata evolves alongside application content without introducing inconsistency or maintenance overhead.
-- Engineering reviews validate semantic correctness, discoverability, ownership models, architectural consistency, documentation quality, scalability, interoperability, and operational readiness before production deployment.
-- Documentation preserves metadata philosophy through clearly defined ownership rules, generation strategies, semantic standards, architectural decisions, known constraints, trade-offs, and future evolution plans.
-- The resulting metadata system demonstrates engineering discipline, architectural clarity, semantic consistency, operational reliability, maintainability, scalability, interoperability, and long-term software sustainability.
-
-Exceptional metadata systems are not defined by the number of tags they generate.
-
-They are defined by how accurately they describe content, how consistently they preserve meaning across every consuming platform, how naturally they evolve alongside the application, and how confidently future engineers can extend them while preserving architectural integrity.
+# Checklist
+
+- [ ] Verify: All metadata is produced in the server response
+- [ ] Verify: A root default and title template are defined once
+- [ ] Verify: `metadataBase` is set so relative URLs resolve absolutely
+- [ ] Verify: Every route generates its own title and description
+- [ ] Verify: Titles are within ~60 characters, most specific part first
+- [ ] Verify: Descriptions are within ~155 characters, human-readable, markup-free
+- [ ] Verify: Open Graph and Twitter tags are present with absolute image URLs
+- [ ] Verify: Social images are 1200×630 and cached immutably
+- [ ] Verify: `noindex` is applied deliberately and never leaks to production
+- [ ] Verify: A smoke test asserts production pages are indexable
+- [ ] Verify: Canonical URLs are set per page
+- [ ] Verify: Icons, manifest and `theme-color` are configured
+- [ ] Verify: `<html lang>` and the viewport meta tag are present on every page
+- [ ] Verify: `404` responses carry a real status code and `noindex`
+- [ ] Verify: No internal, user-specific or fingerprinting data appears in metadata

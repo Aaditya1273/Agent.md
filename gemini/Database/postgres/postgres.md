@@ -5,1154 +5,171 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: postgres
+category: Database
+description: PostgreSQL-specific operational rules — connection pooling, MVCC and bloat, jsonb, extensions, and the settings that decide whether it survives production.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# postgres.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, developing, operating, and scaling applications using PostgreSQL.
-
-It applies to
-
-- SaaS Platforms
-- Enterprise Applications
-- AI Applications
-- APIs
-- Microservices
-- Internal Tools
-- Financial Systems
-- Analytics Platforms
-- Cloud-Native Applications
-
-PostgreSQL is not simply a relational database.
-
-It is the source of truth for business data.
-
-Every design decision should protect correctness before performance.
+Rules specific to PostgreSQL. Portable schema design is `Database/schema-design`;
+this covers what Postgres does differently and what bites teams that treat it as
+a generic SQL box.
 
 ---
 
-# Core Philosophy
+# Connections and pooling
 
-Correct Data
+A Postgres connection is a forked OS process with its own memory. A few hundred
+is not "a lot of connections" — it is a resource crisis.
 
-↓
+```
+                  app instances × pool size  ≤  max_connections
+```
 
-Reliable Storage
+Use **PgBouncer** in `transaction` mode in front of the database. Serverless
+platforms make this mandatory: every cold start otherwise opens a fresh
+connection and nothing closes them.
 
-↓
+| Pooler mode | Safe with | Breaks |
+| --- | --- | --- |
+| `session` | Everything | Very low connection reuse |
+| `transaction` | Ordinary queries | `SET`, advisory locks, `LISTEN`, prepared statements across calls |
+| `statement` | Autocommit-only workloads | Multi-statement transactions |
 
-Consistent Transactions
+**Never** run `LISTEN/NOTIFY`, session-level advisory locks, or `SET LOCAL`-free
+`SET` through a transaction-mode pooler. The session that receives the command is
+not the session that runs the next query.
 
-↓
-
-Efficient Queries
-
-↓
-
-Operational Simplicity
-
-↓
-
-Observability
-
-↓
-
-Scalability
-
-↓
-
-Long-Term Maintainability
-
-Applications fail less often because of missing features than because of incorrect data.
-
-Protect data first.
-
-Optimize later.
+Rule of thumb for pool size: `(cores × 2) + effective_spindle_count`. More
+connections than that reduces throughput — the database spends its time context
+switching, not working.
 
 ---
 
-# Primary Objective
+# MVCC, bloat and vacuum
 
-Every PostgreSQL system should maximize
+Postgres never updates a row in place. An `UPDATE` writes a new tuple and marks
+the old one dead. `VACUUM` reclaims dead tuples; if it cannot keep up, tables and
+indexes bloat, and plans degrade even though row counts have not changed.
 
-Correctness
+```sql
+-- Dead tuples, and when autovacuum last managed to run
+SELECT relname, n_live_tup, n_dead_tup, last_autovacuum, last_autoanalyze
+FROM pg_stat_user_tables
+WHERE n_dead_tup > 10000
+ORDER BY n_dead_tup DESC;
+```
 
-+
+What blocks vacuum, in practice:
 
-Consistency
+- **Long-running transactions.** A session `idle in transaction` for hours pins
+  the oldest visible snapshot and stops vacuum reclaiming anything newer.
+- **Abandoned replication slots.** An inactive slot holds WAL and the xmin
+  horizon indefinitely, and will fill the disk.
+- **Long queries on replicas** with `hot_standby_feedback = on`.
 
-+
+Set `idle_in_transaction_session_timeout` (e.g. `60s`) so a forgotten transaction
+cannot hold the horizon. Monitor `pg_replication_slots.active` — an inactive slot
+is an outage in slow motion.
 
-Reliability
+Tune autovacuum per-table for hot tables rather than globally:
 
-+
-
-Recoverability
-
-+
-
-Performance
-
-+
-
-Scalability
-
-+
-
-Observability
-
-+
-
-Maintainability
-
-A fast database that returns incorrect data is a failure.
+```sql
+ALTER TABLE events SET (autovacuum_vacuum_scale_factor = 0.02,
+                        autovacuum_vacuum_cost_limit  = 2000);
+```
 
 ---
 
-# Engineering Principles
+# Settings that matter
 
-Always prioritize
+| Setting | Guidance |
+| --- | --- |
+| `shared_buffers` | ~25% of RAM |
+| `effective_cache_size` | ~50–75% of RAM — a planner hint, allocates nothing |
+| `work_mem` | Per sort/hash **per node**, not per query — start small (4–16 MB) |
+| `maintenance_work_mem` | 512 MB–2 GB; speeds index builds and vacuum |
+| `random_page_cost` | `1.1` on SSD — the default `4.0` assumes spinning disks |
+| `statement_timeout` | Always set. An unbounded query is an unbounded outage |
+| `lock_timeout` | Set before any DDL → `Database/migration` |
 
-Data Integrity
-
-↓
-
-Normalization
-
-↓
-
-Consistency
-
-↓
-
-Clear Relationships
-
-↓
-
-Efficient Queries
-
-↓
-
-Operational Simplicity
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Optimization
-
-The database should model reality.
-
-Not application shortcuts.
+`work_mem` is the classic footgun: it is allocated per sort node, per parallel
+worker. A high global value times a hundred connections exhausts memory.
 
 ---
 
-# PostgreSQL Lifecycle
+# jsonb
 
-Requirements
+`jsonb` is for genuinely open-ended data — third-party webhook payloads, user
+attributes with no fixed set. It is not a way to avoid designing a schema.
 
-↓
+```sql
+CREATE INDEX events_payload ON events USING gin (payload jsonb_path_ops);
+SELECT * FROM events WHERE payload @> '{"type":"checkout"}';
+```
 
-Data Modeling
+Rules:
 
-↓
+- Anything queried, sorted, or constrained on a hot path belongs in a real column.
+- Index with `GIN` and `jsonb_path_ops` for containment (`@>`) — smaller and
+  faster than the default operator class when you only need containment.
+- Extract a stable field to a generated column when it is queried constantly.
 
-Schema Design
-
-↓
-
-Implementation
-
-↓
-
-Testing
-
-↓
-
-Optimization
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
+**Never** store what should be a foreign key inside `jsonb`. There is no
+referential integrity, and the join will not use an index the way you expect.
 
 ---
 
-# Stage 1 — Requirements Analysis
+# Extensions worth enabling
 
-Understand
+| Extension | Why |
+| --- | --- |
+| `pg_stat_statements` | Query-level timing. Enable it before you need it |
+| `pgcrypto` | `gen_random_uuid()`, digests |
+| `pg_trgm` | Trigram fuzzy/`ILIKE` search with a GIN index |
+| `btree_gin` / `btree_gist` | Mixed-type composite and `EXCLUDE` constraints |
+| `citext` | Case-insensitive text — or use `lower()` expression indexes |
 
-Business Entities
-
-↓
-
-Relationships
-
-↓
-
-Constraints
-
-↓
-
-Growth Expectations
-
-↓
-
-Query Patterns
-
-↓
-
-Availability Requirements
-
-↓
-
-Compliance
-
-↓
-
-Retention Policies
-
-Database design begins with understanding the business.
+**Never** enable an extension in production without checking whether your managed
+provider supports it — an unsupported extension blocks a major-version upgrade.
 
 ---
 
-# Stage 2 — Entity Modeling
+# Anti-patterns
 
-Identify
-
-Entities
-
-↓
-
-Attributes
-
-↓
-
-Relationships
-
-↓
-
-Ownership
-
-↓
-
-Cardinality
-
-↓
-
-Dependencies
-
-↓
-
-Business Rules
-
-↓
-
-Lifecycle
-
-Every table should represent one business concept.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Direct connections from serverless | Connection exhaustion on cold starts | PgBouncer, transaction mode |
+| `max_connections = 500` | Each is a process; throughput collapses | Pooler + small pools |
+| High global `work_mem` | Allocated per node per worker; OOM | Small default, raise per session |
+| Ignoring `n_dead_tup` | Bloat degrades plans silently | Monitor and tune autovacuum |
+| Leaving a replication slot inactive | WAL accumulates until the disk fills | Alert on `active = false` |
+| No `statement_timeout` | One query holds locks indefinitely | Set globally |
+| `jsonb` as the whole schema | No constraints, no types, no plans | Real columns for known fields |
+| `random_page_cost = 4` on SSD | Planner avoids correct index scans | Set to `1.1` |
+| `SELECT count(*)` for an approximate figure | Full scan under MVCC | `pg_class.reltuples` when an estimate suffices |
+| Advisory locks through a transaction pooler | Different backend each call | Session mode, or a lock table |
 
 ---
 
-# Stage 3 — Schema Design
-
-Design
-
-Tables
-
-↓
-
-Primary Keys
-
-↓
-
-Foreign Keys
-
-↓
-
-Constraints
-
-↓
-
-Unique Rules
-
-↓
-
-Indexes
-
-↓
-
-Defaults
-
-↓
-
-Naming Standards
-
-Schema is architecture.
-
-Not implementation.
-
----
-
-# Stage 4 — Data Integrity
-
-Protect through
-
-Primary Keys
-
-↓
-
-Foreign Keys
-
-↓
-
-Check Constraints
-
-↓
-
-Unique Constraints
-
-↓
-
-Not Null Constraints
-
-↓
-
-Domain Validation
-
-↓
-
-Referential Integrity
-
-↓
-
-Business Rules
-
-Integrity should never depend solely on application code.
-
----
-
-# Stage 5 — Relationships
-
-Model
-
-One-to-One
-
-↓
-
-One-to-Many
-
-↓
-
-Many-to-Many
-
-↓
-
-Hierarchical Data
-
-↓
-
-Reference Tables
-
-↓
-
-Lookup Tables
-
-↓
-
-Ownership
-
-↓
-
-Dependencies
-
-Relationships should reflect real-world rules.
-
----
-
-# Stage 6 — Query Design
-
-Optimize for
-
-Correctness
-
-↓
-
-Readability
-
-↓
-
-Maintainability
-
-↓
-
-Index Usage
-
-↓
-
-Predictable Performance
-
-↓
-
-Minimal Complexity
-
-↓
-
-Efficient Filtering
-
-↓
-
-Stable Execution
-
-Readable SQL survives longer.
-
----
-
-# Stage 7 — Transactions
-
-Ensure
-
-Atomicity
-
-↓
-
-Consistency
-
-↓
-
-Isolation
-
-↓
-
-Durability
-
-↓
-
-Rollback Safety
-
-↓
-
-Concurrency Control
-
-↓
-
-Deadlock Awareness
-
-↓
-
-Recovery
-
-Transactions protect business correctness.
-
----
-
-# Stage 8 — Performance
-
-Continuously evaluate
-
-Execution Plans
-
-↓
-
-Index Usage
-
-↓
-
-Join Performance
-
-↓
-
-Sorting
-
-↓
-
-Aggregation
-
-↓
-
-Memory Usage
-
-↓
-
-I/O
-
-↓
-
-Latency
-
-Measure before optimizing.
-
----
-
-# Stage 9 — Security
-
-Protect
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Least Privilege
-
-↓
-
-Secrets
-
-↓
-
-Encryption
-
-↓
-
-Audit Logging
-
-↓
-
-Network Access
-
-↓
-
-Compliance
-
-Security begins inside the database.
-
----
-
-# Stage 10 — Reliability
-
-Prepare for
-
-Failures
-
-↓
-
-Retries
-
-↓
-
-Backups
-
-↓
-
-Replication
-
-↓
-
-Recovery
-
-↓
-
-High Availability
-
-↓
-
-Disaster Recovery
-
-↓
-
-Operational Continuity
-
-Reliable systems expect failures.
-
----
-
-# Stage 11 — Scalability
-
-Plan for
-
-Data Growth
-
-↓
-
-Traffic Growth
-
-↓
-
-Read Scaling
-
-↓
-
-Write Scaling
-
-↓
-
-Partitioning
-
-↓
-
-Connection Management
-
-↓
-
-Storage Growth
-
-↓
-
-Operational Scaling
-
-Scalability begins long before it becomes necessary.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Query Latency
-
-↓
-
-Slow Queries
-
-↓
-
-Locks
-
-↓
-
-Connections
-
-↓
-
-Replication
-
-↓
-
-Storage
-
-↓
-
-Errors
-
-↓
-
-Availability
-
-Healthy databases are continuously observed.
-
----
-
-# Stage 13 — Maintenance
-
-Regularly perform
-
-Vacuum
-
-↓
-
-Analyze
-
-↓
-
-Index Maintenance
-
-↓
-
-Statistics Updates
-
-↓
-
-Storage Cleanup
-
-↓
-
-Configuration Review
-
-↓
-
-Capacity Planning
-
-↓
-
-Health Checks
-
-Maintenance preserves performance.
-
----
-
-# Stage 14 — Testing
-
-Validate
-
-Schema
-
-↓
-
-Constraints
-
-↓
-
-Queries
-
-↓
-
-Transactions
-
-↓
-
-Concurrency
-
-↓
-
-Recovery
-
-↓
-
-Performance
-
-↓
-
-Migrations
-
-Testing protects production.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Schema
-
-↓
-
-Relationships
-
-↓
-
-Business Rules
-
-↓
-
-Indexes
-
-↓
-
-Constraints
-
-↓
-
-Naming Standards
-
-↓
-
-Operational Procedures
-
-↓
-
-Architecture Decisions
-
-Documentation preserves knowledge.
-
----
-
-# Stage 16 — Version Control
-
-Maintain
-
-Migration History
-
-↓
-
-Schema Versions
-
-↓
-
-Rollback Plans
-
-↓
-
-Release Notes
-
-↓
-
-Compatibility
-
-↓
-
-Database Evolution
-
-↓
-
-Review Records
-
-↓
-
-Change History
-
-Databases evolve continuously.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Schema Quality
-
-↓
-
-Normalization
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Operational Readiness
-
-↓
-
-Business Alignment
-
-↓
-
-Future Growth
-
-Every schema should be reviewed.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Data Loss
-
-↓
-
-Performance Risks
-
-↓
-
-Migration Risks
-
-↓
-
-Scaling Risks
-
-↓
-
-Security Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Recovery Risks
-
-Understand risks before deployment.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Queries
-
-↓
-
-Indexes
-
-↓
-
-Storage
-
-↓
-
-Configuration
-
-↓
-
-Schema
-
-↓
-
-Operations
-
-↓
-
-Monitoring
-
-↓
-
-Developer Experience
-
-Optimization never ends.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Correctness
-
-↓
-
-Reliability
-
-↓
-
-Performance
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Security
-
-↓
-
-Documentation
-
-↓
-
-Database Excellence
-
-Great databases improve for years without losing trust.
-
----
-
-# PostgreSQL Quality Attributes
-
-Evaluate
-
-Correctness
-
-Consistency
-
-Integrity
-
-Performance
-
-Reliability
-
-Scalability
-
-Observability
-
-Maintainability
-
----
-
-# PostgreSQL Questions
-
-Before production ask
-
-Does the schema correctly represent the business?
-
-↓
-
-Can incorrect data be prevented by constraints?
-
-↓
-
-Are relationships explicit and enforceable?
-
-↓
-
-Will queries remain efficient as data grows?
-
-↓
-
-Can failures be recovered safely?
-
-↓
-
-Is operational monitoring sufficient?
-
-↓
-
-Would experienced PostgreSQL engineers confidently approve this database design?
-
----
-
-# Severity Levels
-
-Critical
-
-Data corruption
-
-Data loss
-
-Broken constraints
-
-Failed transactions
-
-Security compromise
-
-Major
-
-Slow queries
-
-Blocking locks
-
-Replication failures
-
-Schema inconsistencies
-
-Recovery gaps
-
-Medium
-
-Index improvements
-
-Schema refinement
-
-Configuration tuning
-
-Documentation improvements
-
-Minor
-
-Naming consistency
-
-Formatting
-
-Comments
-
-Operational refinements
-
----
-
-# PostgreSQL Checklist
-
-✓ Requirements understood
-
-✓ Data modeled
-
-✓ Schema designed
-
-✓ Constraints enforced
-
-✓ Relationships validated
-
-✓ Queries reviewed
-
-✓ Transactions verified
-
-✓ Performance optimized
-
-✓ Security configured
-
-✓ Reliability ensured
-
-✓ Scalability planned
-
-✓ Monitoring enabled
-
-✓ Maintenance scheduled
-
-✓ Testing completed
-
-✓ Documentation updated
-
-✓ Versioning established
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Optimization continuous
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using the database without constraints
-
-Over-normalizing without purpose
-
-Under-normalizing critical data
-
-Missing foreign keys
-
-Using application logic instead of database integrity
-
-Ignoring execution plans
-
-Creating unnecessary indexes
-
-Ignoring backups
-
-Skipping monitoring
-
-Designing for today's data only
-
-Treating PostgreSQL as simple storage
-
-Optimizing before measuring
-
----
-
-# Definition of Done
-
-PostgreSQL architecture is considered production-ready when
-
-- Business entities, relationships, and constraints accurately represent real-world domain rules.
-- Data integrity is enforced through primary keys, foreign keys, constraints, and transactional guarantees rather than relying solely on application logic.
-- Query performance, indexing strategy, storage efficiency, and execution plans support expected workloads while remaining maintainable.
-- Security, authentication, authorization, encryption, and auditing protect sensitive information throughout the data lifecycle.
-- Backup, recovery, replication, monitoring, maintenance, and operational procedures provide resilience against failures and operational risk.
-- Database evolution is managed through version-controlled migrations, documentation, reviews, and compatibility planning.
-- Observability continuously measures database health, performance, storage, concurrency, and operational reliability.
-- Scalability planning accounts for future growth in data volume, traffic, infrastructure, and organizational complexity.
-- Documentation preserves architectural decisions, operational knowledge, schema design, and business rules for future teams.
-- The database consistently demonstrates correctness, reliability, maintainability, operational excellence, and long-term sustainability.
-
-Exceptional PostgreSQL systems are rarely recognized because they simply continue to operate correctly.
-
-They protect business data, remain understandable as organizations grow, recover gracefully from failures, scale predictably with demand, and provide a trusted foundation upon which every application, service, and customer interaction depends.
+# Checklist
+
+- [ ] Verify: A transaction-mode pooler sits between the application and the database
+- [ ] Verify: Total pool capacity is below `max_connections` with headroom
+- [ ] Verify: No session-scoped features are used through a transaction-mode pooler
+- [ ] Verify: `statement_timeout` and `idle_in_transaction_session_timeout` are set
+- [ ] Verify: `pg_stat_statements` is enabled
+- [ ] Verify: `n_dead_tup` and autovacuum recency are monitored
+- [ ] Verify: Replication slots are alerted on when inactive
+- [ ] Verify: `random_page_cost` reflects the actual storage
+- [ ] Verify: `work_mem` is sized per node, not per query
+- [ ] Verify: `jsonb` holds only genuinely schemaless data, indexed with GIN
+- [ ] Verify: Extension use is confirmed supported by the hosting provider

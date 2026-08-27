@@ -5,1139 +5,185 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: rendering
+category: Performance
+description: Rendering performance — the frame budget, layout thrash, compositor-only animation, virtualised lists, and keeping interaction responsive.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# rendering.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, rendering methodologies, rendering lifecycle analysis, rendering optimization strategies, rendering architecture, and long-term best practices for building responsive, efficient, maintainable, scalable, and production-ready user interfaces.
+Rules for keeping the browser's rendering work cheap. The measurable target is
+**INP under 200 ms** and animations that hold their frame budget.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- Dashboards
-- Design Systems
-- Progressive Web Applications
-- Mobile Web
-- Documentation Platforms
-- Interactive Software
-
-Rendering is not drawing pixels.
-
-Rendering is the engineering discipline of transforming application state into an accurate, efficient, accessible, predictable, and maintainable user interface while minimizing unnecessary computation, preserving responsiveness, and supporting long-term scalability.
-
-Rendering determines how efficiently software transforms information into user experience.
-
-Engineering decisions should optimize meaningful work rather than maximize rendering frequency.
+The frame budget is the whole constraint: at 60 Hz a frame is **16.7 ms**, and the
+browser needs part of that for itself. Roughly 10 ms of your work per frame is the
+ceiling. Exceed it and frames are dropped, which users perceive as jank.
 
 ---
 
-# Core Philosophy
+# The pipeline, and where to stop
 
-Understand User Intent
+```
+JavaScript → Style → Layout → Paint → Composite
+```
 
-↓
+Every stage you avoid is time saved. Which stages run depends on **what property
+you changed**:
 
-Understand Application State
+| Changing | Triggers |
+| --- | --- |
+| `width`, `height`, `top`, `left`, `margin`, `padding`, `font-size` | Layout → Paint → Composite |
+| `color`, `background-color`, `box-shadow`, `border-radius` | Paint → Composite |
+| **`transform`, `opacity`, `filter`** | **Composite only** |
 
-↓
+Animate `transform` and `opacity` and nothing else. Composite runs on the GPU, off
+the main thread, and holds 60fps under load that would drop frames if layout were
+involved.
 
-Detect Meaningful Changes
+```css
+/* Layout on every frame — janky */
+.slide { transition: left 300ms; }
 
-↓
+/* Compositor only — smooth */
+.slide { transition: transform 300ms; will-change: transform; }
+```
 
-Minimize Rendering Work
-
-↓
-
-Render Only What Matters
-
-↓
-
-Preserve Responsiveness
-
-↓
-
-Validate Correctness
-
-↓
-
-Continuously Improve
-
-Exceptional rendering minimizes unnecessary work while maximizing user experience.
+Use `will-change` sparingly and remove it after the animation. Each hint promotes
+an element to its own layer and consumes GPU memory; applying it broadly makes
+things worse.
 
 ---
 
-# Primary Objective
+# Avoid layout thrash
 
-Every rendering strategy should maximize
+Reading a layout property after writing one forces the browser to recompute layout
+**synchronously**, in the middle of your loop.
 
-Responsiveness
+```ts
+// Forced synchronous layout on every iteration — O(n) layouts
+for (const el of items) {
+  el.style.height = el.offsetHeight + 10 + "px";   // read after write, repeatedly
+}
 
-+
+// Batch: all reads, then all writes — one layout
+const heights = items.map((el) => el.offsetHeight);
+items.forEach((el, i) => { el.style.height = heights[i] + 10 + "px"; });
+```
 
-Correctness
+Layout-forcing reads include `offsetTop`, `offsetHeight`, `clientWidth`,
+`scrollTop`, `getBoundingClientRect()` and `getComputedStyle()`. In the DevTools
+Performance panel they appear as purple "Recalculate Style / Layout" bars inside a
+script block — that pattern is the signature.
 
-+
-
-Efficiency
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Accessibility
-
-+
-
-Consistency
-
-+
-
-Long-Term Sustainability
-
-Rendering should improve user experience through disciplined engineering rather than excessive optimization.
+Prefer `ResizeObserver` and `IntersectionObserver` over polling geometry: they
+deliver measurements without forcing layout.
 
 ---
 
-# Engineering Principles
+# Render less
 
-Always prioritize
+- **Virtualise long lists.** Rendering 10,000 rows is slow regardless of how cheap
+  each row is. `@tanstack/virtual` or equivalent renders the visible window plus a
+  small overscan.
+- **Paginate** rather than rendering everything and hiding most of it with CSS —
+  `display: none` still costs DOM nodes and memory.
+- **`content-visibility: auto`** lets the browser skip rendering off-screen
+  sections entirely; pair it with `contain-intrinsic-size` so the scrollbar does
+  not jump.
+- **CSS containment** (`contain: layout paint`) scopes recalculation to a subtree,
+  so a change inside a widget cannot force layout of the whole page.
+- Keep the DOM shallow. Deep trees make every style recalculation more expensive.
 
-Correctness
-
-↓
-
-Minimal Computation
-
-↓
-
-Predictable Rendering
-
-↓
-
-State Isolation
-
-↓
-
-Architectural Clarity
-
-↓
-
-Maintainability
-
-↓
-
-Accessibility
-
-↓
-
-Continuous Improvement
-
-Rendering should always remain deterministic, measurable, and intentional.
+In React specifically: state placed too high re-renders subtrees that do not care,
+and index keys make React reuse the wrong DOM nodes. Both show up as rendering
+cost with no obvious cause. → `Frontend/react`
 
 ---
 
-# Rendering Engineering Lifecycle
+# Keep interaction responsive
 
-Receive Input
+INP measures the worst interaction latency users experience: input → processing →
+next paint.
 
-↓
+- **Never block the main thread with a long task.** A 300 ms synchronous handler is
+  300 ms of unresponsive UI. Break long work with `scheduler.yield()`, or move it
+  to a web worker.
+- Mark non-urgent updates so typing stays responsive:
 
-Evaluate State
+```tsx
+const [query, setQuery] = useState("");
+const deferred = useDeferredValue(query);      // list lags; input does not
+```
 
-↓
-
-Detect Changes
-
-↓
-
-Determine Rendering Scope
-
-↓
-
-Compute UI
-
-↓
-
-Render Output
-
-↓
-
-Validate Experience
-
-↓
-
-Continuously Improve
-
-Every rendering cycle should perform only meaningful work.
+- Debounce or throttle high-frequency handlers (`input`, `scroll`, `resize`,
+  `mousemove`). Use `requestAnimationFrame` for anything that updates visuals.
+- Add `{ passive: true }` to scroll and touch listeners so the browser does not
+  wait to discover whether you will call `preventDefault()`.
+- Respond immediately, even if the work is not finished: show a pending state on
+  the first frame rather than after the work completes.
+- Honour `prefers-reduced-motion` — for accessibility, and because it removes work.
+  → `Testing/accessibility`
 
 ---
 
-# Stage 1 — User Interaction Analysis
+# Measure, do not guess
 
-Understand
-
-User Intent
-
-↓
-
-Navigation
-
-↓
-
-Input Events
-
-↓
-
-Application Events
-
-↓
-
-External Updates
-
-↓
-
-Network Responses
-
-↓
-
-System Events
-
-↓
-
-Business Logic
-
-Rendering begins when meaningful information changes.
+- **DevTools Performance panel** with 4–6× CPU throttling. Look for long tasks
+  (> 50 ms), forced synchronous layout, and frames exceeding the budget.
+- **React Profiler** for component render counts and durations — but confirm
+  against the browser profile, since the cost is often in layout, not in React.
+- **Field data** (`web-vitals`) for INP and CLS at p75, segmented by device class.
+  A desktop profile does not represent a mid-range Android phone.
+- Reproduce on a real low-end device before and after. Throttling approximates;
+  hardware is the truth. → `Performance/optimization`
 
 ---
 
-# Stage 2 — State Evaluation
+# Anti-patterns
 
-Analyze
-
-Application State
-
-↓
-
-Component State
-
-↓
-
-Shared State
-
-↓
-
-Derived State
-
-↓
-
-Cached State
-
-↓
-
-Computed Values
-
-↓
-
-Dependencies
-
-↓
-
-Consistency
-
-Rendering quality depends upon state quality.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Animating `left`, `top`, `width`, `height` | Layout every frame | `transform` |
+| Animating `box-shadow` or `background` | Repaint every frame | `opacity`, or pre-rendered layers |
+| `will-change` on many elements | Layer explosion; GPU memory | Apply narrowly, remove after |
+| Reading geometry after writing styles | Forced synchronous layout | Batch reads, then writes |
+| Polling `getBoundingClientRect` in a loop | Layout per call | `ResizeObserver` |
+| Rendering thousands of rows | Slow render and interaction | Virtualise |
+| Hiding rendered content with CSS | DOM and memory cost remains | Do not render it |
+| Deep DOM trees | Every recalculation is more expensive | Flatten |
+| Long synchronous handlers | Unresponsive UI; poor INP | Yield or use a worker |
+| Non-passive scroll listeners | Browser waits for `preventDefault` | `{ passive: true }` |
+| Unthrottled high-frequency handlers | Work every event | Debounce, throttle, `rAF` |
+| Waiting to show feedback | Feels broken even when fast | Immediate pending state |
+| Ignoring `prefers-reduced-motion` | Accessibility failure and wasted work | Respect it |
+| Profiling on a fast machine | Hides what most users experience | Throttle; test real devices |
+| Trusting the React Profiler alone | The cost is often layout | Browser performance profile |
 
 ---
 
-# Stage 3 — Change Detection
-
-Identify
-
-Changed State
-
-↓
-
-Affected Components
-
-↓
-
-Affected Layout
-
-↓
-
-Affected Styling
-
-↓
-
-Affected Interactions
-
-↓
-
-Affected Accessibility
-
-↓
-
-Rendering Scope
-
-↓
-
-Update Priority
-
-Only meaningful changes should trigger rendering work.
-
----
-
-# Stage 4 — Rendering Strategy
-
-Define
-
-Rendering Boundaries
-
-↓
-
-Rendering Order
-
-↓
-
-Update Priority
-
-↓
-
-Component Isolation
-
-↓
-
-Dependency Evaluation
-
-↓
-
-Layout Stability
-
-↓
-
-Interaction Continuity
-
-↓
-
-User Experience
-
-Rendering architecture determines long-term efficiency.
-
----
-
-# Stage 5 — Rendering Computation
-
-Compute
-
-Layout
-
-↓
-
-Visual Structure
-
-↓
-
-Presentation
-
-↓
-
-Conditional Logic
-
-↓
-
-Interactions
-
-↓
-
-Accessibility
-
-↓
-
-Display State
-
-↓
-
-User Feedback
-
-Computation should remain proportional to change.
-
----
-
-# Stage 6 — Rendering Execution
-
-Produce
-
-Visual Output
-
-↓
-
-Interactive Components
-
-↓
-
-Content
-
-↓
-
-Navigation
-
-↓
-
-Animations
-
-↓
-
-Accessibility
-
-↓
-
-Consistency
-
-↓
-
-Predictable Behavior
-
-Rendering should always produce deterministic interfaces.
-
----
-
-# Stage 7 — Correctness Validation
-
-Validate
-
-Visual Accuracy
-
-↓
-
-Business Logic
-
-↓
-
-Interaction Behavior
-
-↓
-
-Accessibility
-
-↓
-
-Layout Stability
-
-↓
-
-Consistency
-
-↓
-
-Responsiveness
-
-↓
-
-Engineering Quality
-
-Correct rendering always takes priority over fast rendering.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Rendering Frequency
-
-↓
-
-Rendering Duration
-
-↓
-
-CPU Utilization
-
-↓
-
-Memory Consumption
-
-↓
-
-Layout Work
-
-↓
-
-Interaction Latency
-
-↓
-
-Resource Utilization
-
-↓
-
-User Experience
-
-Rendering performance should always remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Repeated Rendering
-
-↓
-
-Redundant Computation
-
-↓
-
-State Coupling
-
-↓
-
-Component Coupling
-
-↓
-
-Layout Instability
-
-↓
-
-Rendering Bottlenecks
-
-↓
-
-Memory Pressure
-
-↓
-
-Interaction Delays
-
-Optimization follows objective evidence.
-
----
-
-# Stage 10 — Architecture Evaluation
-
-Review
-
-Component Boundaries
-
-↓
-
-State Ownership
-
-↓
-
-Rendering Responsibility
-
-↓
-
-Composition
-
-↓
-
-Dependency Direction
-
-↓
-
-Isolation
-
-↓
-
-Reusability
-
-↓
-
-Maintainability
-
-Architecture determines rendering scalability.
-
----
-
-# Stage 11 — Scalability Assessment
-
-Evaluate
-
-Large Data Sets
-
-↓
-
-Nested Components
-
-↓
-
-Complex Interfaces
-
-↓
-
-Concurrent Updates
-
-↓
-
-Frequent Interaction
-
-↓
-
-Growing Features
-
-↓
-
-Future Expansion
-
-↓
-
-Operational Stability
-
-Rendering should scale with application complexity.
-
----
-
-# Stage 12 — Accessibility Validation
-
-Verify
-
-Semantic Structure
-
-↓
-
-Keyboard Navigation
-
-↓
-
-Screen Reader Support
-
-↓
-
-Focus Management
-
-↓
-
-Visual Stability
-
-↓
-
-Error Feedback
-
-↓
-
-Interaction Clarity
-
-↓
-
-Inclusive Experience
-
-Rendering should remain accessible for every user.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Rendering Architecture
-
-↓
-
-Engineering Decisions
-
-↓
-
-Optimization Strategy
-
-↓
-
-Trade-Offs
-
-↓
-
-Known Constraints
-
-↓
-
-Performance Goals
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves rendering knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Infinite Rendering
-
-↓
-
-Rendering Loops
-
-↓
-
-State Inconsistency
-
-↓
-
-Layout Instability
-
-↓
-
-Interaction Delay
-
-↓
-
-Accessibility Regression
-
-↓
-
-Performance Regression
-
-↓
-
-Technical Debt
-
-Rendering risks should remain continuously visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Complexity
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Accessibility
-
-↓
-
-Future Evolution
-
-Every rendering optimization introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Rendering Correctness
-
-↓
-
-Performance
-
-↓
-
-Architecture
-
-↓
-
-Accessibility
-
-↓
-
-Testing
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Rendering improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Rendering Summary
-
-↓
-
-Performance Metrics
-
-↓
-
-Architecture Review
-
-↓
-
-Optimization Results
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Opportunities
-
-↓
-
-Lessons Learned
-
-Engineering reports preserve optimization knowledge.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Workloads
-
-↓
-
-Operational Stability
-
-↓
-
-Responsiveness
-
-↓
-
-Monitoring
-
-↓
-
-Testing
-
-↓
-
-Documentation
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-Rendering should remain predictable under production conditions.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Rendering Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Discipline
-
-Rendering quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Rendering Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Responsiveness
-
-↓
-
-Maintainability
-
-↓
-
-Accessibility
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional rendering minimizes unnecessary work while continuously improving user experience, engineering quality, and long-term maintainability.
-
----
-
-# Rendering Quality Attributes
-
-Evaluate
-
-Correctness
-
-Responsiveness
-
-Efficiency
-
-Scalability
-
-Maintainability
-
-Accessibility
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Has rendering work been minimized?
-
-↓
-
-Does rendering occur only when meaningful state changes occur?
-
-↓
-
-Can the rendering architecture scale with future application growth?
-
-↓
-
-Is rendering deterministic and predictable?
-
-↓
-
-Will future engineers understand the rendering strategy?
-
-↓
-
-Does the rendering architecture improve user experience rather than benchmark scores?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this rendering architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Rendering failure
-
-Infinite rendering
-
-Broken interactions
-
-Application instability
-
-Major
-
-Excessive rendering
-
-Layout instability
-
-Interaction latency
-
-Accessibility regression
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Measurement deficiencies
-
-Minor
-
-Formatting
-
-Terminology consistency
-
-Documentation quality
-
----
-
-# Rendering Checklist
-
-✓ User interactions analyzed
-
-✓ State evaluated
-
-✓ Changes detected
-
-✓ Rendering boundaries defined
-
-✓ Rendering computation minimized
-
-✓ Rendering executed correctly
-
-✓ Correctness validated
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Accessibility verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Rendering everything after every update
-
-Coupling rendering with unrelated state
-
-Ignoring rendering measurements
-
-Optimizing without evidence
-
-Deep rendering chains
-
-Unpredictable rendering behavior
-
-Architecture driven by implementation shortcuts
-
-Ignoring accessibility
-
-Increasing complexity for insignificant gains
-
-Rendering without scalability planning
-
-Treating rendering as purely visual
-
-Ignoring maintainability
-
----
-
-# Definition of Done
-
-A rendering strategy is considered complete when
-
-- User interfaces consistently transform application state into correct, responsive, accessible, predictable, and maintainable visual output while minimizing unnecessary computation and preserving architectural integrity.
-- Rendering work remains proportional to meaningful state changes, eliminating redundant computation, unnecessary updates, avoidable rendering cascades, and excessive resource utilization through evidence-based engineering practices.
-- Rendering architecture supports scalability, component isolation, maintainability, accessibility, operational reliability, predictable behavior, and future software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate rendering correctness, responsiveness, architectural consistency, accessibility, scalability, documentation quality, maintainability, operational readiness, and long-term sustainability before production deployment.
-- Documentation clearly explains rendering architecture, optimization decisions, engineering trade-offs, performance objectives, known constraints, validation evidence, governance expectations, and future improvement opportunities.
-- Rendering decisions remain measurable, deterministic, implementation-independent, reproducible, and aligned with sustainable engineering principles rather than framework-specific implementation details.
-- The resulting system demonstrates engineering discipline, responsive user experience, architectural clarity, accessibility, efficient resource utilization, maintainability, predictable rendering behavior, and long-term software sustainability.
-
-Exceptional rendering is not measured by how often the interface updates.
-
-It is measured by how efficiently the system transforms meaningful application state into a correct, responsive, accessible, predictable, and maintainable user experience while performing no unnecessary work.
+# Checklist
+
+- [ ] Verify: Animations use only `transform` and `opacity`
+- [ ] Verify: `will-change` is applied narrowly and removed after use
+- [ ] Verify: DOM reads and writes are batched; no forced synchronous layout in loops
+- [ ] Verify: Geometry is observed with `ResizeObserver`/`IntersectionObserver`, not polled
+- [ ] Verify: Long lists are virtualised
+- [ ] Verify: Off-screen content is not rendered, or uses `content-visibility`
+- [ ] Verify: CSS containment scopes recalculation for independent widgets
+- [ ] Verify: The DOM is shallow and no hidden content is rendered unnecessarily
+- [ ] Verify: No task on the main thread exceeds 50 ms
+- [ ] Verify: Heavy computation runs in a web worker
+- [ ] Verify: Non-urgent updates are deferred so input stays responsive
+- [ ] Verify: High-frequency handlers are throttled and use `requestAnimationFrame`
+- [ ] Verify: Scroll and touch listeners are passive
+- [ ] Verify: Interactions show feedback on the first frame
+- [ ] Verify: `prefers-reduced-motion` is honoured
+- [ ] Verify: Profiling is done with CPU throttling and verified on a real low-end device
+- [ ] Verify: INP is tracked in the field at p75, segmented by device class

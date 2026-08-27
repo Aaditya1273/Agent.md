@@ -5,1122 +5,199 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: e2e
+category: Testing
+description: End-to-end tests that are worth their cost — user-visible selectors, deterministic waiting, and keeping the suite small enough to trust.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# e2e.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, End-to-End (E2E) testing methodologies, complete user journey validation, production workflow verification, cross-system reliability, operational confidence, regression prevention, and long-term engineering guidance for validating that software behaves correctly from the user's perspective across the entire production stack.
+Rules for tests that drive a real browser against a running application.
 
-It applies to
+E2E tests are the slowest, flakiest and most expensive tier. **Keep few of them
+and make each one earn its place.** A suite of 400 end-to-end tests is a suite
+nobody trusts, run on a schedule, ignored when red.
 
-- Web Applications
-- Mobile Applications
-- APIs
-- SaaS Platforms
-- AI Applications
-- Enterprise Systems
-- E-Commerce Platforms
-- Blockchain Applications
-- Marketplaces
-- Distributed Systems
-
-End-to-End Testing is not automating browser clicks.
-
-End-to-End Testing is the engineering discipline of validating complete business workflows exactly as users experience them across every participating system, infrastructure component, service, and dependency.
-
-End-to-End Testing answers one question:
-
-**Can real users successfully complete critical business workflows in a production-like environment?**
+Test the journeys that generate revenue or lose data: signup, login, checkout,
+the primary create-and-save path. Everything else belongs lower in the pyramid.
 
 ---
 
-# Core Philosophy
+# Selectors
 
-Understand User Goals
+Selector choice is the single largest cause of E2E maintenance cost.
 
-↓
+```js
+// Best — how a user finds it; survives restyling and DOM changes
+await page.getByRole("button", { name: "Place order" }).click();
+await page.getByLabel("Email address").fill("a@example.com");
 
-Understand Business Workflows
+// Acceptable — explicit contract with the test
+await page.getByTestId("checkout-submit").click();
 
-↓
+// Fragile — breaks on any restyle or refactor
+await page.click(".btn.btn-primary > span:nth-child(2)");
+await page.click("//div[3]/form/button[1]");
+```
 
-Simulate Real User Behavior
+Priority: **role and accessible name → label → text → test id → CSS → XPath.**
+Role-based queries double as an accessibility check: if `getByRole` cannot find
+your button, a screen reader cannot either.
 
-↓
+**Never** select by CSS class or DOM position. Both encode presentation, which is
+the thing most likely to change without any behaviour changing.
 
-Validate Complete System
-
-↓
-
-Verify Business Outcomes
-
-↓
-
-Detect Production Risks
-
-↓
-
-Increase Deployment Confidence
-
-↓
-
-Continuously Improve
-
-The user does not interact with individual components.
-
-The user interacts with an entire product.
+Where a test id is needed, use a dedicated attribute (`data-testid`) so it is
+obviously a contract and nobody deletes it during a cleanup.
 
 ---
 
-# Primary Objective
+# Waiting
 
-Every End-to-End Testing Strategy should maximize
+Flakiness in E2E is almost always a waiting bug.
 
-Business Confidence
+```js
+// WRONG — a fixed sleep is a race that passes locally and fails on CI
+await page.waitForTimeout(2000);
 
-+
+// RIGHT — wait for the condition that actually matters
+await expect(page.getByText("Order confirmed")).toBeVisible();
+await page.waitForResponse((r) => r.url().includes("/api/orders") && r.ok());
+```
 
-Workflow Reliability
+Modern frameworks (Playwright, Cypress) **auto-wait** for actionability —
+attached, visible, stable, enabled — before acting. Fighting that with manual
+sleeps reintroduces the race they removed.
 
-+
+**Never** use a fixed timeout to wait for anything. If you cannot express the
+condition, the application is missing an observable signal — add one rather than
+guessing at a duration.
 
-Production Readiness
-
-+
-
-User Experience Validation
-
-+
-
-Regression Prevention
-
-+
-
-Operational Confidence
-
-+
-
-System Reliability
-
-+
-
-Long-Term Sustainability
-
-The objective is validating complete user journeys—not individual software components.
+Watch for these specific races: animations still running, a toast that
+auto-dismisses before the assertion, a list that re-renders after a background
+refetch, and focus moving during a form fill.
 
 ---
 
-# Engineering Principles
+# Test data and isolation
 
-Always prioritize
+- **Create the data the test needs, in the test**, through an API or a factory
+  endpoint — not through the UI. Signing up via the interface to test checkout
+  makes checkout failures indistinguishable from signup failures, and triples the
+  runtime.
+- **Never** depend on a shared staging database. Another test, or a colleague,
+  will change the row you assert on.
+- Use a **unique identifier per run** (`user-${runId}@example.com`) so parallel
+  runs cannot collide.
+- **Seed authentication via storage state** rather than logging in through the
+  form in every test:
 
-Business Workflows
+```js
+// Log in once, reuse the session for every test in the project
+await page.context().storageState({ path: "auth.json" });
+// playwright.config: use: { storageState: "auth.json" }
+```
 
-↓
-
-Real User Behavior
-
-↓
-
-Production Realism
-
-↓
-
-System Reliability
-
-↓
-
-Workflow Stability
-
-↓
-
-Deployment Confidence
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-End-to-End tests validate user success—not implementation details.
+Keep exactly one test that exercises the real login form. The rest start
+authenticated.
 
 ---
 
-# End-to-End Testing Lifecycle
+# Scope and structure
 
-Understand Business Goals
+| Test at E2E level | Test lower |
+| --- | --- |
+| Signup, login, checkout, payment | Field validation rules → `Testing/unit` |
+| Critical multi-page journeys | API status codes → `Testing/integration` |
+| Third-party redirect flows (OAuth, payment) | Business calculations → `Testing/unit` |
+| Anything that has broken in production before | Every permutation of a form |
 
-↓
-
-Identify Critical User Journeys
-
-↓
-
-Prepare Production-Like Environment
-
-↓
-
-Execute Complete Workflow
-
-↓
-
-Validate Business Outcomes
-
-↓
-
-Detect Failures
-
-↓
-
-Prevent Regression
-
-↓
-
-Continuously Improve
-
-Every End-to-End test should represent meaningful customer value.
+- **One journey per test.** A test asserting six unrelated things fails opaquely
+  and hides the later failures.
+- Do not chain tests. Each starts from a known state and can run alone.
+- Tag by criticality (`@smoke`, `@critical`) so a fast subset gates deployment and
+  the full suite runs less often.
 
 ---
 
-# Stage 1 — Business Journey Discovery
+# Running in CI
 
-Identify
-
-Critical Business Goals
-
-↓
-
-Primary User Journeys
-
-↓
-
-Revenue Workflows
-
-↓
-
-High-Risk Operations
-
-↓
-
-Customer Success Criteria
-
-↓
-
-Business Constraints
-
-↓
-
-Failure Conditions
-
-↓
-
-Future Evolution
-
-Testing begins with business value—not technical architecture.
+- Run **headless** in CI, headed locally for debugging.
+- Capture **trace, video and screenshot on failure**. A failed E2E test with no
+  artifact costs an hour of local reproduction.
+- **Never** paper over flakiness with blanket retries. One retry to absorb genuine
+  infrastructure noise is defensible; three retries hide a real race, and the bug
+  reaches production.
+- **Quarantine, do not skip.** A flaky test moved to a quarantined suite still
+  runs and still reports; a skipped test is deleted coverage nobody notices.
+- Track flake rate per test. A test failing 5% of the time is not passing — it is
+  costing every engineer who sees it red.
+- Pin the browser version so an upstream update does not turn into a mystery
+  failure.
 
 ---
 
-# Stage 2 — User Journey Identification
-
-Identify
-
-Authentication
-
-↓
-
-Registration
-
-↓
-
-Search
-
-↓
-
-Navigation
-
-↓
-
-Purchasing
-
-↓
-
-Payments
-
-↓
-
-Content Creation
-
-↓
-
-Account Management
-
-↓
-
-Administration
-
-↓
-
-Support
-
-↓
-
-Notifications
-
-↓
-
-Logout
-
-Every important user journey should be independently validated.
-
----
-
-# Stage 3 — Production Environment
-
-Prepare
-
-Production Configuration
-
-↓
-
-Realistic Infrastructure
-
-↓
-
-Representative Data
-
-↓
-
-Authentication
-
-↓
-
-Network Configuration
-
-↓
-
-Storage Systems
-
-↓
-
-External Services
-
-↓
-
-Monitoring
-
-The testing environment should closely resemble production behavior.
-
----
-
-# Stage 4 — User Behavior Modeling
-
-Model
-
-Normal Users
-
-↓
-
-Power Users
-
-↓
-
-New Users
-
-↓
-
-Returning Users
-
-↓
-
-Administrators
-
-↓
-
-Enterprise Users
-
-↓
-
-Mobile Users
-
-↓
-
-Accessibility Users
-
-↓
-
-Future User Types
-
-Every workflow should reflect realistic user behavior.
-
----
-
-# Stage 5 — Workflow Validation
-
-Validate
-
-Navigation
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Business Logic
-
-↓
-
-Persistence
-
-↓
-
-Notifications
-
-↓
-
-External Integrations
-
-↓
-
-Successful Completion
-
-A workflow succeeds only when users successfully achieve their intended goal.
-
----
-
-# Stage 6 — Cross-System Validation
-
-Verify
-
-Frontend
-
-↓
-
-Backend
-
-↓
-
-Database
-
-↓
-
-Authentication
-
-↓
-
-Caching
-
-↓
-
-Queues
-
-↓
-
-Storage
-
-↓
-
-Third-Party Services
-
-↓
-
-Monitoring
-
-↓
-
-Analytics
-
-Every participating system should collaborate correctly.
-
----
-
-# Stage 7 — Business Outcome Validation
-
-Validate
-
-Expected Results
-
-↓
-
-User Visibility
-
-↓
-
-Data Persistence
-
-↓
-
-Business Rules
-
-↓
-
-Notifications
-
-↓
-
-Reporting
-
-↓
-
-Analytics
-
-↓
-
-Audit Records
-
-Business outcomes matter more than technical implementation.
-
----
-
-# Stage 8 — User Experience Validation
-
-Verify
-
-Responsiveness
-
-↓
-
-Consistency
-
-↓
-
-Navigation
-
-↓
-
-Accessibility
-
-↓
-
-Visual Feedback
-
-↓
-
-Loading States
-
-↓
-
-Error Messages
-
-↓
-
-Recovery Experience
-
-Every workflow should remain understandable from the user's perspective.
-
----
-
-# Stage 9 — Failure Scenario Validation
-
-Validate
-
-Invalid Inputs
-
-↓
-
-Permission Failures
-
-↓
-
-Timeouts
-
-↓
-
-Network Interruptions
-
-↓
-
-Third-Party Failures
-
-↓
-
-Partial Failures
-
-↓
-
-Unexpected States
-
-↓
-
-Recovery
-
-Reliable systems continue behaving predictably during failures.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design workflows that maximize
-
-Repeatability
-
-↓
-
-Deterministic Results
-
-↓
-
-Stable Execution
-
-↓
-
-Reliable Infrastructure
-
-↓
-
-Consistent Data
-
-↓
-
-Regression Detection
-
-↓
-
-Operational Confidence
-
-↓
-
-Engineering Excellence
-
-Reliable End-to-End tests consistently validate complete business workflows regardless of execution environment.
-
-
-# Stage 11 — Assertions Strategy
-
-Every End-to-End assertion should validate meaningful business outcomes from the user's perspective rather than internal implementation details.
-
-Validate
-
-Successful User Journey
-
-↓
-
-Business Goal Completion
-
-↓
-
-Correct User Interface
-
-↓
-
-Persistent Data
-
-↓
-
-Cross-System Consistency
-
-↓
-
-Expected Notifications
-
-↓
-
-Accurate Business State
-
-↓
-
-Regression Prevention
-
-Assertions should prove that users successfully accomplish real business objectives.
-
----
-
-# Stage 12 — Failure Scenario Validation
-
-Every production system must behave predictably under failure conditions.
-
-Validate
-
-Authentication Failures
-
-↓
-
-Authorization Failures
-
-↓
-
-Invalid User Actions
-
-↓
-
-Network Interruptions
-
-↓
-
-Service Outages
-
-↓
-
-Payment Failures
-
-↓
-
-External Provider Failures
-
-↓
-
-Graceful Recovery
-
-Users should always receive understandable and recoverable experiences.
-
----
-
-# Stage 13 — Environment Validation
-
-Every execution environment should accurately represent production behavior.
-
-Verify
-
-Infrastructure
-
-↓
-
-Configuration
-
-↓
-
-Authentication Systems
-
-↓
-
-Databases
-
-↓
-
-External Integrations
-
-↓
-
-Storage Systems
-
-↓
-
-Caching Layers
-
-↓
-
-Monitoring
-
-Environment consistency directly affects deployment confidence.
-
----
-
-# Stage 14 — Data Integrity
-
-Validate
-
-User Input
-
-↓
-
-Business Processing
-
-↓
-
-Database Persistence
-
-↓
-
-Cross-Service Synchronization
-
-↓
-
-Reporting
-
-↓
-
-Analytics
-
-↓
-
-Audit Records
-
-↓
-
-Recovery
-
-Every completed workflow should leave the system in a correct and consistent state.
-
----
-
-# Stage 15 — User Experience Consistency
-
-Verify
-
-Navigation
-
-↓
-
-Responsiveness
-
-↓
-
-Loading States
-
-↓
-
-Error Messages
-
-↓
-
-Accessibility
-
-↓
-
-Visual Consistency
-
-↓
-
-Mobile Experience
-
-↓
-
-Cross-Browser Compatibility
-
-A successful workflow should remain consistent across supported platforms and devices.
-
----
-
-# Stage 16 — Test Organization
-
-Organize End-to-End tests around complete business capabilities.
-
-Group by
-
-User Journey
-
-↓
-
-Business Feature
-
-↓
-
-Revenue Workflow
-
-↓
-
-Customer Lifecycle
-
-↓
-
-Risk Level
-
-↓
-
-Platform
-
-↓
-
-Release Scope
-
-↓
-
-Future Growth
-
-Well-organized suites improve maintainability and execution efficiency.
-
----
-
-# Stage 17 — Quality Attributes
-
-Every End-to-End Testing strategy should maximize
-
-Business Workflow Coverage
-
-↓
-
-Production Realism
-
-↓
-
-System Reliability
-
-↓
-
-User Experience Validation
-
-↓
-
-Deployment Confidence
-
-↓
-
-Deterministic Execution
-
-↓
-
-Maintainability
-
-↓
-
-Engineering Excellence
-
-Quality is achieved by validating customer success—not increasing automation.
-
----
-
-# Stage 18 — Engineering Questions
-
-Before approving any End-to-End test, ask
-
-Does this represent a real user journey?
-
-↓
-
-Does it validate a critical business capability?
-
-↓
-
-Can users successfully complete the workflow?
-
-↓
-
-Are all participating systems verified?
-
-↓
-
-Does it improve deployment confidence?
-
-↓
-
-Can failures be detected before production?
-
-↓
-
-Will engineers immediately understand its purpose?
-
-↓
-
-Will it remain valuable as the product evolves?
-
-If any answer is "No", improve the workflow before approval.
-
----
-
-# Stage 19 — Anti-Patterns
-
-Avoid
-
-Testing implementation instead of user behavior
-
-↓
-
-Duplicating Unit or Integration tests
-
-↓
-
-Excessively long workflows
-
-↓
-
-Environment-specific assumptions
-
-↓
-
-Unstable test data
-
-↓
-
-Ignoring production failures
-
-↓
-
-Testing trivial interactions
-
-↓
-
-Hidden dependencies
-
-↓
-
-Non-deterministic execution
-
-↓
-
-Poor synchronization
-
-↓
-
-Fragile automation
-
-↓
-
-Slow feedback cycles
-
-The objective is validating complete customer value—not automating every user interaction.
-
----
-
-# Stage 20 — Continuous Evolution
-
-End-to-End Testing should evolve together with the product.
-
-Continuously improve
-
-Critical Workflow Coverage
-
-↓
-
-Production Similarity
-
-↓
-
-Execution Reliability
-
-↓
-
-Automation Stability
-
-↓
-
-Regression Detection
-
-↓
-
-Business Alignment
-
-↓
-
-Engineering Standards
-
-↓
-
-Deployment Confidence
-
-End-to-End testing is an ongoing engineering investment that continuously protects customer experience.
-
----
-
-# Quality Attributes
-
-A high-quality End-to-End Testing strategy demonstrates
-
-- Complete business workflow validation
-- Production-like execution
-- Stable automation
-- Deterministic outcomes
-- Reliable regression detection
-- Excellent maintainability
-- Strong deployment confidence
-- High user-centric coverage
-- Clear engineering intent
-- Long-term sustainability
-
----
-
-# Engineering Questions
-
-Before considering End-to-End Testing complete, verify
-
-- Are all critical customer journeys validated?
-- Can users successfully complete every primary business workflow?
-- Are production integrations included?
-- Are business outcomes verified?
-- Are failure scenarios intentionally tested?
-- Is data integrity preserved throughout workflows?
-- Can tests execute consistently across environments?
-- Do tests improve release confidence?
-- Will failures be detected before customers experience them?
-- Will these tests remain valuable as the product evolves?
-
----
-
-# Severity Levels
-
-## Critical
-
-- Critical user journeys fail.
-- Revenue workflows cannot be completed.
-- Production behavior cannot be validated.
-- Customer-facing regressions remain undetected.
-
-Immediate correction required.
-
----
-
-## High
-
-- Missing workflow coverage.
-- Authentication failures.
-- Payment failures.
-- Cross-system inconsistencies.
-- Environment instability.
-
-Resolve before release.
-
----
-
-## Medium
-
-- Duplicate workflows.
-- Minor execution instability.
-- Incomplete monitoring.
-- Maintainability concerns.
-
-Improve during normal engineering work.
-
----
-
-## Low
-
-- Documentation improvements.
-- Naming consistency.
-- Organizational refinements.
-- Minor readability enhancements.
-
-Address during continuous improvement.
+# Configuration that matters
+
+```js
+// playwright.config.ts — the settings that decide flake rate
+export default defineConfig({
+  timeout: 30_000,                  // per test, not per action
+  expect: { timeout: 5_000 },       // auto-retrying assertions
+  retries: process.env.CI ? 1 : 0,  // one retry absorbs infra noise, not races
+  fullyParallel: true,
+  workers: process.env.CI ? 4 : undefined,
+  use: {
+    trace: "on-first-retry",        // artifact only when it matters
+    video: "retain-on-failure",
+    screenshot: "only-on-failure",
+    baseURL: process.env.BASE_URL,
+    actionTimeout: 10_000,
+  },
+});
+```
+
+Key APIs worth knowing: `getByRole`, `getByLabel`, `getByTestId`,
+`toBeVisible`, `toHaveURL`, `waitForResponse`, `route` for request interception,
+`storageState` for session reuse, and `test.step` to make traces readable.
+
+In Cypress the equivalents are `cy.findByRole`, `cy.intercept`, `cy.session` and
+`cy.wait("@alias")` — never `cy.wait(2000)`.
+
+# Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `waitForTimeout(2000)` | Race that fails on loaded CI | Wait for the condition |
+| CSS class or XPath selectors | Break on any restyle | `getByRole` / `getByLabel` |
+| Creating data through the UI | Slow; couples unrelated features | API or factory setup |
+| Logging in via the form in every test | Multiplies runtime and flake | Reuse `storageState` |
+| Shared staging data | Another run changes your row | Unique data per run |
+| Chained, order-dependent tests | One failure cascades | Independent tests |
+| Retrying until green | Hides a real race | Fix it or quarantine it |
+| Testing every form permutation E2E | Slow suite nobody trusts | Push down to unit tests |
+| No trace or video on failure | Unreproducible failures | Capture artifacts |
+| Skipping a flaky test | Silent loss of coverage | Quarantine and track |
 
 ---
 
 # Checklist
 
-Before approving End-to-End Testing
-
-- Critical user journeys identified
-- Business workflows validated
-- Production-like environment prepared
-- Authentication verified
-- Authorization verified
-- Cross-system interactions validated
-- Business outcomes confirmed
-- Failure scenarios covered
-- Data integrity verified
-- Accessibility considered
-- Responsive behavior validated
-- Automation deterministic
-- Regression protection established
-- Monitoring available
-- Engineering intent clearly documented
-
----
-
-# Definition of Done
-
-An End-to-End Testing strategy is considered complete when every critical customer journey, business workflow, production integration, authentication flow, authorization rule, persistence operation, cross-system interaction, external dependency, failure scenario, recovery path, and user-facing outcome has been validated through deterministic, maintainable, production-representative tests that provide engineering teams with high confidence that customers can successfully achieve their goals after every software release.
-
-Exceptional End-to-End Testing is not measured by the number of automated browser interactions or executed scenarios.
-
-It is measured by how effectively it validates real customer success, detects production regressions before release, verifies complete business capabilities across the entire technology stack, enables confident deployments, protects user experience, and continuously supports the delivery of reliable, scalable, and production-ready software.
+- [ ] Verify: The suite covers critical journeys only, not exhaustive permutations
+- [ ] Verify: Selectors use role, label or `data-testid` — never CSS position or XPath
+- [ ] Verify: No fixed timeout appears anywhere; waits express a real condition
+- [ ] Verify: Test data is created via API or factory, uniquely per run
+- [ ] Verify: Authentication is seeded from stored state, with one real login test
+- [ ] Verify: Each test is independent and can run in isolation
+- [ ] Verify: Tests are tagged so a fast critical subset can gate deployment
+- [ ] Verify: Trace, video and screenshots are captured on failure
+- [ ] Verify: Retries are at most one, and flake rate is tracked per test
+- [ ] Verify: Flaky tests are quarantined rather than skipped
+- [ ] Verify: Browser versions are pinned in CI

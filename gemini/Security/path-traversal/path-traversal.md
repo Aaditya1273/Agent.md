@@ -5,1139 +5,186 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: path-traversal
+category: Security
+description: Confining file access to an intended directory — resolve-then-verify, symlink and archive pitfalls, and why blocking "../" does not work.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# path-traversal.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, Path Traversal prevention methodologies, filesystem security frameworks, resource isolation strategies, secure file access practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready applications that resist Path Traversal attacks.
+Rules for reading, writing and serving files when any part of the path derives
+from input.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Software
-- APIs
-- Cloud Platforms
-- Microservices
-- File Management Systems
-- Developer Platforms
-- Production Software
-
-Path Traversal prevention is not removing "../" from user input.
-
-Path Traversal prevention is the engineering discipline of ensuring that every filesystem operation is explicitly constrained to authorized resources while preventing unauthorized access to files, directories, configuration data, secrets, operating system resources, and application internals.
-
-Path Traversal answers one question:
-
-**Can untrusted input ever escape its authorized filesystem boundary?**
+The rule underneath everything: **resolve the final absolute path, then verify it
+is inside the directory you intended.** Inspecting the input string is not a
+control — it is a guess about how the operating system will interpret it.
 
 ---
 
-# Core Philosophy
+# Resolve, then verify
 
-Identify File Access
+```js
+import path from "node:path";
+import fs from "node:fs/promises";
 
-↓
+const ROOT = path.resolve("/srv/uploads");
 
-Define Resource Boundaries
+function safeJoin(root, userPath) {
+  const target = path.resolve(root, userPath);
+  // The separator matters: "/srv/uploads-evil" starts with "/srv/uploads".
+  if (target !== root && !target.startsWith(root + path.sep)) {
+    throw new Error("path escapes root");
+  }
+  return target;
+}
 
-↓
+const file = safeJoin(ROOT, req.params.name);
+await fs.readFile(file);
+```
 
-Validate Paths
+Two details do the work:
 
-↓
+- **`path.resolve` normalises first.** It collapses `..`, `.`, duplicate
+  separators and mixed forms *before* the check, so the comparison is against
+  what the filesystem will actually open.
+- **The trailing separator in the comparison.** Without `+ path.sep`, the
+  directory `/srv/uploads-evil` passes a plain `startsWith("/srv/uploads")`.
 
-Restrict Filesystem Access
+**Never** validate by string inspection:
 
-↓
+```js
+if (name.includes("..")) reject();      // insufficient
+```
 
-Enforce Least Privilege
+That check is defeated by URL encoding (`%2e%2e%2f`), double encoding
+(`%252e%252e%252f`), overlong UTF-8, backslashes on Windows, and null bytes.
+Decoding happens before your check in some stacks and after it in others — which
+is precisely why you verify the resolved path instead.
 
-↓
-
-Monitor File Operations
-
-↓
-
-Detect Abuse
-
-↓
-
-Continuously Improve
-
-Applications should control filesystem access—not user input.
-
----
-
-# Primary Objective
-
-Every Path Traversal defense should maximize
-
-Filesystem Integrity
-
-+
-
-Data Confidentiality
-
-+
-
-Least Privilege
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every filesystem operation should remain inside explicitly authorized boundaries.
+**Never** concatenate paths with `+` or a template literal. Use `path.resolve`
+or `path.join`, then verify.
 
 ---
 
-# Engineering Principles
+# Absolute paths and drive letters
 
-Always prioritize
+`path.join(root, "/etc/passwd")` yields `root/etc/passwd`, but
+`path.resolve(root, "/etc/passwd")` yields `/etc/passwd` — the absolute argument
+wins. This is a common and surprising escape.
 
-Explicit Resource Mapping
+Reject absolute inputs before resolving:
 
-↓
+```js
+if (path.isAbsolute(userPath)) throw new Error("absolute path rejected");
+```
 
-Canonical Path Validation
-
-↓
-
-Least Privilege
-
-↓
-
-Filesystem Isolation
-
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Applications should reference resources—not filesystem paths supplied by users.
+On Windows also reject drive-relative forms (`C:file`), UNC paths (`\\server\share`)
+and reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`).
 
 ---
 
-# Path Traversal Engineering Lifecycle
+# Symlinks
 
-Identify File Operations
+A path can pass every string check and still resolve outside the root, because a
+component is a symbolic link.
 
-↓
+```js
+// Verify what the path actually points at, not what it looks like
+const real = await fs.realpath(target);
+if (real !== ROOT && !real.startsWith(ROOT + path.sep)) {
+  throw new Error("symlink escapes root");
+}
+```
 
-Analyze Resource Flow
-
-↓
-
-Define Security Boundaries
-
-↓
-
-Validate Resource Access
-
-↓
-
-Restrict Filesystem Exposure
-
-↓
-
-Monitor Operations
-
-↓
-
-Review Security
-
-↓
-
-Continuously Improve
-
-Every filesystem interaction should preserve boundary integrity.
+`realpath` resolves every link in the chain. Note the residual TOCTOU window: the
+link can change between the check and the open. Where it matters, open the file
+first and validate the descriptor — `O_NOFOLLOW`, or `fs.open` then `fstat` and
+compare `st_dev`/`st_ino`.
 
 ---
 
-# Stage 1 — Resource Analysis
+# Uploads
 
-Identify
-
-Uploaded Files
-
-↓
-
-Downloads
-
-↓
-
-Images
-
-↓
-
-Documents
-
-↓
-
-Templates
-
-↓
-
-Configuration Files
-
-↓
-
-Log Files
-
-↓
-
-Static Assets
-
-Every accessible resource requires defined ownership.
+- **Never** persist the client's filename. Generate your own — a UUID or a content
+  hash — and store the original name as metadata only.
+- Derive the extension from **sniffed content type**, not from the supplied name.
+- Store outside the web root, or in object storage, so an uploaded file cannot be
+  requested as a script.
+- Serve with `Content-Disposition: attachment` and
+  `X-Content-Type-Options: nosniff`.
+- Serve user content from a **separate origin** so a stored HTML file cannot reach
+  your cookies — see `Security/xss`.
 
 ---
 
-# Stage 2 — Threat Analysis
+# Archive extraction — Zip Slip
 
-Identify
+An archive entry may contain `../`, an absolute path, or be a symlink. Extracting
+without checking writes outside the destination.
 
-Directory Traversal
+```js
+for (const entry of entries) {
+  const target = safeJoin(DEST, entry.name);   // same check as above
+  if (entry.isSymlink) continue;               // or verify the link target too
+  await writeFile(target, entry.data);
+}
+```
 
-↓
-
-Relative Path Abuse
-
-↓
-
-Absolute Path Abuse
-
-↓
-
-Symlink Abuse
-
-↓
-
-Configuration Exposure
-
-↓
-
-Secret Disclosure
-
-↓
-
-System File Access
-
-↓
-
-Emerging Threats
-
-Understanding filesystem attack vectors strengthens application security.
+Also bound the extraction itself: cap total uncompressed bytes, entry count and
+nesting depth. A 42 KB archive expanding to petabytes is a zip bomb, and the
+denial of service arrives long before any traversal does.
 
 ---
 
-# Stage 3 — Resource Flow Analysis
+# Static file serving
 
-Analyze
+Prefer a hardened server or a maintained library over hand-rolled path handling —
+`express.static`, `send`, nginx `root`. They already handle encoding, symlinks,
+range requests and dotfiles.
 
-Input Sources
+If you must handle it yourself:
 
-↓
-
-Validation
-
-↓
-
-Business Logic
-
-↓
-
-Resource Mapping
-
-↓
-
-Filesystem Access
-
-↓
-
-File Operations
-
-↓
-
-Response Generation
-
-↓
-
-Audit Logging
-
-Resource flow determines filesystem safety.
+- Deny dotfiles by default (`.git`, `.env`, `.ssh`).
+- Do not follow symlinks unless deliberate.
+- Reject null bytes (`%00`) outright; historically they truncated paths in C
+  string handling.
+- Canonicalise once, at the boundary, and pass the resolved path onward.
 
 ---
 
-# Stage 4 — Filesystem Architecture
+# Anti-patterns
 
-Design
-
-Storage Layout
-
-↓
-
-Resource Mapping
-
-↓
-
-Isolation Boundaries
-
-↓
-
-Permission Model
-
-↓
-
-Filesystem Abstraction
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Future Expansion
-
-Architecture should isolate business logic from filesystem implementation.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `if (p.includes(".."))` | Encoding, double encoding, backslashes | Resolve, then verify |
+| `root + "/" + userPath` | No normalisation; `..` survives | `path.resolve` then verify |
+| `startsWith(root)` without a separator | `/srv/uploads-evil` passes | Compare `root + path.sep` |
+| Ignoring absolute inputs | `path.resolve` lets them win outright | Reject `path.isAbsolute` |
+| Checking the string but not the link | Symlink escapes the root | `fs.realpath` |
+| Saving the client's filename | Traversal and overwrite via the name | Server-generated name |
+| Extracting archives unchecked | Zip Slip writes anywhere | Verify each entry path |
+| No extraction limits | Zip bomb exhausts disk | Cap size, count, depth |
+| Uploads served from the app origin | Stored XSS with cookie access | Separate origin, `nosniff` |
 
 ---
 
-# Stage 5 — Protection Strategy
-
-Define
-
-Canonical Path Validation
-
-↓
-
-Resource Identifiers
-
-↓
-
-Allowlisted Resources
-
-↓
-
-Filesystem Isolation
-
-↓
-
-Least Privilege
-
-↓
-
-Sandboxing
-
-↓
-
-Secure Storage
-
-↓
-
-Operational Controls
-
-Protection should eliminate direct filesystem trust.
-
----
-
-# Stage 6 — Filesystem Protection
-
-Protect
-
-Application Files
-
-↓
-
-Uploaded Files
-
-↓
-
-Configuration Files
-
-↓
-
-Secrets
-
-↓
-
-Logs
-
-↓
-
-Temporary Files
-
-↓
-
-Operating System Files
-
-↓
-
-Operational Security
-
-Filesystem permissions should minimize potential damage.
-
----
-
-# Stage 7 — Resource Validation
-
-Validate
-
-Requested Resource
-
-↓
-
-Canonical Location
-
-↓
-
-Ownership
-
-↓
-
-Permission Boundaries
-
-↓
-
-Business Rules
-
-↓
-
-Resource Existence
-
-↓
-
-Filesystem Safety
-
-↓
-
-Engineering Quality
-
-Every filesystem operation should be validated before execution.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-File Access
-
-↓
-
-Rejected Requests
-
-↓
-
-Boundary Violations
-
-↓
-
-Permission Violations
-
-↓
-
-Unexpected Access
-
-↓
-
-Audit Events
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Filesystem security should remain measurable.
-
----
-
-# Stage 9 — Attack Detection
-
-Identify
-
-Traversal Attempts
-
-↓
-
-Unexpected Paths
-
-↓
-
-Secret Access
-
-↓
-
-System File Requests
-
-↓
-
-Configuration Access
-
-↓
-
-Privilege Abuse
-
-↓
-
-Automation
-
-↓
-
-Operational Threats
-
-Detection should identify abuse before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Filesystem Boundaries
-
-↓
-
-Resource Isolation
-
-↓
-
-Permission Model
-
-↓
-
-Storage Architecture
-
-↓
-
-Resource Lifecycle
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Filesystem architecture should remain secure and understandable.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Files
-
-↓
-
-Distributed Storage
-
-↓
-
-Cloud Storage
-
-↓
-
-Content Delivery
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Filesystem security should scale without increasing exposure.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-File Availability
-
-↓
-
-Permission Consistency
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Storage Integrity
-
-↓
-
-Engineering Quality
-
-Reliable storage preserves application integrity.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Storage Architecture
-
-↓
-
-Permission Model
-
-↓
-
-Resource Mapping
-
-↓
-
-Validation Rules
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves secure filesystem practices.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Filesystem Risks
-
-↓
-
-Permission Risks
-
-↓
-
-Storage Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Technical Debt
-
-Filesystem risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every filesystem decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Resource Isolation
-
-↓
-
-Permission Model
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Path Traversal defenses require continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Security Summary
-
-↓
-
-Threat Analysis
-
-↓
-
-Filesystem Metrics
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen engineering maturity.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Storage
-
-↓
-
-Filesystem Permissions
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Audit Trails
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Filesystem security should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Filesystem Standards
-
-↓
-
-Security Reviews
-
-↓
-
-Permission Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Filesystem security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Resource Isolation
-
-↓
-
-Filesystem Security
-
-↓
-
-Monitoring
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional Path Traversal prevention continuously strengthens filesystem integrity while preserving maintainability, scalability, and operational simplicity.
-
----
-
-# Path Traversal Quality Attributes
-
-Evaluate
-
-Filesystem Integrity
-
-Resource Isolation
-
-Confidentiality
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Can any external input escape its authorized directory?
-
-↓
-
-Are filesystem paths resolved using canonical validation?
-
-↓
-
-Can applications operate without exposing internal filesystem structure?
-
-↓
-
-Are filesystem permissions limited to the minimum required?
-
-↓
-
-Can unauthorized file access be detected before compromise?
-
-↓
-
-Will future engineers understand the filesystem security architecture?
-
-↓
-
-Would experienced Security Engineers, Principal Engineers, Platform Engineers, Infrastructure Engineers, and Engineering Leadership confidently approve this filesystem security strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Arbitrary file disclosure
-
-Configuration exposure
-
-Secret disclosure
-
-Operating system compromise
-
-Major
-
-Directory traversal
-
-Weak filesystem permissions
-
-Resource isolation failures
-
-Sensitive file exposure
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Path Traversal Checklist
-
-✓ Resources identified
-
-✓ Threats analyzed
-
-✓ Resource flow reviewed
-
-✓ Filesystem architecture designed
-
-✓ Protection strategy selected
-
-✓ Filesystem secured
-
-✓ Resources validated
-
-✓ Security measured
-
-✓ Attacks monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Trusting user-supplied paths
-
-Building file paths through string concatenation
-
-Allowing unrestricted filesystem access
-
-Exposing absolute filesystem paths
-
-Running applications with excessive filesystem privileges
-
-Following symbolic links without validation
-
-Using user input as file locations
-
-Ignoring canonical path validation
-
-Returning internal filesystem errors
-
-Sharing sensitive configuration files
-
-Treating uploads as trusted resources
-
-Optimizing convenience over filesystem security
-
----
-
-# Definition of Done
-
-A Path Traversal protection strategy is considered complete when
-
-- Filesystem resources, storage architecture, resource mappings, permission models, isolation boundaries, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every filesystem operation preserves strict resource boundaries while preventing directory traversal, unauthorized file access, secret disclosure, configuration exposure, symbolic link abuse, privilege escalation, and operating system compromise throughout the software lifecycle.
-- The storage architecture supports scalable applications, distributed storage systems, cloud platforms, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate resource isolation, filesystem permissions, architectural consistency, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains filesystem architecture, trust boundaries, permission models, resource mapping strategies, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, and future filesystem security improvements.
-- Path Traversal prevention decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving operating systems, cloud storage platforms, container environments, distributed architectures, and future software engineering environments.
-- The resulting application demonstrates engineering discipline, strong filesystem integrity, resilient resource isolation, predictable file access behavior, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional Path Traversal prevention is not measured by how many invalid paths are blocked.
-
-It is measured by how consistently software confines every filesystem operation within authorized boundaries, protects sensitive resources, minimizes filesystem exposure, withstands evolving infrastructure threats, and continuously delivers secure, maintainable, and resilient file access throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: Every input-derived path is resolved to absolute before use
+- [ ] Verify: The resolved path is verified against `root + path.sep`
+- [ ] Verify: Absolute paths, drive-relative forms and UNC paths are rejected
+- [ ] Verify: Windows reserved device names are rejected
+- [ ] Verify: `realpath` is used where symlinks are possible
+- [ ] Verify: Uploads are stored under server-generated names, outside the web root
+- [ ] Verify: Upload type comes from sniffed content, not the supplied extension
+- [ ] Verify: Archive entries are path-checked individually; symlink entries handled
+- [ ] Verify: Extraction caps total size, entry count and depth
+- [ ] Verify: Dotfiles and null bytes are rejected by the static file path
+- [ ] Verify: User content is served from a separate origin with `nosniff`

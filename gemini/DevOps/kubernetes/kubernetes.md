@@ -5,1170 +5,196 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: kubernetes
+category: DevOps
+description: Running workloads on Kubernetes — resource requests and limits, probes, disruption budgets, security context, and the configuration that decides stability.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# kubernetes.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, deploying, operating, scaling, securing, and maintaining Kubernetes clusters.
+Rules for deploying applications to Kubernetes. Kubernetes will run almost any
+manifest — the difference between a stable cluster and a thrashing one is a small
+set of fields most manifests omit.
 
-It applies to
-
-- Microservices
-- APIs
-- AI Platforms
-- SaaS Applications
-- Enterprise Platforms
-- Event-Driven Systems
-- Distributed Systems
-- Multi-Cloud Infrastructure
-- Hybrid Cloud Environments
-
-Kubernetes is not a deployment tool.
-
-Kubernetes is a distributed operating system for running containers at scale.
-
-It manages infrastructure so engineers can focus on applications.
-
-Applications should adapt to Kubernetes.
-
-Not the other way around.
+Deployment strategy is `DevOps/deployment`; images are `DevOps/docker`.
 
 ---
 
-# Core Philosophy
+# Requests and limits decide scheduling and eviction
 
-Containerize Applications
+```yaml
+resources:
+  requests: { cpu: "250m", memory: "512Mi" }    # what the scheduler reserves
+  limits:   {              memory: "512Mi" }    # the hard ceiling
+```
 
-↓
+| Field | Effect |
+| --- | --- |
+| `requests.cpu` | Scheduling, and the share under contention |
+| `requests.memory` | Scheduling, and eviction priority |
+| `limits.memory` | Exceeding it is an immediate OOM kill |
+| `limits.cpu` | **Throttling**, not killing — and it is where latency goes to die |
 
-Declare Desired State
+Two rules that are widely misapplied:
 
-↓
+- **Always set memory requests and limits, and set them equal.** Equal
+  request/limit gives the pod `Guaranteed` QoS, so it is evicted last under node
+  pressure. Memory is incompressible: a limit is a kill, not a slowdown.
+- **Usually omit the CPU limit.** CPU is compressible; the request already
+  guarantees a share. A CPU limit throttles the process even when the node is idle,
+  which shows up as unexplained p99 latency. Set one only for genuinely untrusted
+  or noisy workloads.
 
-Automate Deployment
+Pods with no requests are `BestEffort` and are evicted first — which is exactly the
+wrong outcome for your most important service.
 
-↓
-
-Observe Continuously
-
-↓
-
-Recover Automatically
-
-↓
-
-Scale Predictably
-
-↓
-
-Secure Infrastructure
-
-↓
-
-Continuously Improve
-
-Infrastructure should become declarative.
-
-Operations should become automated.
+Runtime memory settings must respect the limit: a Node heap or JVM sized from host
+memory will be OOM-killed in a limited container. → `Backend/node`
 
 ---
 
-# Primary Objective
+# Probes: three questions, three answers
 
-Every Kubernetes architecture should maximize
+```yaml
+startupProbe:   { httpGet: { path: /healthz, port: 3000 }, failureThreshold: 30, periodSeconds: 2 }
+readinessProbe: { httpGet: { path: /readyz,  port: 3000 }, periodSeconds: 5 }
+livenessProbe:  { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 10, failureThreshold: 3 }
+```
 
-Reliability
+- **Startup** — has it booted? Its `failureThreshold × periodSeconds` must cover the
+  slowest cold start, or a slow-starting pod is killed in a loop forever.
+- **Readiness** — can it serve *now*? May check dependencies. Failing it removes
+  the pod from the Service without killing it.
+- **Liveness** — is the process wedged? **Must not check dependencies.** A liveness
+  probe hitting the database restarts every pod during a database incident,
+  converting a degradation into a total outage. This is the most damaging
+  misconfiguration in this package.
 
-+
-
-Availability
-
-+
-
-Scalability
-
-+
-
-Security
-
-+
-
-Observability
-
-+
-
-Automation
-
-+
-
-Maintainability
-
-+
-
-Operational Excellence
-
-Clusters exist to operate software reliably.
-
-Not simply to run containers.
+Point liveness at a trivial handler; put dependency checks in readiness only.
 
 ---
 
-# Engineering Principles
+# Survive disruption
 
-Always prioritize
+```yaml
+spec:
+  replicas: 3
+  strategy:
+    rollingUpdate: { maxSurge: 25%, maxUnavailable: 0 }
+  minReadySeconds: 10
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+spec:
+  minAvailable: 2                # a node drain cannot take the service below this
+  selector: { matchLabels: { app: api } }
+```
 
-Declarative Infrastructure
-
-↓
-
-Immutable Deployments
-
-↓
-
-Self-Healing
-
-↓
-
-Automation
-
-↓
-
-Security
-
-↓
-
-Observability
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Every workload should be replaceable.
-
-Nothing inside a running container should be irreplaceable.
+- A `PodDisruptionBudget` is what stops a routine node drain or cluster upgrade
+  removing every replica at once. Without one, voluntary disruptions cause
+  outages nobody planned.
+- Spread replicas across nodes and zones with `topologySpreadConstraints`; three
+  replicas on one node survive nothing.
+- `preStop` sleep plus a grace period longer than the drain time, or every rollout
+  drops in-flight requests. → `DevOps/deployment`
 
 ---
 
-# Kubernetes Lifecycle
+# Security context
 
-Understand Requirements
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: ["ALL"] }
+  seccompProfile: { type: RuntimeDefault }
+```
 
-↓
+- `runAsNonRoot: true` is verifiable only when the image declares a **numeric**
+  UID.
+- `readOnlyRootFilesystem` with an `emptyDir` mounted at `/tmp` for scratch space.
+- Default-deny `NetworkPolicy` per namespace, then allow the specific flows. A
+  cluster with no network policy lets any compromised pod reach every service.
+- Never mount the default ServiceAccount token unless the pod calls the API
+  (`automountServiceAccountToken: false`).
+- Enforce Pod Security Admission at `restricted` on application namespaces.
+  → `Security/headers`
 
-Design Cluster
-
-↓
-
-Deploy Workloads
-
-↓
-
-Configure Networking
-
-↓
-
-Secure Platform
-
-↓
-
-Observe
-
-↓
-
-Scale
-
-↓
-
-Continuously Improve
+Secrets are base64, **not encrypted**, in etcd by default. Enable encryption at
+rest, or use an external store (External Secrets Operator, Vault, cloud secret
+manager) and never commit a `Secret` manifest.
+→ `Security/secret-management`
 
 ---
 
-# Stage 1 — Platform Analysis
+# Configuration and scaling
 
-Understand
-
-Business Requirements
-
-↓
-
-Availability Goals
-
-↓
-
-Traffic Patterns
-
-↓
-
-Workloads
-
-↓
-
-Compliance
-
-↓
-
-Growth Expectations
-
-↓
-
-Recovery Objectives
-
-↓
-
-Infrastructure Strategy
-
-Kubernetes should solve infrastructure problems.
-
-Not create them.
+- `ConfigMap` for non-sensitive configuration, `Secret` for the rest, both injected
+  as environment variables or files — never baked into the image.
+- A ConfigMap change does **not** restart pods. Either checksum it into the pod
+  template annotation so a change rolls the deployment, or reload in-process.
+- `HorizontalPodAutoscaler` on the signal that reflects load: CPU for CPU-bound
+  services, a custom metric (requests in flight, queue backlog age) for I/O-bound
+  ones. CPU-based scaling on an I/O-bound worker scales **down** while the backlog
+  grows. → `Backend/workers`
+- Set `minReplicas ≥ 2` for anything that must stay available.
+- Cap `maxReplicas` at what downstream dependencies can absorb — autoscaling
+  otherwise converts a backlog into a database outage.
 
 ---
 
-# Stage 2 — Cluster Architecture
+# Anti-patterns
 
-Design
-
-Control Plane
-
-↓
-
-Worker Nodes
-
-↓
-
-Node Pools
-
-↓
-
-Availability Zones
-
-↓
-
-Networking
-
-↓
-
-Storage
-
-↓
-
-High Availability
-
-↓
-
-Disaster Recovery
-
-Cluster architecture determines operational reliability.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No resource requests | `BestEffort` QoS; evicted first | Always set requests |
+| No memory limit | One leak takes down the node | Limit equal to request |
+| CPU limit on a latency-sensitive service | Throttled even on an idle node | Omit the CPU limit |
+| Runtime heap sized from host memory | OOM-killed under the limit | Configure against the limit |
+| Liveness probe checking dependencies | Mass restarts during a blip | Process-local liveness |
+| No startup probe on a slow starter | Liveness kills it in a loop | Startup probe with headroom |
+| Readiness that never fails | Traffic sent to broken pods | Check real dependencies |
+| No PodDisruptionBudget | A node drain takes the whole service | `minAvailable` |
+| Replicas on one node | Node failure is total failure | Topology spread constraints |
+| No `preStop` or short grace period | Every rollout drops requests | Drain window |
+| Running as root | Escape has host-level privilege | `runAsNonRoot` with a numeric UID |
+| No NetworkPolicy | Any pod reaches any service | Default-deny, then allow |
+| ServiceAccount token mounted by default | Unnecessary API credentials in every pod | Disable unless needed |
+| Secrets committed as manifests | Plain base64 in version control | External secret store |
+| ConfigMap change expected to restart pods | Stale configuration persists | Checksum annotation |
+| CPU-based HPA on I/O-bound work | Scales down as the backlog grows | Scale on backlog |
+| Unbounded `maxReplicas` | Autoscaling causes a downstream outage | Cap at downstream capacity |
+| `latest` image tags | Restart pulls a different build | Pin by digest |
 
 ---
 
-# Stage 3 — Workload Design
-
-Deploy
-
-Deployments
-
-↓
-
-Stateful Applications
-
-↓
-
-Daemon Services
-
-↓
-
-Scheduled Jobs
-
-↓
-
-Background Workers
-
-↓
-
-API Services
-
-↓
-
-Batch Processing
-
-↓
-
-AI Workloads
-
-Every workload should have a clear lifecycle.
-
----
-
-# Stage 4 — Pod Design
-
-Design
-
-Single Responsibility
-
-↓
-
-Resource Requests
-
-↓
-
-Resource Limits
-
-↓
-
-Health Checks
-
-↓
-
-Environment Variables
-
-↓
-
-Secrets
-
-↓
-
-Volumes
-
-↓
-
-Security Context
-
-Pods should remain small and disposable.
-
----
-
-# Stage 5 — Networking
-
-Configure
-
-Services
-
-↓
-
-Internal Communication
-
-↓
-
-Ingress
-
-↓
-
-Load Balancing
-
-↓
-
-DNS
-
-↓
-
-Network Policies
-
-↓
-
-Service Discovery
-
-↓
-
-External Access
-
-Networking should remain predictable.
-
----
-
-# Stage 6 — Storage
-
-Manage
-
-Persistent Volumes
-
-↓
-
-Persistent Claims
-
-↓
-
-Storage Classes
-
-↓
-
-Snapshots
-
-↓
-
-Backup Strategy
-
-↓
-
-Recovery
-
-↓
-
-Encryption
-
-↓
-
-Lifecycle
-
-Containers are temporary.
-
-Persistent data is not.
-
----
-
-# Stage 7 — Scheduling
-
-Optimize
-
-Node Affinity
-
-↓
-
-Anti-Affinity
-
-↓
-
-Taints
-
-↓
-
-Tolerations
-
-↓
-
-Topology Awareness
-
-↓
-
-Resource Allocation
-
-↓
-
-High Availability
-
-↓
-
-Operational Efficiency
-
-Scheduling determines resilience.
-
----
-
-# Stage 8 — Scaling
-
-Design
-
-Horizontal Scaling
-
-↓
-
-Vertical Scaling
-
-↓
-
-Cluster Autoscaling
-
-↓
-
-Load Distribution
-
-↓
-
-Replica Strategy
-
-↓
-
-Traffic Growth
-
-↓
-
-Regional Expansion
-
-↓
-
-Future Capacity
-
-Scaling should require policy.
-
-Not manual intervention.
-
----
-
-# Stage 9 — Security
-
-Protect
-
-RBAC
-
-↓
-
-Namespaces
-
-↓
-
-Secrets
-
-↓
-
-Network Policies
-
-↓
-
-Pod Security
-
-↓
-
-Image Verification
-
-↓
-
-Admission Policies
-
-↓
-
-Compliance
-
-Security should exist by default.
-
-Not after deployment.
-
----
-
-# Stage 10 — Configuration Management
-
-Manage
-
-ConfigMaps
-
-↓
-
-Secrets
-
-↓
-
-Runtime Configuration
-
-↓
-
-Environment Variables
-
-↓
-
-Feature Flags
-
-↓
-
-Versioning
-
-↓
-
-Overrides
-
-↓
-
-Deployment Consistency
-
-Configuration belongs outside application images.
-
----
-
-# Stage 11 — Deployment Strategy
-
-Support
-
-Rolling Updates
-
-↓
-
-Blue-Green Deployment
-
-↓
-
-Canary Deployment
-
-↓
-
-Rollback
-
-↓
-
-Health Validation
-
-↓
-
-Progressive Delivery
-
-↓
-
-Release Automation
-
-↓
-
-Operational Stability
-
-Deployments should never interrupt users.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Pods
-
-↓
-
-Nodes
-
-↓
-
-CPU
-
-↓
-
-Memory
-
-↓
-
-Network
-
-↓
-
-Events
-
-↓
-
-Logs
-
-↓
-
-Application Health
-
-Clusters should explain themselves.
-
----
-
-# Stage 13 — Reliability
-
-Ensure
-
-Self-Healing
-
-↓
-
-Automatic Restart
-
-↓
-
-Health Probes
-
-↓
-
-Failure Recovery
-
-↓
-
-Replica Availability
-
-↓
-
-Graceful Shutdown
-
-↓
-
-Rescheduling
-
-↓
-
-Business Continuity
-
-Failures should become routine events.
-
----
-
-# Stage 14 — Performance
-
-Optimize
-
-Scheduling
-
-↓
-
-Startup Time
-
-↓
-
-Container Density
-
-↓
-
-Network Latency
-
-↓
-
-Storage Performance
-
-↓
-
-Resource Efficiency
-
-↓
-
-Infrastructure Cost
-
-↓
-
-Operational Throughput
-
-Performance should be measured continuously.
-
----
-
-# Stage 15 — Automation
-
-Automate
-
-Deployment
-
-↓
-
-Scaling
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Alerting
-
-↓
-
-Resource Management
-
-↓
-
-Cluster Maintenance
-
-↓
-
-Operational Workflows
-
-Automation removes operational risk.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Architecture
-
-↓
-
-Namespaces
-
-↓
-
-Workloads
-
-↓
-
-Networking
-
-↓
-
-Storage
-
-↓
-
-Security
-
-↓
-
-Recovery Procedures
-
-↓
-
-Future Evolution
-
-Documentation preserves operational knowledge.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Cluster Design
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Availability
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Simplicity
-
-↓
-
-Business Alignment
-
-Infrastructure deserves continuous engineering review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Node Failure
-
-↓
-
-Pod Failure
-
-↓
-
-Network Failure
-
-↓
-
-Storage Failure
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Security Risks
-
-↓
-
-Configuration Drift
-
-↓
-
-Business Impact
-
-Every cluster should be designed around failure.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Scheduling
-
-↓
-
-Scaling
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Monitoring
-
-↓
-
-Automation
-
-↓
-
-Documentation
-
-↓
-
-Engineering Maturity
-
-Healthy Kubernetes platforms evolve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Reliability
-
-↓
-
-Availability
-
-↓
-
-Security
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Automation
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional Kubernetes platforms become invisible.
-
----
-
-# Kubernetes Quality Attributes
-
-Evaluate
-
-Reliability
-
-Availability
-
-Scalability
-
-Security
-
-Performance
-
-Maintainability
-
-Observability
-
-Automation
-
----
-
-# Kubernetes Questions
-
-Before production ask
-
-Can every workload recover automatically?
-
-↓
-
-Can the cluster survive node failures?
-
-↓
-
-Are deployments zero downtime?
-
-↓
-
-Is security enforced by default?
-
-↓
-
-Can the platform scale automatically?
-
-↓
-
-Is every workload observable?
-
-↓
-
-Would experienced platform engineers confidently approve this Kubernetes architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Cluster outage
-
-Control plane failure
-
-Persistent data loss
-
-Security compromise
-
-Network collapse
-
-Major
-
-Node failures
-
-Deployment failures
-
-Scaling failures
-
-Storage issues
-
-Configuration drift
-
-Medium
-
-Performance tuning
-
-Scheduling improvements
-
-Monitoring gaps
-
-Documentation improvements
-
-Minor
-
-Naming conventions
-
-Labels
-
-Annotations
-
-Formatting
-
----
-
-# Kubernetes Checklist
-
-✓ Business requirements understood
-
-✓ Cluster architecture designed
-
-✓ Workloads deployed
-
-✓ Pods optimized
-
-✓ Networking configured
-
-✓ Storage planned
-
-✓ Scheduling validated
-
-✓ Scaling configured
-
-✓ Security implemented
-
-✓ Configuration managed
-
-✓ Deployment strategy defined
-
-✓ Monitoring enabled
-
-✓ Reliability validated
-
-✓ Performance optimized
-
-✓ Automation implemented
-
-✓ Documentation completed
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Running stateful workloads without persistent storage
-
-Ignoring resource requests
-
-Ignoring resource limits
-
-Using default namespaces for everything
-
-Giving cluster-admin permissions unnecessarily
-
-Running privileged containers
-
-Embedding secrets inside images
-
-Ignoring health probes
-
-Ignoring network policies
-
-Manual cluster management
-
-Mutable infrastructure
-
-Treating Kubernetes like Docker Compose
-
-Using Kubernetes without operational expertise
-
-Building oversized clusters for small applications
-
-Optimizing before measuring
-
----
-
-# Definition of Done
-
-A Kubernetes platform is considered production-ready when
-
-- Every workload is deployed declaratively using immutable infrastructure principles, predictable release processes, and fully automated deployment workflows.
-- Cluster architecture provides high availability, fault tolerance, workload isolation, resilient networking, secure storage, and reliable recovery across all supported environments.
-- Pods are designed with appropriate resource requests, limits, health probes, lifecycle management, security contexts, and configuration externalization.
-- Networking enables secure service discovery, ingress management, load balancing, traffic isolation, policy enforcement, and resilient communication between workloads.
-- Persistent storage, backup strategies, disaster recovery procedures, and lifecycle management protect business-critical information throughout infrastructure failures.
-- Security enforces least privilege through namespaces, RBAC, admission policies, network policies, secret management, image verification, and continuous compliance validation.
-- Monitoring continuously observes workloads, nodes, networking, storage, deployments, events, resource utilization, application health, and operational risks.
-- Scaling automatically adapts to changing workloads through horizontal scaling, vertical optimization, cluster autoscaling, intelligent scheduling, and infrastructure elasticity.
-- Documentation preserves architecture decisions, operational procedures, deployment strategies, recovery workflows, security standards, and future platform evolution.
-- Engineering reviews continuously validate reliability, availability, security, scalability, observability, maintainability, automation, and long-term operational excellence.
-
-Exceptional Kubernetes platforms rarely receive attention.
-
-Applications deploy without downtime, infrastructure heals itself after failures, workloads scale automatically with demand, engineers release software confidently, operations become predictable, and the platform quietly manages distributed complexity because every architectural decision was designed around automation, resilience, and engineering discipline rather than manual infrastructure management.
+# Checklist
+
+- [ ] Verify: Every container declares CPU and memory requests
+- [ ] Verify: Memory limit equals memory request
+- [ ] Verify: CPU limits are omitted unless the workload is untrusted or noisy
+- [ ] Verify: Runtime heap settings respect the container memory limit
+- [ ] Verify: Startup, readiness and liveness probes are distinct
+- [ ] Verify: The startup probe covers the slowest observed cold start
+- [ ] Verify: Liveness checks nothing external
+- [ ] Verify: A PodDisruptionBudget protects every user-facing service
+- [ ] Verify: Replicas are spread across nodes and zones
+- [ ] Verify: `preStop` and the grace period cover the full drain
+- [ ] Verify: Containers run as a non-root numeric UID with capabilities dropped
+- [ ] Verify: Root filesystems are read-only with explicit writable volumes
+- [ ] Verify: A default-deny NetworkPolicy exists per namespace
+- [ ] Verify: ServiceAccount tokens are mounted only where needed
+- [ ] Verify: Secrets come from an external store; none are committed
+- [ ] Verify: ConfigMap changes trigger a rollout via a checksum annotation
+- [ ] Verify: Autoscaling uses a signal that reflects real load
+- [ ] Verify: `minReplicas` is at least 2 and `maxReplicas` is capped at downstream capacity
+- [ ] Verify: Images are pinned by digest

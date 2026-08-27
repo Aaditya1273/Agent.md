@@ -5,1656 +5,214 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: regression
+category: Testing
+description: Preventing bugs from returning — the failing test that must come first, choosing what to keep, and stopping a suite from becoming archaeology.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# regression.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, regression testing methodologies, software stability verification, change impact analysis, release confidence strategies, quality preservation, continuous validation, and long-term engineering guidance for ensuring that software changes never unintentionally degrade existing functionality, business behavior, reliability, security, performance, or user experience.
+Rules for regression testing: ensuring a fixed bug stays fixed and existing
+behaviour survives change.
 
-It applies to
-
-- Web Applications
-- Mobile Applications
-- APIs
-- Backend Services
-- Frontend Applications
-- Enterprise Software
-- SaaS Platforms
-- AI Systems
-- Distributed Systems
-- Open Source Projects
-
-Regression Testing is not rerunning every test after every change.
-
-Regression Testing is the engineering discipline of continuously validating that software evolution preserves previously verified business behavior, system reliability, operational stability, and user experience while enabling rapid and confident product development.
-
-Regression Testing answers one question:
-
-**Can software continue evolving without breaking existing business capabilities?**
+The single rule that matters most: **write the failing test before the fix.** A
+test written afterwards proves the code does what it currently does. A test
+written first proves it catches the bug — because you watched it fail.
 
 ---
 
-# Core Philosophy
+# The workflow
 
-Understand Existing Behavior
+```
+1. Reproduce      — a test that fails for the reported reason
+2. Confirm        — run it; watch it fail with the right error
+3. Fix            — change the code
+4. Confirm        — the same test passes, nothing else broke
+5. Keep           — commit the test with the fix, in the same change
+```
 
-↓
+Step 2 is the one people skip. A test that passes before the fix was never
+testing the bug.
 
-Understand Proposed Change
+```js
+// Named for the behaviour, with the issue referenced for context — not
+// "test bug 4471", which tells a future reader nothing.
+test("refund of a partially captured payment returns only the captured amount", async () => {
+  // Regression: #4471 — refunded the authorised total, over-refunding by the
+  // uncaptured remainder.
+  const payment = await createPayment({ authorised: 10_000, captured: 4_000 });
 
-↓
+  const refund = await refundPayment(payment.id);
 
-Identify Risk
+  expect(refund.amount).toBe(4_000);
+});
+```
 
-↓
-
-Validate Impact
-
-↓
-
-Protect Existing Functionality
-
-↓
-
-Increase Release Confidence
-
-↓
-
-Enable Continuous Delivery
-
-↓
-
-Continuously Improve
-
-Software should continuously evolve without reducing existing customer value.
+Reference the issue in a **comment**, not the test name. The name must describe
+the behaviour so a failure is legible without opening the tracker.
 
 ---
 
-# Primary Objective
+# What to keep as a regression test
 
-Every Regression Testing Strategy should maximize
+Not every bug needs a permanent test. Keep it when:
 
-Software Stability
+- The bug reached **production**
+- It involved **money, data loss, security or privacy**
+- It was **subtle** — an off-by-one, a timezone, a race, a rounding rule
+- It has **recurred before**
+- The fix is in code that changes often
 
-+
-
-Business Confidence
-
-+
-
-Release Reliability
-
-+
-
-Engineering Confidence
-
-+
-
-Risk Reduction
-
-+
-
-Change Safety
-
-+
-
-Maintainability
-
-+
-
-Long-Term Sustainability
-
-The objective is protecting verified behavior while enabling rapid software evolution.
+Skip a permanent test when the bug was a typo caught in review, or the fix removes
+the possibility structurally — a type change or a database constraint is a
+stronger guarantee than any test.
 
 ---
 
-# Engineering Principles
+Useful helpers when reproducing: `test.only` to isolate the case while you work
+(never committed), `test.each` when the bug is one row in a table of inputs,
+`vi.setSystemTime` for date-dependent bugs, and `--runInBand` / `--pool=forks`
+when a bug only appears under parallel execution.
 
-Always prioritize
+For a race, `Promise.all` over the same operation is usually the shortest
+reproduction:
 
-Business Stability
+```js
+test("concurrent claims cannot double-spend a credit", async () => {
+  const credit = await createCredit({ amount: 100 });
 
-↓
+  const results = await Promise.allSettled([
+    claimCredit(credit.id), claimCredit(credit.id), claimCredit(credit.id),
+  ]);
 
-Critical User Journeys
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+});
+```
 
-↓
+# Choosing the level
 
-Change Risk
+Put the regression test at the **lowest level that reproduces it**:
 
-↓
+Concretely: a rounding bug is `expect(total).toBe(4000)` in a unit test; a
+tenant-leak bug is a `findFirst` assertion in an integration test; a silently
+broken button is a `getByRole` assertion in an E2E test.
 
-Reliable Validation
+| Bug | Level |
+| --- | --- |
+| Wrong rounding in a total | Unit |
+| Query returned another tenant's rows | Integration |
+| Migration failed on populated data | Integration |
+| Checkout button silently no-oped | E2E |
+| Layout collapsed at 320px | `Testing/visual` |
 
-↓
-
-Fast Feedback
-
-↓
-
-Automation
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Regression testing protects customer trust throughout software evolution.
-
----
-
-# Regression Testing Lifecycle
-
-Understand Change
-
-↓
-
-Identify Impact
-
-↓
-
-Determine Risk
-
-↓
-
-Select Regression Scope
-
-↓
-
-Execute Validation
-
-↓
-
-Analyze Results
-
-↓
-
-Approve Release
-
-↓
-
-Continuously Improve
-
-Every regression test should reduce uncertainty introduced by software change.
+An E2E test for a rounding bug costs a thousand times the runtime and is flakier.
+The exception is worth stating: if the bug was **the wiring between components**,
+it must be tested at the level where those components meet — that is exactly the
+seam a unit test cannot see.
 
 ---
 
-# Stage 1 — Change Discovery
+# Snapshot tests
 
-Identify
+Snapshots are regression tests that are cheap to create and easy to misuse.
 
-New Features
+```js
+// Fragile — any markup change churns it; reviewers approve blindly
+expect(render(<Invoice {...props} />)).toMatchSnapshot();
 
-↓
+// Focused — asserts the thing that must not regress
+expect(screen.getByTestId("total")).toHaveTextContent("£40.00");
+```
 
-Bug Fixes
-
-↓
-
-Configuration Changes
-
-↓
-
-Infrastructure Updates
-
-↓
-
-Dependency Updates
-
-↓
-
-Database Changes
-
-↓
-
-Security Changes
-
-↓
-
-Future Evolution
-
-Every software change has the potential to introduce unintended behavior.
+- Keep snapshots **small and targeted**. A 600-line snapshot is never reviewed;
+  it is regenerated.
+- **Never** run `--update-snapshots` to make CI green without reading the diff.
+  That is the mechanism by which a real regression gets committed as expected
+  behaviour.
+- Prefer explicit assertions for anything with business meaning. Reserve snapshots
+  for shapes with no better expression.
 
 ---
 
-# Stage 2 — Business Impact Analysis
+# Guarding against silent regressions
 
-Identify
+Some regressions are better prevented structurally than tested:
 
-Critical Features
+| Guard | Prevents |
+| --- | --- |
+| A `NOT NULL` or `CHECK` constraint | Invalid rows regardless of code path |
+| A `UNIQUE` index | Duplicate records under concurrency |
+| A non-nullable type | An entire class of `undefined` bugs |
+| An exhaustive `switch` on a union | A new case silently unhandled |
+| `zod` / `pydantic` at the boundary | Malformed input reaching business logic |
 
-↓
+```ts
+// The compiler now fails when a new status is added and left unhandled —
+// stronger and cheaper than a test asserting the same thing.
+function label(status: Status): string {
+  switch (status) {
+    case "draft": return "Draft";
+    case "sent": return "Sent";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+}
+```
 
-Customer Workflows
+# Keeping the suite honest
 
-↓
+A regression suite accumulates. Without maintenance it becomes archaeology — tests
+nobody understands, guarding behaviour nobody wants.
 
-Revenue Operations
-
-↓
-
-Authentication
-
-↓
-
-Payments
-
-↓
-
-Data Processing
-
-↓
-
-Reporting
-
-↓
-
-Administration
-
-Business impact should determine regression priorities.
-
----
-
-# Stage 3 — Risk Assessment
-
-Evaluate
-
-Business Risk
-
-↓
-
-Technical Complexity
-
-↓
-
-Dependency Impact
-
-↓
-
-Architecture Changes
-
-↓
-
-Historical Defects
-
-↓
-
-Deployment Risk
-
-↓
-
-Operational Risk
-
-↓
-
-Future Growth
-
-Higher-risk changes require deeper regression validation.
+- Run the full suite before shipping a fix — `npm test` locally, not just the one
+  file. A fix that repairs `refundPayment` and breaks `capturePayment` is caught
+  only by the rest of the suite.
+- **Delete tests for removed features.** A test for deleted code is pure cost.
+- **Consolidate** when six tests cover one rule through slightly different paths.
+- **Fix or quarantine flaky tests immediately.** One test retried until green
+  teaches the team to ignore red, which is how a real failure ships.
+- **Never** comment out or `.skip` a failing test to unblock a release without an
+  issue and an owner. A skipped test is deleted coverage that still looks present.
+- Re-read the suite when a module is rewritten. Tests asserting the old design
+  block the new one for no benefit.
 
 ---
 
-# Stage 4 — Regression Scope
-
-Define
-
-Critical Tests
-
-↓
-
-High-Risk Areas
-
-↓
-
-Related Components
-
-↓
-
-Shared Libraries
-
-↓
-
-Cross-System Workflows
-
-↓
-
-User Journeys
-
-↓
-
-Infrastructure
-
-↓
-
-Future Coverage
-
-Regression scope should balance engineering confidence with execution efficiency.
-
----
-
-# Stage 5 — Test Selection
-
-Select
-
-Unit Tests
-
-↓
-
-Integration Tests
-
-↓
-
-End-to-End Tests
-
-↓
-
-Performance Tests
-
-↓
-
-Security Tests
-
-↓
-
-Accessibility Tests
-
-↓
-
-Visual Tests
-
-↓
-
-Business Validation
-
-Every selected test should directly reduce release risk.
-
----
-
-# Stage 6 — Workflow Validation
-
-Validate
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Business Logic
-
-↓
-
-Persistence
-
-↓
-
-Notifications
-
-↓
-
-External Integrations
-
-↓
-
-Reporting
-
-↓
-
-User Experience
-
-Previously verified workflows should remain unchanged unless intentionally modified.
-
----
-
-# Stage 7 — Cross-System Validation
-
-Verify
-
-Frontend
-
-↓
-
-Backend
-
-↓
-
-Database
-
-↓
-
-Caching
-
-↓
-
-Queues
-
-↓
-
-Cloud Services
-
-↓
-
-External APIs
-
-↓
-
-Monitoring
-
-Changes should never introduce unintended system-wide regressions.
-
----
-
-# Stage 8 — Data Integrity
-
-Validate
-
-Existing Records
-
-↓
-
-New Records
-
-↓
-
-Migration Safety
-
-↓
-
-Synchronization
-
-↓
-
-Consistency
-
-↓
-
-Recovery
-
-↓
-
-Audit Trails
-
-↓
-
-Reporting
-
-Software evolution should preserve existing business data integrity.
-
----
-
-# Stage 9 — Release Readiness
-
-Verify
-
-Deployment Safety
-
-↓
-
-Rollback Readiness
-
-↓
-
-Monitoring
-
-↓
-
-Observability
-
-↓
-
-Operational Stability
-
-↓
-
-Business Continuity
-
-↓
-
-Customer Experience
-
-↓
-
-Production Confidence
-
-Every release should have measurable engineering confidence.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design regression validation that maximizes
-
-Repeatability
-
-↓
-
-Deterministic Results
-
-↓
-
-Fast Feedback
-
-↓
-
-Stable Execution
-
-↓
-
-Reliable Automation
-
-↓
-
-Regression Detection
-
-↓
-
-Engineering Confidence
-
-↓
-
-Continuous Improvement
-
-Reliable regression testing continuously protects software quality throughout product evolution.
-
----
-
-# Stage 11 — Regression Coverage
-
-Every regression suite should protect the software areas with the highest business value.
-
-Validate
-
-Critical User Journeys
-
-↓
-
-Business Rules
-
-↓
-
-Core APIs
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Payments
-
-↓
-
-Data Integrity
-
-↓
-
-Customer Experience
-
-Coverage should be driven by business risk rather than the number of executed tests.
-
----
-
-# Stage 12 — Change Validation
-
-Every software modification should be evaluated against existing behavior.
-
-Validate
-
-Feature Enhancements
-
-↓
-
-Bug Fixes
-
-↓
-
-Configuration Changes
-
-↓
-
-Dependency Updates
-
-↓
-
-Infrastructure Changes
-
-↓
-
-Schema Changes
-
-↓
-
-API Changes
-
-↓
-
-Deployment Changes
-
-Every change should have clearly understood downstream impact.
-
----
-
-# Stage 13 — Automation Strategy
-
-Prioritize automation for
-
-Critical Business Features
-
-↓
-
-Frequently Modified Components
-
-↓
-
-High-Risk Workflows
-
-↓
-
-Customer Journeys
-
-↓
-
-Production Defects
-
-↓
-
-Release Validation
-
-↓
-
-Infrastructure Verification
-
-↓
-
-Long-Term Stability
-
-Automation should reduce engineering effort while increasing confidence.
-
----
-
-# Stage 14 — Stability Verification
-
-Verify
-
-Business Logic
-
-↓
-
-API Contracts
-
-↓
-
-Database Consistency
-
-↓
-
-UI Behavior
-
-↓
-
-System Performance
-
-↓
-
-Security Controls
-
-↓
-
-Accessibility
-
-↓
-
-Operational Stability
-
-Software stability is preserved through continuous validation.
-
----
-
-# Stage 15 — Test Organization
-
-Organize regression suites by
-
-Business Domain
-
-↓
-
-User Journey
-
-↓
-
-Risk Level
-
-↓
-
-Release Scope
-
-↓
-
-Component
-
-↓
-
-Platform
-
-↓
-
-Infrastructure
-
-↓
-
-Future Evolution
-
-Organization should simplify maintenance and release planning.
-
----
-
-# Stage 16 — Baseline Management
-
-Maintain
-
-Approved Behavior
-
-↓
-
-Historical Results
-
-↓
-
-Performance Baselines
-
-↓
-
-Visual Baselines
-
-↓
-
-API Contracts
-
-↓
-
-Business Rules
-
-↓
-
-Regression History
-
-↓
-
-Future Expectations
-
-Engineering baselines define acceptable software behavior.
-
----
-
-# Stage 17 — Quality Attributes
-
-Every Regression Testing strategy should maximize
-
-Software Stability
-
-↓
-
-Business Confidence
-
-↓
-
-Fast Feedback
-
-↓
-
-Reliable Automation
-
-↓
-
-Risk Reduction
-
-↓
-
-Maintainability
-
-↓
-
-Engineering Excellence
-
-↓
-
-Continuous Improvement
-
-Regression quality is measured by preserved customer value.
-
----
-
-# Stage 18 — Engineering Questions
-
-Before approving any regression suite, ask
-
-Does this protect critical business workflows?
-
-↓
-
-Does it cover recent software changes?
-
-↓
-
-Will important regressions be detected?
-
-↓
-
-Can releases occur confidently?
-
-↓
-
-Is automation prioritized appropriately?
-
-↓
-
-Does it reduce operational risk?
-
-↓
-
-Can engineers understand its purpose?
-
-↓
-
-Will it remain valuable as the product evolves?
-
-If any answer is "No", improve the regression strategy before approval.
-
----
-
-# Stage 19 — Anti-Patterns
-
-Avoid
-
-Running every test for every change
-
-↓
-
-Ignoring business priorities
-
-↓
-
-Testing implementation instead of behavior
-
-↓
-
-Duplicate regression coverage
-
-↓
-
-Slow feedback cycles
-
-↓
-
-Fragile automation
-
-↓
-
-Ignoring historical production defects
-
-↓
-
-Poor release planning
-
-↓
-
-Manual-only regression processes
-
-↓
-
-Ignoring dependency changes
-
-↓
-
-Treating regression as a release activity only
-
-↓
-
-Allowing unstable tests into the regression suite
-
-Regression Testing should continuously increase release confidence—not slow engineering velocity.
-
----
-
-# Stage 20 — Continuous Evolution
-
-Regression Testing should evolve together with the software.
-
-Continuously improve
-
-Business Coverage
-
-↓
-
-Automation
-
-↓
-
-Execution Speed
-
-↓
-
-Regression Detection
-
-↓
-
-Release Confidence
-
-↓
-
-Engineering Standards
-
-↓
-
-Operational Stability
-
-↓
-
-Continuous Delivery
-
-Regression Testing is a continuous engineering investment that enables safe software evolution.
-
----
-
-# Quality Attributes
-
-A high-quality Regression Testing strategy demonstrates
-
-- Strong business coverage
-- Reliable automation
-- Fast execution
-- Stable results
-- High release confidence
-- Excellent maintainability
-- Low false positives
-- Effective regression detection
-- Clear engineering intent
-- Long-term sustainability
-
----
-
-# Engineering Questions
-
-Before considering Regression Testing complete, verify
-
-- Are critical business workflows protected?
-- Are recent software changes validated?
-- Are regression suites risk-based?
-- Is automation prioritized for high-value areas?
-- Can releases occur confidently?
-- Are historical production issues covered?
-- Are regression failures actionable?
-- Will regressions be detected before production?
-- Can engineers safely evolve the system?
-- Will this strategy remain effective as software grows?
-
----
-
-# Severity Levels
-
-## Critical
-
-- Critical business workflows regress.
-- Customer-facing functionality breaks.
-- Data integrity compromised.
-- Release confidence lost.
-
-Immediate correction required.
-
----
-
-## High
-
-- High-risk features not validated.
-- Automation failures.
-- Cross-system regressions.
-- Production defects escape validation.
-
-Resolve before release.
-
----
-
-## Medium
-
-- Incomplete regression coverage.
-- Slow execution.
-- Minor maintainability issues.
-- Duplicate validation.
-
-Improve during normal engineering work.
-
----
-
-## Low
-
-- Documentation improvements.
-- Naming consistency.
-- Organizational refinements.
-- Minor optimization opportunities.
-
-Address during continuous improvement.
+# Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Test written after the fix | Never proven to catch the bug | Watch it fail first |
+| `test("bug 4471")` | Illegible failure output | Name the behaviour |
+| E2E test for a unit-level bug | 1,000× cost, more flake | Lowest reproducing level |
+| Huge snapshots | Reviewed by regeneration | Small, targeted assertions |
+| `-u` to make CI pass | Commits the regression as expected | Read every snapshot diff |
+| `.skip` to unblock a release | Silent loss of coverage | Fix, or quarantine with an owner |
+| Retrying until green | Trains the team to ignore red | Fix determinism |
+| Keeping tests for deleted features | Pure maintenance cost | Delete them |
+| A test per bug, forever | Suite becomes unmaintainable | Keep only what earns it |
+| Fixing without reproducing | Often fixes a different thing | Reproduce first |
 
 ---
 
 # Checklist
 
-Before approving Regression Testing
-
-- Change impact analyzed
-- Business risk assessed
-- Regression scope defined
-- Critical workflows validated
-- Automation executed
-- Cross-system behavior verified
-- Data integrity confirmed
-- Performance preserved
-- Security preserved
-- Accessibility preserved
-- Monitoring configured
-- Stable execution achieved
-- Regression detection verified
-- Engineering intent documented
-- Long-term maintainability confirmed
-
----
-
-# Definition of Done
-
-A Regression Testing strategy is considered complete when every business-critical workflow, customer journey, shared component, system integration, API contract, data flow, security control, accessibility requirement, performance characteristic, infrastructure dependency, and operational behavior affected by software evolution has been validated through repeatable, maintainable, risk-driven, and production-representative regression testing that provides engineering teams with high confidence that new software changes preserve existing functionality while enabling safe, reliable, and continuous product delivery.
-
-Exceptional Regression Testing is not measured by the number of executed test cases or the size of the regression suite.
-
-It is measured by how effectively it preserves business value, detects unintended software changes before production, protects customer experience, enables rapid engineering iteration, increases deployment confidence, and continuously supports the delivery of stable, reliable, and production-ready software.
-
-# test-strategy.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
-
-# Purpose
-
-This document defines engineering principles, testing strategy design, quality planning, risk-based validation, automation planning, release confidence, governance, and long-term engineering guidance for creating comprehensive testing strategies that consistently deliver reliable, maintainable, and production-ready software.
-
-It applies to
-
-- Web Applications
-- Mobile Applications
-- APIs
-- Backend Services
-- Frontend Applications
-- Enterprise Software
-- SaaS Platforms
-- AI Applications
-- Distributed Systems
-- Cloud Platforms
-
-A Test Strategy is not a document listing test cases.
-
-A Test Strategy is the engineering blueprint that defines how software quality will be achieved, measured, protected, and continuously improved throughout the software lifecycle.
-
-A Test Strategy answers one question:
-
-**How will engineering teams consistently deliver production-ready software with measurable confidence?**
-
----
-
-# Core Philosophy
-
-Understand Business Goals
-
-↓
-
-Understand Product Risks
-
-↓
-
-Define Quality Objectives
-
-↓
-
-Select Testing Approaches
-
-↓
-
-Build Confidence
-
-↓
-
-Reduce Risk
-
-↓
-
-Enable Reliable Releases
-
-↓
-
-Continuously Improve
-
-A good testing strategy enables rapid software delivery without sacrificing quality.
-
----
-
-# Primary Objective
-
-Every Test Strategy should maximize
-
-Business Confidence
-
-+
-
-Engineering Confidence
-
-+
-
-Risk Reduction
-
-+
-
-Release Reliability
-
-+
-
-Maintainability
-
-+
-
-Automation
-
-+
-
-Scalability
-
-+
-
-Long-Term Sustainability
-
-The objective is creating a repeatable engineering system that consistently delivers software quality.
-
----
-
-# Engineering Principles
-
-Always prioritize
-
-Business Risk
-
-↓
-
-Customer Experience
-
-↓
-
-Critical Workflows
-
-↓
-
-Early Feedback
-
-↓
-
-Automation
-
-↓
-
-Reliable Validation
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Testing strategy should optimize engineering effectiveness rather than maximize the number of executed tests.
-
----
-
-# Test Strategy Lifecycle
-
-Understand Business
-
-↓
-
-Identify Risks
-
-↓
-
-Define Quality Goals
-
-↓
-
-Design Testing Approach
-
-↓
-
-Execute Validation
-
-↓
-
-Measure Confidence
-
-↓
-
-Improve Strategy
-
-↓
-
-Continuously Evolve
-
-Every testing decision should improve release confidence.
-
----
-
-# Stage 1 — Business Understanding
-
-Identify
-
-Business Objectives
-
-↓
-
-Critical Features
-
-↓
-
-Customer Expectations
-
-↓
-
-Compliance Requirements
-
-↓
-
-Operational Goals
-
-↓
-
-Growth Plans
-
-↓
-
-Quality Expectations
-
-↓
-
-Future Evolution
-
-Quality objectives should originate from business priorities.
-
----
-
-# Stage 2 — Risk Identification
-
-Identify
-
-Business Risks
-
-↓
-
-Technical Risks
-
-↓
-
-Security Risks
-
-↓
-
-Performance Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Architecture Risks
-
-↓
-
-Deployment Risks
-
-↓
-
-Future Risks
-
-Testing effort should always align with business risk.
-
----
-
-# Stage 3 — Quality Objectives
-
-Define
-
-Reliability
-
-↓
-
-Availability
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Usability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Stability
-
-Quality goals should be measurable and actionable.
-
----
-
-# Stage 4 — Testing Scope
-
-Determine
-
-Features
-
-↓
-
-Components
-
-↓
-
-Services
-
-↓
-
-Integrations
-
-↓
-
-Infrastructure
-
-↓
-
-Data
-
-↓
-
-Business Workflows
-
-↓
-
-Customer Journeys
-
-Testing scope should maximize business confidence while avoiding unnecessary effort.
-
----
-
-# Stage 5 — Testing Levels
-
-Define
-
-Unit Testing
-
-↓
-
-Integration Testing
-
-↓
-
-API Testing
-
-↓
-
-End-to-End Testing
-
-↓
-
-Performance Testing
-
-↓
-
-Security Testing
-
-↓
-
-Accessibility Testing
-
-↓
-
-Regression Testing
-
-Every testing level should contribute unique engineering value.
-
----
-
-# Stage 6 — Automation Strategy
-
-Determine
-
-Automation Priorities
-
-↓
-
-Regression Automation
-
-↓
-
-Critical Workflow Automation
-
-↓
-
-CI/CD Integration
-
-↓
-
-Smoke Testing
-
-↓
-
-Monitoring
-
-↓
-
-Quality Gates
-
-↓
-
-Release Validation
-
-Automation should maximize confidence while minimizing engineering cost.
-
----
-
-# Stage 7 — Test Environment Strategy
-
-Define
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Staging
-
-↓
-
-Production-like Validation
-
-↓
-
-Infrastructure
-
-↓
-
-Data Management
-
-↓
-
-Monitoring
-
-↓
-
-Observability
-
-Reliable environments produce reliable engineering decisions.
-
----
-
-# Stage 8 — Release Strategy
-
-Define
-
-Entry Criteria
-
-↓
-
-Exit Criteria
-
-↓
-
-Release Gates
-
-↓
-
-Rollback Plans
-
-↓
-
-Deployment Validation
-
-↓
-
-Monitoring
-
-↓
-
-Incident Readiness
-
-↓
-
-Operational Confidence
-
-Release quality should be predictable rather than assumed.
-
----
-
-# Stage 9 — Measurement Strategy
-
-Measure
-
-Coverage
-
-↓
-
-Risk Coverage
-
-↓
-
-Automation Rate
-
-↓
-
-Failure Trends
-
-↓
-
-Production Incidents
-
-↓
-
-Defect Escape Rate
-
-↓
-
-Execution Stability
-
-↓
-
-Engineering Confidence
-
-Metrics should support engineering decisions rather than reporting activities.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design testing strategy that maximizes
-
-Repeatability
-
-↓
-
-Consistency
-
-↓
-
-Reliable Automation
-
-↓
-
-Stable Execution
-
-↓
-
-Fast Feedback
-
-↓
-
-Risk Visibility
-
-↓
-
-Engineering Confidence
-
-↓
-
-Continuous Improvement
-
-Reliable strategies continuously increase software quality while reducing engineering uncertainty.
-
+- [ ] Verify: Every bug fix ships with a test in the same change
+- [ ] Verify: The test was observed failing before the fix was applied
+- [ ] Verify: Test names describe behaviour; issue references live in comments
+- [ ] Verify: Each regression test sits at the lowest level that reproduces the bug
+- [ ] Verify: Wiring bugs are tested at the seam, not below it
+- [ ] Verify: Snapshots are small, targeted and diff-reviewed
+- [ ] Verify: Snapshot updates are never applied blindly to make CI pass
+- [ ] Verify: Flaky tests are fixed or quarantined with an owner, never skipped silently
+- [ ] Verify: Tests for removed features are deleted
+- [ ] Verify: Structural fixes — types, constraints — are preferred over tests where possible

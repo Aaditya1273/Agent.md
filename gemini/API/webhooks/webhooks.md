@@ -5,748 +5,192 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: webhooks
+category: API
+description: Sending and receiving webhooks reliably — HMAC signatures, replay protection, at-least-once delivery, retries with backoff, and idempotent consumers.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# webhooks.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines how Gemini should design, review, implement, document, secure, and optimize Webhook systems.
+Rules for webhooks in both directions. A webhook is an HTTP request to a server
+you do not control, about an event that already happened. Two facts drive
+everything:
 
-Webhooks are not simply HTTP callbacks.
-
-Webhooks are event-driven communication mechanisms that enable systems to notify external applications when meaningful events occur.
-
-The objective is to deliver reliable, secure, observable, and scalable event delivery while ensuring consumers receive accurate, timely, and verifiable notifications.
-
-Every webhook represents a contract of trust between systems.
+- **Delivery is at-least-once.** Duplicates are normal, not a bug.
+- **The receiver's endpoint is public.** Anyone can POST to it, so the payload
+  must be cryptographically attributable.
 
 ---
 
-# Core Philosophy
+# Signing (sender)
 
-Identify Events
+```
+POST /hooks/acme HTTP/1.1
+Webhook-Id: evt_01J8ZQ3M7K
+Webhook-Timestamp: 1756392779
+Webhook-Signature: v1,k3Yb2Q…base64…
+Content-Type: application/json
+```
 
-↓
+Sign `id.timestamp.body` with HMAC-SHA256 over the **raw request bytes**:
 
-Define Event Contracts
+```ts
+const signed = `${id}.${timestamp}.${rawBody}`;
+const sig = crypto.createHmac("sha256", secret).update(signed).digest("base64");
+```
 
-↓
+Requirements:
 
-Deliver Reliably
+- Include the **timestamp inside the signed payload**, so it cannot be altered.
+- Include a unique **event id**, so receivers can deduplicate.
+- Support **multiple active signatures** (`v1,sigA v1,sigB`) so a secret can be
+  rotated without a coordinated cutover.
+- One secret per endpoint, generated with a CSPRNG, shown once.
+  → `Security/secret-management`
 
-↓
-
-Verify Authenticity
-
-↓
-
-Handle Failures
-
-↓
-
-Monitor Delivery
-
-↓
-
-Improve Continuously
-
-↓
-
-Approve
-
-Events should communicate facts.
-
-Never assumptions.
+**Never** sign a re-serialised body. `JSON.stringify(req.body)` reorders keys and
+changes whitespace; the receiver's HMAC will not match. Sign and verify the exact
+bytes on the wire.
 
 ---
 
-# Primary Objective
+# Verifying (receiver)
 
-Every webhook implementation should answer one question.
+```ts
+// Express: the raw body is required, so capture it before JSON parsing
+app.post("/hooks/acme", express.raw({ type: "application/json" }), (req, res) => {
+  const ts = Number(req.get("Webhook-Timestamp"));
+  if (Math.abs(Date.now() / 1000 - ts) > 300) return res.sendStatus(400);  // replay window
 
-"Can every legitimate event be delivered exactly as intended, even when failures occur?"
+  const expected = crypto
+    .createHmac("sha256", process.env.WEBHOOK_SECRET)
+    .update(`${req.get("Webhook-Id")}.${ts}.${req.body}`)
+    .digest();
+  const given = Buffer.from(parseSignature(req.get("Webhook-Signature")), "base64");
 
-If the answer is uncertain,
+  if (expected.length !== given.length ||
+      !crypto.timingSafeEqual(expected, given)) return res.sendStatus(401);
 
-the webhook system requires improvement.
+  enqueue(JSON.parse(req.body));    // hand off, do not process inline
+  res.sendStatus(200);              // acknowledge fast
+});
+```
 
----
+Four things this gets right, each of which is commonly wrong:
 
-# Webhook Principles
+1. **Raw body.** Verification against a parsed-and-restringified body fails
+   intermittently and inexplicably.
+2. **Timestamp window** (±5 minutes) — without it a captured request is replayable
+   forever.
+3. **`timingSafeEqual`**, with a length check first (it throws on mismatched
+   lengths). `===` on a signature leaks it byte by byte under timing analysis.
+4. **Acknowledge, then process.** Do the work in a background job.
+   → `Backend/queues`
 
-Every implementation should maximize
-
-Reliability
-
-↓
-
-Security
-
-↓
-
-Consistency
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Idempotency
-
-↓
-
-Developer Experience
-
-↓
-
-Operational Stability
-
-Webhooks should prioritize correctness over speed.
+**Never** trust any field in the body — including a `user_id` or an amount —
+before the signature verifies. And never process an unverified payload "just to
+log it": that is still parsing attacker-controlled input.
 
 ---
 
-# Review Workflow
+# Consumers must be idempotent
 
-Understand Business Events
+Duplicates arrive because the sender retried after your `200` was lost in transit.
+The event id is the deduplication key.
 
-↓
+```sql
+INSERT INTO webhook_events (id, received_at) VALUES ($1, now())
+ON CONFLICT (id) DO NOTHING;      -- zero rows affected means already processed
+```
 
-Identify Consumers
+Ordering is **not** guaranteed. A `subscription.updated` may arrive before
+`subscription.created`. Handle it:
 
-↓
-
-Design Event Payloads
-
-↓
-
-Secure Delivery
-
-↓
-
-Handle Retries
-
-↓
-
-Monitor Events
-
-↓
-
-Validate Contracts
-
-↓
-
-Approve
+- Include a monotonic `sequence` or the resource's `updated_at` in the payload and
+  discard events older than the state you already hold.
+- Or treat the webhook as a **notification only** and re-fetch current state from
+  the sender's API. This is the most robust pattern and sidesteps ordering
+  entirely.
 
 ---
 
-# Stage 1 — Event Identification
+# Delivery (sender)
 
-Identify meaningful business events.
+| Concern | Rule |
+| --- | --- |
+| Retries | Exponential backoff with jitter: 1m, 5m, 30m, 2h, 6h, 24h |
+| Retry on | Timeouts, connection errors, `5xx`, `429` |
+| Do not retry | `4xx` other than `429` and `408` — the request is wrong, not late |
+| Timeout | 5–10 seconds. A slow receiver must not hold your worker |
+| Disable | After N consecutive days of failure, with notification first |
+| Concurrency | Bound per endpoint so one slow receiver cannot starve the fleet |
 
-Examples
+Provide a **dead-letter view and manual replay** in the dashboard. Every
+integration eventually needs to reprocess a window of events, and without a replay
+button that becomes a support engineering task.
 
-User Created
+Publish your **source IP ranges** so receivers can allowlist them, and keep them
+stable.
 
-Order Paid
-
-Invoice Generated
-
-Subscription Renewed
-
-File Uploaded
-
-Payment Failed
-
-Message Received
-
-Deployment Completed
-
-Only publish meaningful events.
-
-Avoid internal implementation events.
+Log every attempt with the response status, latency and body prefix, and expose
+that log to the customer. This is the single highest-value support feature a
+webhook system has.
 
 ---
 
-# Stage 2 — Event Naming
+# Endpoint design
 
-Names should be
-
-Clear
-
-Consistent
-
-Past-tense
-
-Business-oriented
-
-Examples
-
-user.created
-
-user.deleted
-
-payment.completed
-
-invoice.paid
-
-subscription.canceled
-
-Avoid generic names like
-
-update
-
-event
-
-action
-
-process
+- Return `200`/`204` quickly — under a second. A `202` is also fine.
+- Any non-2xx means "retry"; be sure that is what you intend.
+- Receivers should respond `200` to an event type they do not recognise, not
+  `400` — otherwise adding a new event type breaks existing integrations.
+- Guard against SSRF when a customer supplies the destination URL: reject private
+  address ranges, link-local addresses, and redirects to them, resolving DNS at
+  request time.
 
 ---
 
-# Stage 3 — Event Payload Design
+# Anti-patterns
 
-Every payload should include
-
-Event ID
-
-Event Type
-
-Timestamp
-
-Resource Identifier
-
-Resource Data
-
-Metadata
-
-Version
-
-Payloads should describe facts.
-
-Not instructions.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No signature | Anyone can POST forged events | HMAC over raw bytes |
+| Signing a re-serialised body | Key order and whitespace differ | Sign the wire bytes |
+| No timestamp in the signature | Captured requests replay forever | Signed timestamp + window |
+| `===` on signatures | Timing side channel | `timingSafeEqual` |
+| Processing before verifying | Attacker-controlled input in business logic | Verify first |
+| Processing inline | Sender times out and retries; duplicates multiply | Enqueue, then `200` |
+| Assuming exactly-once | Duplicates are normal | Deduplicate by event id |
+| Assuming ordered delivery | Out-of-order updates corrupt state | Sequence check or re-fetch |
+| Retrying on `4xx` | Hammering a permanently broken endpoint | Retry only `5xx`/`429`/timeouts |
+| Fixed-interval retries | Synchronised thundering herd | Exponential backoff with jitter |
+| No replay tooling | Every gap becomes a support escalation | Dead-letter view + replay |
+| `400` on unknown event types | New event types break integrations | Ignore and return `200` |
+| Unvalidated customer-supplied URL | SSRF into internal networks | Reject private/link-local ranges |
 
 ---
 
-# Stage 4 — Event Versioning
-
-Support
-
-Version field
-
-Backward compatibility
-
-Optional fields
-
-Schema evolution
-
-Deprecation
-
-Events should evolve without breaking consumers.
-
----
-
-# Stage 5 — Delivery Method
-
-Use
-
-HTTPS POST
-
-JSON
-
-UTF-8
-
-Standard headers
-
-Consistent content type
-
-Delivery should remain simple and predictable.
-
----
-
-# Stage 6 — Authentication
-
-Protect webhook endpoints using
-
-Shared Secret
-
-HMAC Signature
-
-Bearer Token
-
-Mutual TLS
-
-API Keys
-
-Every webhook should be authenticated.
-
----
-
-# Stage 7 — Signature Verification
-
-Verify
-
-Timestamp
-
-Payload integrity
-
-Signature
-
-Secret rotation
-
-Replay protection
-
-Consumers should verify authenticity before processing.
-
----
-
-# Stage 8 — Idempotency
-
-Consumers should safely process duplicate deliveries.
-
-Review
-
-Event ID
-
-Idempotency Key
-
-Deduplication
-
-Safe retries
-
-Duplicate delivery should never create duplicate work.
-
----
-
-# Stage 9 — Retry Strategy
-
-Implement retries for temporary failures.
-
-Review
-
-Retry intervals
-
-Exponential backoff
-
-Maximum attempts
-
-Dead-letter queue
-
-Permanent failure detection
-
-Retries should improve reliability.
-
-Not overload systems.
-
----
-
-# Stage 10 — Failure Handling
-
-Handle
-
-Network failures
-
-Timeouts
-
-5xx responses
-
-Invalid responses
-
-Expired endpoints
-
-Failures should be recoverable whenever possible.
-
----
-
-# Stage 11 — Ordering
-
-Determine
-
-Ordered delivery
-
-Unordered delivery
-
-Sequence numbers
-
-Out-of-order tolerance
-
-Document ordering guarantees explicitly.
-
----
-
-# Stage 12 — Event Delivery
-
-Track
-
-Pending
-
-Delivered
-
-Retried
-
-Failed
-
-Expired
-
-Every event should have a delivery state.
-
----
-
-# Stage 13 — Performance
-
-Review
-
-Batching
-
-Compression
-
-Connection reuse
-
-Async delivery
-
-Queue processing
-
-Large-scale delivery requires asynchronous architecture.
-
----
-
-# Stage 14 — Scalability
-
-Evaluate
-
-Millions of events
-
-Multiple consumers
-
-Regional delivery
-
-Queue systems
-
-Worker pools
-
-Webhook systems should scale horizontally.
-
----
-
-# Stage 15 — Observability
-
-Monitor
-
-Delivery latency
-
-Success rate
-
-Failure rate
-
-Retry count
-
-Queue depth
-
-Consumer health
-
-Observability enables rapid incident response.
-
----
-
-# Stage 16 — Error Responses
-
-Consumers should return
-
-2xx
-
-Success
-
-4xx
-
-Permanent failure
-
-5xx
-
-Temporary failure
-
-Retry only when appropriate.
-
----
-
-# Stage 17 — Security
-
-Review
-
-HTTPS enforcement
-
-Payload validation
-
-Replay protection
-
-Secret storage
-
-IP allowlists (optional)
-
-Rate limiting
-
-Never trust incoming requests without verification.
-
----
-
-# Stage 18 — Documentation
-
-Document
-
-Events
-
-Payload schema
-
-Headers
-
-Authentication
-
-Retry policy
-
-Examples
-
-Error handling
-
-Developers should integrate confidently.
-
----
-
-# Stage 19 — Testing
-
-Verify
-
-Duplicate events
-
-Retry behavior
-
-Invalid signatures
-
-Expired timestamps
-
-Large payloads
-
-Consumer failures
-
-Webhook systems require extensive integration testing.
-
----
-
-# Stage 20 — Operational Review
-
-Review
-
-Queue health
-
-Worker capacity
-
-Delivery metrics
-
-Alerting
-
-Disaster recovery
-
-Monitoring dashboards
-
-Operational excellence ensures long-term reliability.
-
----
-
-# Webhook Quality Attributes
-
-Evaluate
-
-Reliability
-
-Security
-
-Consistency
-
-Scalability
-
-Observability
-
-Maintainability
-
-Performance
-
-Developer Experience
-
----
-
-# Webhook Questions
-
-Before approval ask
-
-Does every event represent a meaningful business action?
-
-↓
-
-Can duplicate deliveries be handled safely?
-
-↓
-
-Can consumers verify authenticity?
-
-↓
-
-Can delivery failures recover automatically?
-
-↓
-
-Will the system scale with increasing event volume?
-
-↓
-
-Is monitoring sufficient to diagnose failures?
-
-↓
-
-Would another engineering team integrate successfully using only the documentation?
-
----
-
-# Severity Levels
-
-Critical
-
-Missing authentication
-
-Invalid signatures
-
-Lost events
-
-Duplicate processing
-
-Major
-
-Weak retry logic
-
-Poor documentation
-
-Missing idempotency
-
-Unreliable delivery
-
-Medium
-
-Naming inconsistencies
-
-Monitoring improvements
-
-Performance tuning
-
-Minor
-
-Documentation updates
-
-Examples
-
-Metadata improvements
-
-Suggestion
-
-Future event enhancements
-
-Operational improvements
-
----
-
-# Webhook Checklist
-
-✓ Events identified
-
-✓ Naming consistent
-
-✓ Payload schema defined
-
-✓ Authentication implemented
-
-✓ Signature verification supported
-
-✓ Idempotency guaranteed
-
-✓ Retry strategy implemented
-
-✓ Failure handling reviewed
-
-✓ Monitoring enabled
-
-✓ Documentation complete
-
-✓ Versioning supported
-
-✓ Security reviewed
-
-✓ Scalability validated
-
-✓ Performance optimized
-
-✓ Operational readiness confirmed
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Sending implementation events
-
-Missing event IDs
-
-Unsigned payloads
-
-No retry strategy
-
-Infinite retries
-
-Blocking synchronous delivery
-
-Ignoring duplicate events
-
-No monitoring
-
-Weak documentation
-
-Changing payloads without versioning
-
-Embedding sensitive secrets
-
-Treating webhooks as guaranteed delivery
-
----
-
-# Definition of Done
-
-Webhook review is complete when
-
-- Every published event represents a meaningful business occurrence.
-- Payloads are versioned, well-structured, and self-descriptive.
-- Authentication and signature verification protect every delivery.
-- Consumers can safely handle duplicate events through idempotency.
-- Retries recover temporary failures without overwhelming systems.
-- Monitoring provides complete visibility into delivery health.
-- Documentation enables rapid and reliable integration.
-- The system scales with increasing event volume and consumers.
-- Operational procedures support long-term reliability.
-- The implementation provides a secure, observable, and dependable event-driven communication platform.
-
-Exceptional webhook systems are trusted because events arrive securely, consistently, and predictably—even when networks fail, systems restart, or traffic grows dramatically.
+# Checklist
+
+- [ ] Verify: Every delivery is HMAC-signed over the raw body, id and timestamp
+- [ ] Verify: Multiple concurrent signatures are supported for secret rotation
+- [ ] Verify: Receivers verify against the raw bytes, before parsing
+- [ ] Verify: A timestamp tolerance window rejects replays
+- [ ] Verify: Signature comparison is constant-time with a length check
+- [ ] Verify: Receivers acknowledge fast and process asynchronously
+- [ ] Verify: Every event carries a unique id, and consumers deduplicate on it
+- [ ] Verify: Out-of-order delivery is handled by sequence check or state re-fetch
+- [ ] Verify: Retries use exponential backoff with jitter, only on retryable statuses
+- [ ] Verify: Per-endpoint concurrency is bounded and a delivery timeout is set
+- [ ] Verify: Failing endpoints are disabled after notification, not silently
+- [ ] Verify: Delivery attempts are logged and visible to the customer
+- [ ] Verify: A dead-letter view with manual replay exists
+- [ ] Verify: Unknown event types are ignored rather than rejected
+- [ ] Verify: Customer-supplied destination URLs are validated against SSRF

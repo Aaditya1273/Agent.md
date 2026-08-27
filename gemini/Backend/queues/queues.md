@@ -5,952 +5,214 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: queues
+category: Backend
+description: Message queues that do not lose or duplicate work — acknowledgement, idempotent consumers, retries with backoff, dead-letter queues, and ordering.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# queues.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines how Gemini should design, implement, review, optimize, and maintain Queue systems.
+Rules for producing and consuming messages. A queue decouples a slow or unreliable
+operation from a request, and in exchange hands you a distributed-systems problem:
+at-least-once delivery, no ordering guarantees across partitions, and failures
+that happen after the work but before the acknowledgement.
 
-Queues are not simply lists of tasks.
+Design for the two facts that are always true:
 
-Queues are distributed coordination mechanisms that decouple producers from consumers, smooth traffic spikes, improve scalability, increase reliability, and enable asynchronous processing across services.
-
-The objective is to build queue architectures that remain reliable, fault-tolerant, scalable, observable, and capable of processing millions of tasks efficiently under production workloads.
-
-Queues absorb pressure.
-
-Workers perform work.
+- **Every message may be delivered more than once.**
+- **Every message may arrive out of order.**
 
 ---
 
-# Core Philosophy
+# Acknowledge after the work, not before
 
-Produce Work
+```ts
+// Wrong — a crash after ack loses the job silently
+await ack(msg);
+await process(msg);
 
-↓
+// Right — a crash before ack redelivers it
+await process(msg);
+await ack(msg);
+```
 
-Persist Message
+This is why duplicates exist, and it is the correct trade: at-least-once with
+idempotent consumers is achievable; exactly-once is not, across a network.
 
-↓
-
-Queue Message
-
-↓
-
-Dispatch Worker
-
-↓
-
-Process Task
-
-↓
-
-Acknowledge Result
-
-↓
-
-Observe System
-
-↓
-
-Approve
-
-Queues exist to decouple systems.
-
-Not to hide slow code.
+Set the acknowledgement deadline (`visibilityTimeout`, `ackDeadline`,
+`lockDuration`) above the p99 processing time, and **extend it** for long jobs
+rather than setting a very large default — a large default means a crashed
+consumer's message is invisible for that long.
 
 ---
 
-# Primary Objective
+# Consumers must be idempotent
 
-Every queue implementation should answer one question.
+Deduplicate on a **business** key, not a delivery id.
 
-"Can work continue reliably despite traffic spikes, service failures, infrastructure restarts, and increasing scale?"
+```sql
+-- The unique constraint is the guarantee; the check is the nice error.
+INSERT INTO processed_messages (idempotency_key, processed_at)
+VALUES ($1, now())
+ON CONFLICT (idempotency_key) DO NOTHING
+RETURNING id;                     -- no row returned means already processed
+```
 
-If the answer is uncertain,
+Better still, make the effect itself idempotent — `UPDATE orders SET status =
+'shipped' WHERE id = $1 AND status = 'paid'` is safe to run twice by construction.
 
-the queue architecture requires improvement.
-
----
-
-# Queue Principles
-
-Every implementation should maximize
-
-Reliability
-
-↓
-
-Durability
-
-↓
-
-Scalability
-
-↓
-
-Fault Tolerance
-
-↓
-
-Ordering
-
-↓
-
-Observability
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-Queues should increase resilience.
-
-Never introduce hidden complexity.
+Where the handler both writes to the database and enqueues another message, use
+the **transactional outbox**: write the message to a table inside the same
+transaction as the state change, and publish from that table asynchronously.
+Otherwise the two can diverge — the row commits and the publish fails, or the
+reverse. → `Database/transactions`
 
 ---
 
-# Queue Workflow
+# Retries and dead letters
 
-Create Task
+| Aspect | Rule |
+| --- | --- |
+| Backoff | Exponential with **jitter** — fixed intervals synchronise a herd |
+| Attempts | Bounded (5–10), then dead-letter |
+| Retryable | Timeouts, `5xx`, connection failures, deadlocks |
+| Not retryable | Malformed payload, validation failure, permanent `4xx` |
+| Poison message | Dead-letter immediately; do not retry a message that cannot parse |
+| DLQ | Every queue has one. A queue without a DLQ discards failures |
 
-↓
+A **dead-letter queue with no alert and no replay tool is a data-loss bucket.**
+Alert on DLQ depth greater than zero, and provide a way to inspect, fix and replay
+messages. Every system eventually needs to reprocess a window.
 
-Validate Payload
-
-↓
-
-Persist Message
-
-↓
-
-Enqueue
-
-↓
-
-Dispatch Worker
-
-↓
-
-Process
-
-↓
-
-Acknowledge
-
-↓
-
-Approve
+Distinguish the failure classes: retrying a message that will never parse burns
+your retry budget and delays healthy work behind it.
 
 ---
 
-# Stage 1 — Queue Identification
+# Ordering
 
-Queues should be used for
+Most queues guarantee ordering only within a partition or group key, and only when
+a single consumer processes that key at a time.
 
-Background jobs
+- If order matters, use an ordering key (`MessageGroupId`, Kafka partition key,
+  RabbitMQ single active consumer) — and accept that it caps parallelism for that
+  key.
+- Better: make handlers **order-independent**. Include a version or `updated_at`
+  in the payload and discard messages older than the state you already hold.
+- Best for entity updates: treat the message as a **notification** and re-read
+  current state from the source. Ordering stops mattering entirely.
 
-↓
-
-Email delivery
-
-↓
-
-Notifications
-
-↓
-
-Media processing
-
-↓
-
-Report generation
-
-↓
-
-AI processing
-
-↓
-
-Webhook delivery
-
-↓
-
-Large imports
-
-↓
-
-Large exports
-
-↓
-
-Event processing
-
-Do not use queues for synchronous business logic.
+**Never** assume that publishing A then B means A is processed first. With
+multiple consumers, it usually is not.
 
 ---
 
-# Stage 2 — Queue Selection
+# Payloads
 
-Choose based on workload.
-
-Examples
-
-Redis Queue
-
-RabbitMQ
-
-Amazon SQS
-
-Apache Kafka
-
-Google Pub/Sub
-
-Azure Service Bus
-
-NATS
-
-The queue technology should match business requirements.
+- **Small.** Send an id and a version, not a 2 MB document. Large payloads hit
+  broker limits and become stale between publish and consume.
+- Where the body is genuinely large, use the **claim-check pattern**: store the
+  blob in object storage and send its key.
+- **Versioned and additive.** Consumers deploy at different times to producers, so
+  a new required field breaks in-flight messages. Add optional fields; never
+  repurpose an existing one.
+- Include `messageId`, `idempotencyKey`, `occurredAt`, `traceparent` and a schema
+  version in every message.
+- Propagate trace context so a job links back to the request that created it.
+  → `Backend/monitoring`
 
 ---
 
-# Stage 3 — Message Design
+# Operations
 
-Messages should contain
+Monitor these four; the first two are the ones that matter:
 
-Unique ID
+| Metric | Meaning |
+| --- | --- |
+| **Oldest message age** | The real measure of whether consumers are keeping up |
+| **DLQ depth** | Any non-zero value needs a human |
+| Queue depth | Useful, but a growing depth with low age is just a burst |
+| Processing duration by job type | Where the time goes |
 
-↓
+```ts
+// BullMQ: bounded concurrency, backoff with jitter, and a real ack window
+new Worker("orders", handler, {
+  connection,
+  concurrency: 8,                       // ≤ free slots in the database pool
+  lockDuration: 60_000,                 // > p99 handler duration
+  limiter: { max: 100, duration: 1000 },
+});
+await queue.add("send-receipt", { orderId }, {
+  jobId: `receipt:${orderId}`,          // deduplication key
+  attempts: 6,
+  backoff: { type: "exponential", delay: 2000 },
+  removeOnComplete: { age: 86_400, count: 10_000 },
+});
+```
 
-Correlation ID
+| Broker | Ack window setting | DLQ mechanism |
+| --- | --- | --- |
+| SQS | `VisibilityTimeout`, `ChangeMessageVisibility` | `RedrivePolicy` → DLQ, plus redrive-back |
+| RabbitMQ | `consumer_timeout`, manual `basic_ack` | Dead-letter exchange (`x-dead-letter-exchange`) |
+| Kafka | `max.poll.interval.ms`, offset commit | Retry topics plus a `.DLT` topic |
+| Google Pub/Sub | `ackDeadlineSeconds`, `modifyAckDeadline` | `deadLetterPolicy` with `maxDeliveryAttempts` |
+| BullMQ / Redis | `lockDuration`, `stalledInterval` | Failed set with `attempts` exhausted |
+| SNS/SQS fan-out | Per-subscription queue | Per-queue DLQ |
 
-↓
-
-Minimal payload
-
-↓
-
-Timestamp
-
-↓
-
-Retry metadata
-
-↓
-
-Version
-
-Never place unnecessary business objects inside messages.
-
----
-
-# Stage 4 — Producer Design
-
-Producers should
-
-Validate input
-
-↓
-
-Persist business state
-
-↓
-
-Publish message
-
-↓
-
-Return immediately
-
-Producers should never wait for processing.
+- Bound consumer concurrency, especially where the handler touches the database —
+  a queue is very good at exhausting a connection pool. → `Database/postgres`
+- Handle shutdown gracefully: stop fetching, finish in-flight messages, then exit.
+  A `SIGKILL` mid-handler relies on redelivery to avoid losing work.
+- Separate queues by priority and by workload shape. One slow job type must not
+  block a fast one behind it.
+- Rate-limit calls to external services from consumers; a backlog draining at full
+  speed will exceed a partner's rate limit instantly.
 
 ---
 
-# Stage 5 — Consumer Design
+# Anti-patterns
 
-Consumers should
-
-Receive message
-
-↓
-
-Validate message
-
-↓
-
-Execute business logic
-
-↓
-
-Persist result
-
-↓
-
-Acknowledge completion
-
-Consumers should remain independent.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Acknowledging before processing | Crash loses the job silently | Ack after success |
+| Assuming exactly-once delivery | Duplicates are guaranteed | Idempotent consumers |
+| No deduplication key | Repeated side effects | Business idempotency key |
+| Write and publish outside a transaction | State and messages diverge | Transactional outbox |
+| Retrying unparseable messages | Burns budget; blocks healthy work | Dead-letter immediately |
+| Fixed-interval retries | Synchronised thundering herd | Exponential backoff with jitter |
+| No dead-letter queue | Failures vanish | DLQ on every queue |
+| DLQ without alerting or replay | Silent data loss | Alert on depth; build replay |
+| Assuming global ordering | Untrue with multiple consumers | Ordering key, or order-independent handlers |
+| Large payloads | Broker limits; stale data | Send ids; claim-check for blobs |
+| Breaking payload changes | In-flight messages fail on deploy | Additive, versioned schemas |
+| Unbounded consumer concurrency | Exhausts the database pool | Explicit concurrency limits |
+| Monitoring depth but not age | A backlog can hide behind a steady depth | Alert on oldest-message age |
+| No graceful shutdown | In-flight work relies on redelivery | Drain before exit |
+| One queue for every job type | Slow jobs block fast ones | Separate by priority and shape |
 
 ---
 
-# Stage 6 — Delivery Guarantees
-
-Understand delivery models.
-
-At Most Once
-
-↓
-
-At Least Once
-
-↓
-
-Exactly Once (when supported)
-
-Design systems assuming duplicate delivery is possible.
-
----
-
-# Stage 7 — Idempotency
-
-Every consumer should safely process duplicate messages.
-
-Review
-
-Duplicate delivery
-
-↓
-
-Worker restart
-
-↓
-
-Retry execution
-
-↓
-
-Network failures
-
-↓
-
-Partial completion
-
-Duplicate processing should never create duplicate business operations.
-
----
-
-# Stage 8 — Ordering
-
-Review
-
-FIFO
-
-↓
-
-Priority ordering
-
-↓
-
-Partition ordering
-
-↓
-
-Out-of-order processing
-
-↓
-
-Sequence guarantees
-
-Ordering should match business requirements.
-
----
-
-# Stage 9 — Retry Strategy
-
-Retry only transient failures.
-
-Examples
-
-Network timeout
-
-↓
-
-Temporary database outage
-
-↓
-
-External API failure
-
-↓
-
-Rate limiting
-
-Implement
-
-Exponential backoff
-
-↓
-
-Retry limits
-
-↓
-
-Dead Letter Queue
-
-Not every failure deserves another attempt.
-
----
-
-# Stage 10 — Dead Letter Queue
-
-Move permanently failed messages into
-
-Dead Letter Queue (DLQ)
-
-Review
-
-Failure reason
-
-↓
-
-Retry count
-
-↓
-
-Manual recovery
-
-↓
-
-Replay capability
-
-Never discard failed messages silently.
-
----
-
-# Stage 11 — Acknowledgement
-
-Messages should be acknowledged
-
-Only after
-
-Successful processing.
-
-Incorrect
-
-Receive
-
-↓
-
-Ack
-
-↓
-
-Process
-
-Correct
-
-Receive
-
-↓
-
-Process
-
-↓
-
-Persist
-
-↓
-
-Ack
-
-Premature acknowledgement causes message loss.
-
----
-
-# Stage 12 — Concurrency
-
-Review
-
-Worker count
-
-↓
-
-CPU usage
-
-↓
-
-Memory
-
-↓
-
-Database contention
-
-↓
-
-External API limits
-
-Concurrency should improve throughput without creating instability.
-
----
-
-# Stage 13 — Flow Control
-
-Prevent overload using
-
-Backpressure
-
-↓
-
-Rate limiting
-
-↓
-
-Queue depth monitoring
-
-↓
-
-Consumer scaling
-
-↓
-
-Priority queues
-
-Queues should smooth traffic.
-
-Not amplify it.
-
----
-
-# Stage 14 — Scalability
-
-Support
-
-Horizontal scaling
-
-↓
-
-Multiple consumers
-
-↓
-
-Multiple producers
-
-↓
-
-Partitioning
-
-↓
-
-Distributed processing
-
-↓
-
-Regional deployment
-
-Queues should scale independently of applications.
-
----
-
-# Stage 15 — Observability
-
-Monitor
-
-Queue depth
-
-↓
-
-Consumer lag
-
-↓
-
-Processing rate
-
-↓
-
-Retry count
-
-↓
-
-Dead Letter Queue
-
-↓
-
-Worker health
-
-↓
-
-Latency
-
-Every message should be observable.
-
----
-
-# Stage 16 — Logging
-
-Log
-
-Message ID
-
-↓
-
-Correlation ID
-
-↓
-
-Queue name
-
-↓
-
-Consumer ID
-
-↓
-
-Execution duration
-
-↓
-
-Retry count
-
-↓
-
-Failure reason
-
-Never log secrets.
-
----
-
-# Stage 17 — Security
-
-Review
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Encrypted transport
-
-↓
-
-Encrypted payloads
-
-↓
-
-Access control
-
-↓
-
-Secret management
-
-Queues are infrastructure.
-
-Protect them accordingly.
-
----
-
-# Stage 18 — Testing
-
-Verify
-
-Successful delivery
-
-↓
-
-Duplicate delivery
-
-↓
-
-Retry behavior
-
-↓
-
-Worker crashes
-
-↓
-
-Message ordering
-
-↓
-
-Dead Letter Queue
-
-↓
-
-Large traffic
-
-↓
-
-Disaster recovery
-
-Queue systems should be tested under failure.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Queue purpose
-
-↓
-
-Message schema
-
-↓
-
-Retry policy
-
-↓
-
-Ordering guarantees
-
-↓
-
-Timeouts
-
-↓
-
-DLQ strategy
-
-↓
-
-Recovery procedures
-
-Operators should understand every queue.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Queue growth
-
-↓
-
-Retry trends
-
-↓
-
-Infrastructure cost
-
-↓
-
-Worker efficiency
-
-↓
-
-Failure patterns
-
-↓
-
-Developer feedback
-
-Queue architecture should evolve continuously.
-
----
-
-# Queue Quality Attributes
-
-Evaluate
-
-Reliability
-
-Durability
-
-Performance
-
-Scalability
-
-Fault Tolerance
-
-Maintainability
-
-Observability
-
-Developer Experience
-
----
-
-# Queue Questions
-
-Before approval ask
-
-Can producers return immediately?
-
-↓
-
-Can consumers safely retry work?
-
-↓
-
-Can duplicate messages be processed safely?
-
-↓
-
-Can failed messages be recovered?
-
-↓
-
-Can the queue scale independently?
-
-↓
-
-Can operators observe queue health?
-
-↓
-
-Would another engineering team trust this queue architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Message loss
-
-Duplicate business operations
-
-Acknowledgement before processing
-
-Queue corruption
-
-Data inconsistency
-
-Major
-
-Weak retry strategy
-
-Missing DLQ
-
-Poor monitoring
-
-Performance bottlenecks
-
-Medium
-
-Documentation improvements
-
-Optimization opportunities
-
-Queue tuning
-
-Minor
-
-Examples
-
-Naming improvements
-
-Operational enhancements
-
-Future scalability improvements
-
----
-
-# Queue Checklist
-
-✓ Queue required
-
-✓ Queue technology selected
-
-✓ Message schema defined
-
-✓ Producers implemented
-
-✓ Consumers implemented
-
-✓ Delivery guarantees documented
-
-✓ Idempotency ensured
-
-✓ Retry strategy implemented
-
-✓ Dead Letter Queue configured
-
-✓ Safe acknowledgements
-
-✓ Monitoring enabled
-
-✓ Logging configured
-
-✓ Security reviewed
-
-✓ Testing completed
-
-✓ Documentation complete
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Large message payloads
-
-Business logic inside producers
-
-Acknowledging before processing
-
-Infinite retries
-
-Ignoring duplicate delivery
-
-Missing Dead Letter Queue
-
-Blocking producers
-
-Shared mutable state
-
-Silent message loss
-
-Hardcoded retry policies
-
-Using queues for synchronous requests
-
-Treating queues as databases
-
-Ignoring queue growth
-
----
-
-# Definition of Done
-
-Queue review is complete when
-
-- Producers publish work without waiting for execution.
-- Messages remain small, versioned, and independently processable.
-- Consumers process messages safely with idempotent behavior.
-- Delivery guarantees are clearly understood and documented.
-- Retry strategies distinguish between temporary and permanent failures.
-- Failed messages are recoverable through Dead Letter Queues.
-- Monitoring and logging provide complete visibility into queue health and processing.
-- Queue infrastructure scales independently from producers and consumers.
-- Documentation explains message schemas, retries, acknowledgements, and operational procedures.
-- The queue architecture remains reliable despite traffic spikes, worker failures, infrastructure outages, and duplicate message delivery.
-
-Exceptional queue systems are invisible.
-
-Applications remain responsive, workers process tasks reliably, operators observe healthy pipelines, and the system continues delivering work correctly regardless of failures, scale, or traffic fluctuations.
+# Checklist
+
+- [ ] Verify: Messages are acknowledged only after successful processing
+- [ ] Verify: Acknowledgement deadlines exceed p99 processing time, extended for long jobs
+- [ ] Verify: Every consumer is idempotent, keyed on a business identifier
+- [ ] Verify: State changes and message publication share a transaction via an outbox
+- [ ] Verify: Retries use exponential backoff with jitter and a bounded attempt count
+- [ ] Verify: Retryable and non-retryable failures are distinguished
+- [ ] Verify: Every queue has a dead-letter queue
+- [ ] Verify: DLQ depth alerts, and a replay path exists
+- [ ] Verify: Ordering requirements are explicit; handlers are order-independent by default
+- [ ] Verify: Payloads are small, versioned and additively evolved
+- [ ] Verify: Every message carries id, idempotency key, timestamp, schema version and trace context
+- [ ] Verify: Consumer concurrency is bounded against downstream capacity
+- [ ] Verify: Oldest-message age is monitored and alerted on
+- [ ] Verify: Consumers shut down gracefully, draining in-flight work
+- [ ] Verify: Queues are separated by priority and workload shape

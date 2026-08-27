@@ -5,1144 +5,183 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: routing
+category: Frontend
+description: Client and app routing — URL as state, nested layouts, guards that are not security, loading and error boundaries, and scroll and focus on navigation.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# routing.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, navigation strategies, access control, route organization, and long-term best practices for designing routing systems in modern web applications.
+Rules for routing in a web application. The URL is the application's public
+interface: it is what users bookmark, share, and return to. Treat it as a
+contract, not an implementation detail.
 
-It applies to
-
-- React Applications
-- Next.js Applications
-- Enterprise Platforms
-- SaaS Products
-- AI Applications
-- Dashboards
-- E-Commerce Platforms
-- Documentation Websites
-- Production Web Systems
-
-Routing is not URL matching.
-
-Routing is the architectural system that organizes application structure, user navigation, security boundaries, rendering strategies, and feature discoverability.
-
-URLs expose features.
-
-Routing defines application architecture.
+Route-level code splitting is `Frontend/code-splitting`; metadata is
+`Frontend/metadata`.
 
 ---
 
-# Core Philosophy
+# The URL carries state
 
-Understand User Flows
+Anything that changes what the user sees belongs in the URL.
 
-↓
+```
+/orders?status=paid&sort=-createdAt&page=2      ✅ shareable, bookmarkable, back-button-correct
+/orders                                          ❌ filters in component state
+```
 
-Design Information Architecture
+| In the URL | Not in the URL |
+| --- | --- |
+| Filters, sort, pagination | Whether a dropdown is open |
+| Selected record or tab | Hover state, focus |
+| Search query | In-progress form values (until submit) |
+| View mode (list/grid) | Transient toasts |
 
-↓
+If state is not in the URL, a refresh loses it and a shared link shows something
+different — reported by users as "the link doesn't work".
 
-Define Route Hierarchy
+Rules for the URL itself:
 
-↓
-
-Establish Access Rules
-
-↓
-
-Optimize Navigation
-
-↓
-
-Validate User Experience
-
-↓
-
-Review Architecture
-
-↓
-
-Continuously Improve
-
-Good routing allows users to think about their goals rather than navigation.
+- Lowercase, hyphenated, plural collections: `/payment-methods/{id}`.
+- Stable. A changed URL is a broken bookmark and a lost search ranking; when you
+  must change one, `301` the old path. → `Frontend/seo`
+- Never put a secret, token or personal data in a query string — it lands in
+  server logs, browser history and `Referer` headers. → `API/api-security`
+- Omit defaults (`?page=1` adds nothing) so the canonical URL is unambiguous.
+- Validate and coerce every parameter: a route parameter is untrusted input.
 
 ---
 
-# Primary Objective
+# Structure with nested layouts
 
-Every routing architecture should maximize
+```
+app/
+  layout.tsx                 # shell: header, nav — never re-renders on child navigation
+  orders/
+    layout.tsx               # orders sidebar
+    page.tsx                 # /orders
+    [id]/page.tsx            # /orders/:id
+    loading.tsx              # streamed fallback
+    error.tsx                # boundary for this subtree
+```
 
-Clarity
+Nested layouts preserve state across navigation within a section — scroll
+position in a sidebar, an open panel — which a flat route table cannot do.
 
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Security
-
-+
-
-Performance
-
-+
-
-Accessibility
-
-+
-
-User Experience
-
-+
-
-Long-Term Sustainability
-
-Navigation should remain intuitive regardless of application size.
+- Colocate `loading` and `error` boundaries per segment, so a failure in one panel
+  does not blank the page.
+- Every route needs a `not-found` path for a bad or deleted id, returning a real
+  `404` rather than an empty page.
+- Keep dynamic segments shallow. `/users/:u/orders/:o/items/:i` exposes a
+  hierarchy that will change; one level of nesting is usually enough.
+  → `API/rest`
 
 ---
 
-# Engineering Principles
+# Route guards are not authorization
 
-Always prioritize
+```tsx
+// A client-side redirect. The data was already fetched, or is one fetch away.
+if (!user.isAdmin) return <Navigate to="/" />;
+```
 
-Information Architecture
+A client-side guard is a **user-experience feature**: it avoids showing a page
+that will fail. It is not a control — the user can call the API directly, and the
+JavaScript that decides is running on their machine.
 
-↓
-
-Predictable URLs
-
-↓
-
-Logical Hierarchy
-
-↓
-
-Explicit Navigation
-
-↓
-
-Security Boundaries
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Continuous Improvement
-
-Routes should represent user intent rather than implementation details.
+- Enforce authorization on the server, on every request that returns data.
+  → `Backend/authorization`
+- Redirect unauthenticated users to a login page that preserves the intended
+  destination (`?next=/orders/123`), and **validate that parameter against an
+  allowlist of internal paths** — an unvalidated redirect target is an open-redirect
+  vulnerability used in phishing.
+- Never render protected content and hide it with CSS. It is in the DOM.
 
 ---
 
-# Routing Lifecycle
+# Navigation must not lose the user
 
-Understand Requirements
+Client-side routing replaces a full page load, so the browser behaviours it
+provided must be reimplemented.
 
-↓
+| Behaviour | Requirement |
+| --- | --- |
+| Scroll | Reset to top on a new route; **restore** position on back/forward |
+| Focus | Move to the main heading or `<main>` after navigation |
+| Announcement | Screen readers get no page-change event — announce it in a live region |
+| Title | Update `<title>` per route |
+| Pending state | Show progress for navigations over ~200ms |
+| Unsaved changes | Block navigation and confirm → `Frontend/forms` |
 
-Design Navigation
+Focus and announcement are the ones most often missed, and they make an
+application unusable with a screen reader — the user activates a link and nothing
+tells them anything changed. → `Testing/accessibility`
 
-↓
-
-Organize Routes
-
-↓
-
-Implement Access Control
-
-↓
-
-Optimize Navigation
-
-↓
-
-Validate Experience
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Navigation architecture should be designed before implementation.
+Use real `<a href>` elements (or the router's `<Link>`, which renders one).
+A `<div onClick={navigate}>` breaks middle-click, open-in-new-tab, copy-link, and
+keyboard access.
 
 ---
 
-# Stage 1 — Requirements Analysis
+# Data and transitions
 
-Understand
-
-Business Goals
-
-↓
-
-User Personas
-
-↓
-
-Primary Workflows
-
-↓
-
-Navigation Expectations
-
-↓
-
-Access Levels
-
-↓
-
-SEO Requirements
-
-↓
-
-Performance Targets
-
-↓
-
-Future Growth
-
-Routing begins with user journeys.
+- Fetch per route with the router's loader or a server component, so the request
+  starts with the navigation rather than after the component mounts.
+- Prefetch on hover, focus or viewport entry — the code **and** the data.
+- Keep the old view visible during a pending navigation (`useTransition`,
+  `startTransition`) rather than flashing a spinner over content that was fine.
+- Handle a failed navigation: leave the user where they were with an error, not on
+  a blank route.
 
 ---
 
-# Stage 2 — Information Architecture
+# Anti-patterns
 
-Design
-
-Primary Sections
-
-↓
-
-Feature Categories
-
-↓
-
-Navigation Depth
-
-↓
-
-Logical Hierarchy
-
-↓
-
-Relationships
-
-↓
-
-User Journeys
-
-↓
-
-Discoverability
-
-↓
-
-Future Expansion
-
-Information architecture should minimize cognitive load.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Filters in component state | Not shareable; lost on refresh; back button broken | Put them in the URL |
+| Secrets in query strings | Logged, in history, leaked via `Referer` | Never |
+| Defaults serialised into the URL | Multiple URLs for one view | Omit defaults |
+| Unvalidated route parameters | Untrusted input reaching queries | Parse and coerce |
+| URLs changed without redirects | Broken bookmarks and rankings | `301` the old path |
+| Client-side guard as authorization | Runs on the attacker's machine | Server-side enforcement |
+| Unvalidated `?next=` redirect | Open redirect used for phishing | Allowlist internal paths |
+| Protected content hidden with CSS | Present in the DOM | Do not send it |
+| `<div onClick={navigate}>` | Breaks middle-click, new tab, keyboard | `<a href>` / `<Link>` |
+| No scroll restoration | Back button loses the user's place | Restore on pop navigation |
+| No focus management | Screen reader users get no feedback | Focus `<main>` and announce |
+| No route-level error boundary | One failure blanks the page | Boundary per segment |
+| Missing `not-found` handling | Deleted records render an empty page | Real `404` route |
+| Fetching after mount | Waterfall: navigate, render, then fetch | Route loaders |
+| Spinner over good content | Flashing during fast navigations | Transitions |
+| Deep dynamic nesting | Freezes a hierarchy that will change | Flatten |
 
 ---
 
-# Stage 3 — Route Hierarchy
-
-Define
-
-Root Routes
-
-↓
-
-Nested Routes
-
-↓
-
-Dynamic Routes
-
-↓
-
-Shared Layouts
-
-↓
-
-Feature Groups
-
-↓
-
-Public Areas
-
-↓
-
-Private Areas
-
-↓
-
-Administrative Areas
-
-Hierarchy should mirror application structure.
-
----
-
-# Stage 4 — URL Design
-
-Create
-
-Readable URLs
-
-↓
-
-Stable Paths
-
-↓
-
-Meaningful Parameters
-
-↓
-
-Consistent Naming
-
-↓
-
-Resource Identity
-
-↓
-
-Canonical Structure
-
-↓
-
-SEO Compatibility
-
-↓
-
-Long-Term Stability
-
-URLs become permanent interfaces.
-
----
-
-# Stage 5 — Navigation Architecture
-
-Design
-
-Primary Navigation
-
-↓
-
-Secondary Navigation
-
-↓
-
-Breadcrumbs
-
-↓
-
-Context Navigation
-
-↓
-
-Search
-
-↓
-
-Quick Actions
-
-↓
-
-Deep Linking
-
-↓
-
-Cross Navigation
-
-Navigation should reduce decision making.
-
----
-
-# Stage 6 — Access Control
-
-Protect
-
-Public Routes
-
-↓
-
-Authenticated Routes
-
-↓
-
-Role-Based Access
-
-↓
-
-Permission Checks
-
-↓
-
-Administrative Areas
-
-↓
-
-Protected Resources
-
-↓
-
-Unauthorized Access
-
-↓
-
-Security Boundaries
-
-Security belongs in routing architecture.
-
----
-
-# Stage 7 — Rendering Strategy
-
-Choose
-
-Static Routes
-
-↓
-
-Dynamic Routes
-
-↓
-
-Server Rendering
-
-↓
-
-Client Rendering
-
-↓
-
-Streaming
-
-↓
-
-Loading States
-
-↓
-
-Error Boundaries
-
-↓
-
-Fallback Pages
-
-Rendering strategy should align with route responsibilities.
-
----
-
-# Stage 8 — State Preservation
-
-Maintain
-
-Navigation State
-
-↓
-
-Search Parameters
-
-↓
-
-Filters
-
-↓
-
-Pagination
-
-↓
-
-User Context
-
-↓
-
-History
-
-↓
-
-Session Continuity
-
-↓
-
-Deep Linking
-
-Navigation should preserve user context.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Code Splitting
-
-↓
-
-Lazy Loading
-
-↓
-
-Prefetching
-
-↓
-
-Caching
-
-↓
-
-Navigation Speed
-
-↓
-
-Rendering Efficiency
-
-↓
-
-Asset Loading
-
-↓
-
-User Experience
-
-Every navigation should feel responsive.
-
----
-
-# Stage 10 — Error Handling
-
-Handle
-
-Unknown Routes
-
-↓
-
-Permission Failures
-
-↓
-
-Missing Resources
-
-↓
-
-Server Errors
-
-↓
-
-Network Problems
-
-↓
-
-Fallback Pages
-
-↓
-
-Recovery
-
-↓
-
-Observability
-
-Navigation failures should remain predictable.
-
----
-
-# Stage 11 — SEO
-
-Support
-
-Canonical URLs
-
-↓
-
-Metadata
-
-↓
-
-Structured Data
-
-↓
-
-Indexability
-
-↓
-
-Redirects
-
-↓
-
-Sitemaps
-
-↓
-
-Robots
-
-↓
-
-Search Visibility
-
-Public routes should be discoverable by search engines.
-
----
-
-# Stage 12 — Accessibility
-
-Ensure
-
-Keyboard Navigation
-
-↓
-
-Focus Management
-
-↓
-
-Semantic Navigation
-
-↓
-
-Screen Readers
-
-↓
-
-Accessible Links
-
-↓
-
-Announcements
-
-↓
-
-Navigation Landmarks
-
-↓
-
-Inclusive Design
-
-Navigation should be usable by everyone.
-
----
-
-# Stage 13 — Code Organization
-
-Maintain
-
-Feature Routes
-
-↓
-
-Shared Layouts
-
-↓
-
-Navigation Components
-
-↓
-
-Guards
-
-↓
-
-Utilities
-
-↓
-
-Configuration
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-Organization should simplify navigation management.
-
----
-
-# Stage 14 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-New Modules
-
-↓
-
-Internationalization
-
-↓
-
-Multiple Products
-
-↓
-
-Role Expansion
-
-↓
-
-Regional Deployments
-
-↓
-
-Future Evolution
-
-Routing architecture should evolve without restructuring the application.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Route Hierarchy
-
-↓
-
-Navigation Flow
-
-↓
-
-Access Rules
-
-↓
-
-Rendering Decisions
-
-↓
-
-URL Standards
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves navigation architecture.
-
----
-
-# Stage 16 — Review
-
-Review
-
-Navigation Logic
-
-↓
-
-Hierarchy
-
-↓
-
-Security
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Consistency
-
-↓
-
-Engineering Standards
-
-Navigation should feel predictable for every user.
-
----
-
-# Stage 17 — Risk Assessment
-
-Evaluate
-
-Broken Navigation
-
-↓
-
-Route Conflicts
-
-↓
-
-Security Risks
-
-↓
-
-SEO Risks
-
-↓
-
-Performance Bottlenecks
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Operational Risk
-
-Navigation failures reduce user confidence.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Navigation
-
-↓
-
-Access Control
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-SEO
-
-↓
-
-Error Recovery
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Navigation is part of the production experience.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Navigation Flow
-
-↓
-
-Performance
-
-↓
-
-Discoverability
-
-↓
-
-Accessibility
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Developer Experience
-
-Navigation should improve with product evolution.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Route Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-Software Longevity
-
-Exceptional routing systems remain intuitive regardless of application growth.
-
----
-
-# Routing Quality Attributes
-
-Evaluate
-
-Clarity
-
-Consistency
-
-Maintainability
-
-Performance
-
-Accessibility
-
-Security
-
-Scalability
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does the route hierarchy reflect the business domain?
-
-↓
-
-Are URLs stable and meaningful?
-
-↓
-
-Is navigation intuitive for first-time users?
-
-↓
-
-Are access boundaries clearly enforced?
-
-↓
-
-Can new features be added without restructuring existing routes?
-
-↓
-
-Will navigation remain understandable as the application grows?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this routing architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken navigation
-
-Unauthorized route access
-
-Invalid route hierarchy
-
-Critical SEO failures
-
-Major
-
-Poor URL design
-
-Navigation inconsistencies
-
-Weak access control
-
-Performance bottlenecks
-
-Medium
-
-Naming inconsistencies
-
-Deep route nesting
-
-Documentation gaps
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Routing Checklist
-
-✓ Requirements understood
-
-✓ Information architecture designed
-
-✓ Route hierarchy established
-
-✓ URLs standardized
-
-✓ Navigation architecture implemented
-
-✓ Access control validated
-
-✓ Rendering strategy selected
-
-✓ State preservation considered
-
-✓ Performance optimized
-
-✓ Error handling implemented
-
-✓ SEO supported
-
-✓ Accessibility ensured
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Deeply nested routes
-
-Unpredictable URLs
-
-Implementation-focused paths
-
-Duplicate routes
-
-Mixing authentication with business logic
-
-Hardcoded navigation
-
-Ignoring deep linking
-
-Route-specific business logic
-
-Broken breadcrumbs
-
-Inconsistent naming
-
-Overcomplicated navigation trees
-
-Ignoring accessibility
-
-Frequent URL restructuring
-
----
-
-# Definition of Done
-
-A routing architecture is considered production-ready when
-
-- Every route represents a meaningful business capability through a predictable, maintainable, and scalable URL structure that remains stable throughout the application's evolution.
-- Navigation hierarchy, layouts, rendering strategies, access control, state preservation, and user workflows collectively provide an intuitive experience without exposing implementation details.
-- Public, authenticated, administrative, and role-specific areas are separated through clearly defined security boundaries that consistently enforce authorization while preserving usability.
-- Performance, accessibility, search engine optimization, deep linking, error recovery, responsive navigation, and operational reliability are integrated into the routing architecture from the beginning rather than introduced as later enhancements.
-- Route organization supports independent feature development, modular application growth, internationalization, and long-term architectural evolution without requiring disruptive restructuring.
-- Engineering reviews validate navigation clarity, URL consistency, security boundaries, rendering decisions, accessibility compliance, documentation quality, scalability, and maintainability before production deployment.
-- Documentation preserves routing philosophy through clearly defined hierarchies, navigation flows, access rules, architectural decisions, known constraints, and future evolution strategies.
-- The resulting routing system demonstrates engineering discipline, architectural clarity, predictable navigation, operational reliability, maintainability, scalability, and long-term software sustainability.
-
-Exceptional routing systems are not recognized by the number of routes they contain.
-
-They are recognized by the simplicity with which users navigate complex applications, the clarity of their architectural organization, the stability of their public interfaces, and the confidence with which future engineers can expand the system while preserving its structural integrity.
+# Checklist
+
+- [ ] Verify: Filters, sort, pagination, tab and selection are all in the URL
+- [ ] Verify: No secrets or personal data appear in URLs
+- [ ] Verify: Default parameter values are omitted
+- [ ] Verify: Every route parameter is validated and coerced
+- [ ] Verify: URL changes are accompanied by permanent redirects
+- [ ] Verify: Layouts are nested so shared shell state survives navigation
+- [ ] Verify: Each segment has loading and error boundaries
+- [ ] Verify: A `not-found` route exists and returns a real `404`
+- [ ] Verify: Authorization is enforced server-side; client guards are UX only
+- [ ] Verify: Post-login redirect targets are validated against an allowlist
+- [ ] Verify: Navigation uses real anchor elements
+- [ ] Verify: Scroll resets on new routes and restores on back/forward
+- [ ] Verify: Focus moves to the main content after navigation
+- [ ] Verify: Route changes are announced to assistive technology
+- [ ] Verify: The document title updates per route
+- [ ] Verify: Data loads with the navigation, not after mount
+- [ ] Verify: Routes and their data are prefetched on intent
+- [ ] Verify: Pending navigations keep the previous view visible

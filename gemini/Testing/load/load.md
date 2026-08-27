@@ -5,1106 +5,201 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: load
+category: Testing
+description: Load testing that predicts production behaviour — modelling real traffic, measuring percentiles not averages, and finding the knee before users do.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# load.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, load testing methodologies, workload validation strategies, scalability verification, capacity planning standards, performance reliability, operational confidence, and long-term engineering guidance for validating that software consistently delivers reliable business performance under expected production workloads.
+Rules for testing how a system behaves under load: capacity, latency under
+pressure, and the point at which it degrades.
 
-It applies to
-
-- APIs
-- Backend Services
-- Frontend Applications
-- SaaS Platforms
-- Enterprise Software
-- AI Systems
-- Microservices
-- Databases
-- Message Brokers
-- Distributed Systems
-
-Load Testing is not generating high traffic.
-
-Load Testing is the engineering discipline of validating that software can reliably process expected production workloads while maintaining predictable performance, resource utilization, stability, and user experience.
-
-Load Testing answers one question:
-
-**Can the system reliably serve expected production traffic without degrading business performance?**
+The governing principle: **a load test is only useful if its traffic resembles
+real traffic.** Hammering one cached endpoint measures your CDN. Real load has a
+mix of endpoints, realistic think time, cache misses, and a working set larger
+than memory.
 
 ---
 
-# Core Philosophy
+# Test types — pick the question first
 
-Understand Business Demand
+| Type | Question | Shape |
+| --- | --- | --- |
+| **Smoke** | Does it work at all under minimal load? | 1–5 users, short |
+| **Load** | Does it meet its target at expected traffic? | Expected peak, sustained |
+| **Stress** | Where does it break, and how? | Ramp until failure |
+| **Soak** | Does it survive hours? | Moderate load, 4–24 h |
+| **Spike** | Does it survive a sudden surge? | Instant 10× then drop |
+| **Breakpoint** | What is the maximum capacity? | Gradual ramp to saturation |
 
-↓
-
-Understand User Behavior
-
-↓
-
-Model Expected Workloads
-
-↓
-
-Measure System Performance
-
-↓
-
-Identify Bottlenecks
-
-↓
-
-Optimize Capacity
-
-↓
-
-Increase Operational Confidence
-
-↓
-
-Continuously Improve
-
-Performance should remain predictable under realistic business demand.
+Soak tests find what nothing else does: memory leaks, connection-pool exhaustion,
+disks filling with logs, and token caches that never evict.
 
 ---
 
-# Primary Objective
+# Measure percentiles, never averages
 
-Every Load Testing Strategy should maximize
+An average hides the users having a bad time. If 95% of requests take 50ms and 5%
+take 8s, the average is 450ms — a number describing nobody's experience.
 
-System Reliability
+| Metric | Report |
+| --- | --- |
+| Latency | `p50`, `p95`, `p99`, `max` — never the mean alone |
+| Throughput | Requests/sec **completed**, not attempted |
+| Errors | Rate by status class, separated from timeouts |
+| Saturation | CPU, memory, connection pool, queue depth, IO wait |
 
-+
+```js
+// k6 — assert on percentiles and fail the run when they regress
+export const options = {
+  stages: [
+    { duration: "2m", target: 100 },   // ramp
+    { duration: "5m", target: 100 },   // sustain — this is where you measure
+    { duration: "2m", target: 0 },     // ramp down
+  ],
+  thresholds: {
+    http_req_duration: ["p(95)<500", "p(99)<1500"],
+    http_req_failed: ["rate<0.01"],
+    checks: ["rate>0.99"],
+  },
+};
+```
 
-Performance Stability
-
-+
-
-Capacity Confidence
-
-+
-
-Business Continuity
-
-+
-
-Scalability Validation
-
-+
-
-Resource Efficiency
-
-+
-
-Operational Visibility
-
-+
-
-Long-Term Sustainability
-
-The objective is validating expected production behavior—not finding breaking points.
+**Never** report only the numbers from the ramp phase. Measure during the
+sustained plateau, after caches and pools have warmed.
 
 ---
 
-# Engineering Principles
+# Making the load realistic
 
-Always prioritize
-
-Real User Behavior
-
-↓
-
-Business Workloads
-
-↓
-
-Production Realism
-
-↓
-
-Stable Performance
-
-↓
-
-Capacity Planning
-
-↓
-
-Resource Efficiency
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Load testing should represent realistic business operations rather than artificial traffic generation.
+- **Model the endpoint mix** from production logs. If 70% of real traffic is a
+  read and 5% is checkout, the test should reflect that.
+- **Include think time.** Users pause between actions; removing it produces a
+  benchmark of your loop, not of your service.
+- **Vary the data.** Requesting the same record repeatedly measures cache hit
+  rate. Use a realistic key distribution — often a long tail with hot spots.
+- **Match data volume.** A query that is fast against 1,000 rows may table-scan
+  against 10 million. Load-test against production-scale data or the result is
+  meaningless.
+- **Do not skip authentication.** Token issuance and session lookup are real work
+  and often the first thing to saturate.
+- Ramp gradually. An instant jump to full load tests your autoscaler's cold start
+  rather than steady-state capacity.
 
 ---
 
-# Load Testing Lifecycle
+# Tooling
 
-Understand Business Traffic
+| Tool | Notes |
+| --- | --- |
+| `k6` | JavaScript scenarios, good thresholds, CI-friendly |
+| `gatling` | Scala/Java DSL, strong reporting |
+| `locust` | Python, easy to model complex user journeys |
+| `vegeta` | Constant-rate HTTP, excellent for latency histograms |
+| `wrk2` | Corrects coordinated omission — matters for accurate tails |
+| `artillery` | YAML scenarios, quick to start |
 
-↓
+Be aware of **coordinated omission**: a generator that waits for a slow response
+before issuing the next request under-reports the tail, sometimes by an order of
+magnitude. `wrk2` and `vegeta` model an open workload — a fixed arrival rate
+regardless of response time — which is what real traffic does. Prefer them when
+the tail is the thing you care about.
 
-Identify Critical Workloads
+```bash
+# Open-workload generator: a fixed arrival rate, immune to coordinated omission.
+echo "GET https://api.example.com/invoices" \
+  | vegeta attack -rate=500/s -duration=5m -header "Authorization: Bearer $TOKEN" \
+  | vegeta report -type='hist[0,10ms,50ms,100ms,500ms,1s,5s]'
+```
 
-↓
+```sql
+-- Find what actually hurt during the run, ordered by total time not call count.
+SELECT calls, mean_exec_time, max_exec_time, query
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 10;
+```
 
-Model Production Users
+Server-side, pair the run with `pg_stat_statements`, `EXPLAIN ANALYZE` on the
+slowest queries, and traces from OpenTelemetry so client latency maps to a span.
 
-↓
+# Where the bottleneck usually is
 
-Execute Expected Load
+In order of frequency:
 
-↓
+1. **Database connections.** The pool (`max` in `pg.Pool`, `maximumPoolSize` in
+   HikariCP) is smaller than the concurrency. Requests queue invisibly; latency
+   climbs while CPU stays low — the classic signature. Watch `pg_stat_activity`
+   for sessions in `idle in transaction`.
+2. **N+1 queries.** Invisible at 10 users, fatal at 1,000. → `Performance/queries`
+3. **Missing index.** Sequential scan on a table that outgrew memory.
+4. **External calls without timeouts.** One slow dependency exhausts every worker.
+   Set `connectTimeout`, `requestTimeout` and a circuit breaker; an unbounded
+   `fetch` is a queue with no limit.
+5. **Synchronous work in the request path** — image processing, PDF generation,
+   email — that belongs in a queue.
+6. **Lock contention** on a hot row or a global mutex — visible as `pg_locks`
+   waits or a rising `p99` with flat throughput.
 
-Measure Performance
+Saturation signals worth graphing alongside latency: `cpu`, `rss`,
+`event_loop_lag`, `active_connections`, `queue_depth`, `gc_pause`.
 
-↓
-
-Analyze Bottlenecks
-
-↓
-
-Optimize Capacity
-
-↓
-
-Continuously Improve
-
-Every load test should represent realistic production conditions.
-
----
-
-# Stage 1 — Business Workload Discovery
-
-Identify
-
-Business-Critical Features
-
-↓
-
-Expected User Traffic
-
-↓
-
-Peak Business Hours
-
-↓
-
-Transaction Volume
-
-↓
-
-Concurrent Users
-
-↓
-
-Growth Expectations
-
-↓
-
-Seasonal Demand
-
-↓
-
-Future Evolution
-
-Performance engineering begins with business demand—not infrastructure capacity.
+Instrument the system under test before running. A load test that only produces
+client-side numbers tells you *that* it slowed down, never *where*.
 
 ---
 
-# Stage 2 — Workload Identification
+# Environment
 
-Identify
-
-Authentication
-
-↓
-
-API Requests
-
-↓
-
-Database Operations
-
-↓
-
-Search
-
-↓
-
-Checkout
-
-↓
-
-Reporting
-
-↓
-
-Background Jobs
-
-↓
-
-Notifications
-
-↓
-
-File Processing
-
-↓
-
-AI Operations
-
-↓
-
-Administrative Tasks
-
-Every workload should represent real customer behavior.
+- Test against an environment **shaped like production** — same instance classes,
+  same database tier, same replica count. Results from a half-size staging
+  environment do not scale linearly.
+- Generate load from **outside** the target network so the path includes the load
+  balancer, TLS termination and any proxy.
+- Run the generator on enough machines that **it** is not the bottleneck. A client
+  pinned at 100% CPU reports the client's limits as the server's.
+- **Never** load-test production without explicit agreement, a documented blast
+  radius, and a kill switch. If you do, mark synthetic traffic so it can be
+  excluded from analytics and billing.
 
 ---
 
-# Stage 3 — User Behavior Modeling
-
-Model
-
-Concurrent Users
-
-↓
-
-Request Frequency
-
-↓
-
-Session Duration
-
-↓
-
-Think Time
-
-↓
-
-Navigation Patterns
-
-↓
-
-Feature Usage
-
-↓
-
-Geographical Distribution
-
-↓
-
-Future Growth
-
-Synthetic traffic should closely resemble real customer usage.
-
----
-
-# Stage 4 — Environment Preparation
-
-Prepare
-
-Production Configuration
-
-↓
-
-Infrastructure
-
-↓
-
-Network
-
-↓
-
-Database
-
-↓
-
-Caching
-
-↓
-
-Authentication
-
-↓
-
-Monitoring
-
-↓
-
-Observability
-
-Performance measurements should represent production reality.
-
----
-
-# Stage 5 — Load Profile Design
-
-Define
-
-Normal Load
-
-↓
-
-Average Traffic
-
-↓
-
-Business Peaks
-
-↓
-
-Expected Concurrency
-
-↓
-
-Read Operations
-
-↓
-
-Write Operations
-
-↓
-
-Background Processing
-
-↓
-
-Mixed Workloads
-
-The workload profile should accurately represent production demand.
-
----
-
-# Stage 6 — Performance Validation
-
-Measure
-
-Response Time
-
-↓
-
-Latency
-
-↓
-
-Throughput
-
-↓
-
-Request Success Rate
-
-↓
-
-Resource Utilization
-
-↓
-
-Database Performance
-
-↓
-
-Queue Performance
-
-↓
-
-User Experience
-
-Performance should remain predictable throughout expected workloads.
-
----
-
-# Stage 7 — Resource Utilization
-
-Monitor
-
-CPU
-
-↓
-
-Memory
-
-↓
-
-Disk
-
-↓
-
-Network
-
-↓
-
-Database Connections
-
-↓
-
-Thread Pools
-
-↓
-
-Cache Usage
-
-↓
-
-Infrastructure Health
-
-Efficient resource utilization enables sustainable scalability.
-
----
-
-# Stage 8 — Bottleneck Identification
-
-Identify
-
-Application Constraints
-
-↓
-
-Database Bottlenecks
-
-↓
-
-Network Latency
-
-↓
-
-Storage Performance
-
-↓
-
-Cache Effectiveness
-
-↓
-
-External Dependencies
-
-↓
-
-Infrastructure Limits
-
-↓
-
-Architectural Constraints
-
-Every bottleneck should have measurable business impact.
-
----
-
-# Stage 9 — Scalability Validation
-
-Verify
-
-Horizontal Scaling
-
-↓
-
-Vertical Scaling
-
-↓
-
-Load Distribution
-
-↓
-
-Auto Scaling
-
-↓
-
-Caching Efficiency
-
-↓
-
-Database Scaling
-
-↓
-
-Queue Capacity
-
-↓
-
-Infrastructure Elasticity
-
-Scaling should preserve performance consistency.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design load validation that maximizes
-
-Deterministic Results
-
-↓
-
-Repeatable Measurements
-
-↓
-
-Stable Environments
-
-↓
-
-Reliable Metrics
-
-↓
-
-Accurate Benchmarking
-
-↓
-
-Capacity Confidence
-
-↓
-
-Regression Detection
-
-↓
-
-Continuous Improvement
-
-Reliable load tests consistently measure system performance under expected production workloads.
-
-# Stage 11 — Performance Metrics
-
-Every load test should measure metrics that directly influence user experience and business reliability.
-
-Measure
-
-Response Time
-
-↓
-
-Latency Distribution
-
-↓
-
-Throughput
-
-↓
-
-Requests Per Second
-
-↓
-
-Success Rate
-
-↓
-
-Error Rate
-
-↓
-
-Resource Consumption
-
-↓
-
-Business Capacity
-
-Metrics should explain both system performance and customer impact.
-
----
-
-# Stage 12 — Capacity Validation
-
-Every production system has operational limits that should be understood before deployment.
-
-Validate
-
-Maximum Sustainable Users
-
-↓
-
-Concurrent Sessions
-
-↓
-
-Request Volume
-
-↓
-
-Transaction Capacity
-
-↓
-
-Database Throughput
-
-↓
-
-Storage Capacity
-
-↓
-
-Queue Capacity
-
-↓
-
-Infrastructure Limits
-
-Capacity planning should prevent production bottlenecks rather than react to them.
-
----
-
-# Stage 13 — Stability Verification
-
-Performance should remain stable throughout sustained production workloads.
-
-Verify
-
-Consistent Response Times
-
-↓
-
-Stable Resource Usage
-
-↓
-
-Memory Stability
-
-↓
-
-Database Stability
-
-↓
-
-Cache Stability
-
-↓
-
-Network Stability
-
-↓
-
-Application Stability
-
-↓
-
-Operational Reliability
-
-Performance consistency is more valuable than short-term peak performance.
-
----
-
-# Stage 14 — Dependency Validation
-
-Every dependency contributes to overall system performance.
-
-Validate
-
-Databases
-
-↓
-
-Caches
-
-↓
-
-Message Brokers
-
-↓
-
-Authentication Services
-
-↓
-
-Object Storage
-
-↓
-
-Third-Party APIs
-
-↓
-
-Search Services
-
-↓
-
-Internal Services
-
-The overall system can only perform as well as its slowest dependency.
-
----
-
-# Stage 15 — Test Organization
-
-Organize load tests around meaningful business capabilities.
-
-Group by
-
-Business Workloads
-
-↓
-
-Critical APIs
-
-↓
-
-Customer Journeys
-
-↓
-
-Infrastructure Components
-
-↓
-
-Risk Level
-
-↓
-
-Expected Traffic
-
-↓
-
-Growth Scenarios
-
-↓
-
-Future Expansion
-
-Well-organized performance suites simplify capacity planning and long-term maintenance.
-
----
-
-# Stage 16 — Baseline Management
-
-Maintain measurable performance baselines.
-
-Track
-
-Historical Performance
-
-↓
-
-Expected Response Time
-
-↓
-
-Infrastructure Changes
-
-↓
-
-Architecture Changes
-
-↓
-
-Capacity Growth
-
-↓
-
-Optimization Results
-
-↓
-
-Regression History
-
-↓
-
-Future Targets
-
-Performance baselines establish objective engineering expectations.
-
----
-
-# Stage 17 — Quality Attributes
-
-Every Load Testing strategy should maximize
-
-Performance Stability
-
-↓
-
-System Reliability
-
-↓
-
-Scalability
-
-↓
-
-Capacity Confidence
-
-↓
-
-Resource Efficiency
-
-↓
-
-Repeatability
-
-↓
-
-Operational Visibility
-
-↓
-
-Engineering Excellence
-
-Performance quality is measured through predictable production behavior.
-
----
-
-# Stage 18 — Engineering Questions
-
-Before approving any load test, ask
-
-Does this represent realistic production traffic?
-
-↓
-
-Are business-critical workloads validated?
-
-↓
-
-Can expected user demand be sustained?
-
-↓
-
-Are performance baselines defined?
-
-↓
-
-Have bottlenecks been identified?
-
-↓
-
-Can engineers confidently estimate capacity?
-
-↓
-
-Will this detect future regressions?
-
-↓
-
-Does it improve operational confidence?
-
-If any answer is "No", improve the load testing strategy before approval.
-
----
-
-# Stage 19 — Anti-Patterns
-
-Avoid
-
-Artificial workloads unrelated to production
-
-↓
-
-Testing unrealistic user behavior
-
-↓
-
-Ignoring production traffic patterns
-
-↓
-
-Measuring only average latency
-
-↓
-
-Ignoring percentile metrics
-
-↓
-
-Testing without monitoring
-
-↓
-
-Unstable environments
-
-↓
-
-Shared performance environments
-
-↓
-
-Poor workload modeling
-
-↓
-
-Ignoring dependency performance
-
-↓
-
-Single execution benchmarking
-
-↓
-
-Treating performance optimization as a one-time activity
-
-The objective is understanding production behavior—not producing impressive benchmark numbers.
-
----
-
-# Stage 20 — Continuous Evolution
-
-Load Testing should evolve together with business growth.
-
-Continuously improve
-
-Traffic Models
-
-↓
-
-Capacity Planning
-
-↓
-
-Performance Baselines
-
-↓
-
-Infrastructure Efficiency
-
-↓
-
-Monitoring
-
-↓
-
-Regression Detection
-
-↓
-
-Engineering Standards
-
-↓
-
-Operational Confidence
-
-Performance engineering is a continuous practice that evolves alongside software and user demand.
-
----
-
-# Quality Attributes
-
-A high-quality Load Testing strategy demonstrates
-
-- Realistic workload simulation
-- Stable performance measurements
-- Reliable capacity planning
-- Predictable scalability
-- Accurate resource utilization
-- Strong regression detection
-- Production-like environments
-- Actionable performance insights
-- Clear engineering intent
-- Long-term sustainability
-
----
-
-# Engineering Questions
-
-Before considering Load Testing complete, verify
-
-- Are business-critical workloads represented?
-- Are realistic production traffic patterns simulated?
-- Are performance baselines established?
-- Are resource bottlenecks identified?
-- Are infrastructure dependencies measured?
-- Can expected production demand be sustained?
-- Are scaling strategies validated?
-- Will performance regressions be detected early?
-- Can engineers confidently estimate production capacity?
-- Will these tests remain valuable as traffic grows?
-
----
-
-# Severity Levels
-
-## Critical
-
-- Business-critical workloads fail under expected production traffic.
-- Response times become unacceptable.
-- System instability occurs.
-- Capacity cannot support expected users.
-
-Immediate correction required.
-
----
-
-## High
-
-- Performance degradation exceeds acceptable limits.
-- Database bottlenecks.
-- Infrastructure saturation.
-- Resource exhaustion.
-
-Resolve before release.
-
----
-
-## Medium
-
-- Minor latency increases.
-- Inefficient resource utilization.
-- Capacity estimation inaccuracies.
-- Monitoring gaps.
-
-Improve during normal engineering work.
-
----
-
-## Low
-
-- Documentation improvements.
-- Baseline refinements.
-- Reporting enhancements.
-- Minor optimization opportunities.
-
-Address during continuous improvement.
+# Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Reporting the mean | Hides the tail where users suffer | `p95`, `p99`, `max` |
+| One endpoint, one record | Measures cache, not the system | Realistic mix and key spread |
+| No think time | Benchmarks your loop | Model real pacing |
+| Tiny dataset | Queries behave differently at scale | Production-scale data |
+| Measuring during ramp | Cold caches and pools skew results | Measure the plateau |
+| Undersized load generator | Client limit reported as server limit | Distribute; watch client CPU |
+| Half-size staging | Does not scale linearly | Production-shaped environment |
+| No server-side instrumentation | You learn *that*, never *where* | Trace and metric the target |
+| Skipping authentication | Omits real work that saturates first | Include the full flow |
+| Load-testing production unannounced | Real outage, polluted analytics | Agreement, blast radius, kill switch |
 
 ---
 
 # Checklist
 
-Before approving Load Testing
-
-- Business workloads identified
-- Production traffic modeled
-- Concurrent users defined
-- Performance baselines established
-- Resource utilization monitored
-- Dependencies validated
-- Bottlenecks identified
-- Capacity limits documented
-- Scalability verified
-- Stable execution achieved
-- Regression protection established
-- Monitoring configured
-- Engineering intent documented
-- Operational confidence achieved
-- Long-term maintainability verified
-
----
-
-# Definition of Done
-
-A Load Testing strategy is considered complete when all business-critical workloads, expected production traffic patterns, concurrent user scenarios, infrastructure components, service dependencies, resource utilization characteristics, scalability behaviors, capacity limits, performance baselines, and operational metrics have been validated through repeatable, production-representative testing that provides engineering teams with high confidence that the system can reliably sustain expected business demand while maintaining acceptable performance, stability, and user experience.
-
-Exceptional Load Testing is not measured by the number of simulated users or requests per second achieved.
-
-It is measured by how effectively it validates real production workloads, identifies capacity limitations before deployment, protects user experience under expected demand, supports evidence-based scalability decisions, enables confident infrastructure planning, and continuously ensures the delivery of reliable, performant, and production-ready software.
+- [ ] Verify: The question is chosen first — load, stress, soak, spike or breakpoint
+- [ ] Verify: Endpoint mix and pacing are derived from production traffic
+- [ ] Verify: Test data volume matches production scale
+- [ ] Verify: Authentication is part of the tested flow
+- [ ] Verify: Results report `p50`, `p95`, `p99` and `max`, never the mean alone
+- [ ] Verify: Measurements come from the sustained plateau, not the ramp
+- [ ] Verify: Throughput counts completed requests; errors separate timeouts
+- [ ] Verify: Saturation metrics include connection pool and queue depth
+- [ ] Verify: The load generator is verified not to be the bottleneck
+- [ ] Verify: The environment is production-shaped and load arrives over the real path
+- [ ] Verify: Thresholds are asserted so a regression fails the run
+- [ ] Verify: Production tests, if any, are agreed, bounded and reversible

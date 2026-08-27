@@ -5,1137 +5,181 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: bundle-size
+category: Performance
+description: Keeping JavaScript small — measuring before cutting, dependency discipline, tree shaking that actually works, and budgets enforced in CI.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# bundle-size.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, bundle optimization methodologies, dependency management strategies, delivery optimization practices, resource efficiency standards, and long-term best practices for minimizing application bundle size while preserving functionality, maintainability, scalability, and engineering quality.
+Rules for controlling shipped JavaScript. A byte of JavaScript costs far more than
+a byte of image: it must be downloaded, parsed, compiled and executed **on the
+main thread**, on a device you do not control.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- Progressive Web Applications
-- Dashboards
-- Design Systems
-- Documentation Sites
-- Interactive Applications
-- Component Libraries
-
-Bundle size is not a competition for the smallest file.
-
-Bundle size is the engineering discipline of delivering only the code, assets, and dependencies required for users to successfully accomplish their tasks while minimizing unnecessary network transfer, parsing, execution, and maintenance complexity.
-
-Every unnecessary byte represents unnecessary engineering cost.
+Two rules govern everything: **measure before cutting**, and **enforce a budget**,
+because bundles grow one innocuous pull request at a time.
 
 ---
 
-# Core Philosophy
+# Budget first, in CI
 
-Understand User Requirements
+```json
+// .size-limit.json
+[
+  { "path": "dist/assets/index-*.js", "limit": "160 KB" },
+  { "path": "dist/assets/vendor-*.js", "limit": "120 KB" }
+]
+```
 
-↓
+- Measure **compressed** size (Brotli/gzip) — that is what users download — and
+  track uncompressed too, because parse and execute cost scales with the
+  uncompressed bytes.
+- Fail the build on a regression. A warning is ignored; a failing check is
+  discussed.
+- Report the delta on every pull request, so the cost of a dependency is visible
+  at the moment someone proposes it.
 
-Understand Delivered Resources
-
-↓
-
-Identify Necessary Assets
-
-↓
-
-Eliminate Unnecessary Content
-
-↓
-
-Optimize Delivery
-
-↓
-
-Validate User Experience
-
-↓
-
-Measure Results
-
-↓
-
-Continuously Improve
-
-Applications should deliver value rather than unnecessary resources.
+Reasonable starting targets for an application shell: **< 160 KB compressed**
+initial JavaScript, and **< 100 KB** for a content site. Treat them as budgets to
+defend, not achievements to reach once.
 
 ---
 
-# Primary Objective
+# Analyse before optimising
 
-Every bundle optimization should maximize
+```bash
+npx vite-bundle-visualizer                 # Vite/Rollup
+ANALYZE=true next build                    # Next.js
+npx source-map-explorer 'dist/**/*.js'     # any bundler with source maps
+```
 
-Efficiency
+It is almost always one or two dependencies, not a hundred small things. Look for:
 
-+
-
-Responsiveness
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Resource Utilization
-
-+
-
-Developer Experience
-
-+
-
-Reliability
-
-+
-
-Long-Term Sustainability
-
-Bundle optimization should improve real-world user experience rather than benchmark numbers.
+- The single largest module.
+- **Duplicate copies** of one library at different versions — check with
+  `npm ls <pkg>` and deduplicate in the lockfile.
+- Anything in the initial chunk not needed for first paint.
+- Polyfills for browsers you no longer support: check the `browserslist` target,
+  which frequently still says something from years ago.
 
 ---
 
-# Engineering Principles
+# Dependency discipline
 
-Always prioritize
+The highest-value habit: **check the cost before adding, not after**.
 
-User Value
+| Instead of | Use |
+| --- | --- |
+| `moment` (~70 KB) | `Intl.DateTimeFormat`, or `date-fns`/`dayjs` |
+| `lodash` (whole) | Named imports, or the three lines you need |
+| `axios` | `fetch` with a small wrapper |
+| `uuid` | `crypto.randomUUID()` |
+| A deep-clone package | `structuredClone()` |
+| A charting suite for one sparkline | Inline SVG |
 
-↓
+```ts
+import _ from "lodash";               // ❌ pulls the whole library
+import debounce from "lodash/debounce";   // ✅ one function
+import { debounce } from "lodash-es";     // ✅ tree-shakeable build
+```
 
-Minimal Delivery
+The platform has absorbed most small utilities. Before adding a dependency, check
+`bundlephobia.com` for its cost including transitive dependencies, and check
+whether a standard API already does it.
 
-↓
-
-Evidence-Based Optimization
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-Continuous Improvement
-
-Every delivered resource should justify its existence.
+**Never ship a library for one function.** A 70 KB dependency imported for
+`debounce` is the most common single avoidable regression.
 
 ---
 
-# Bundle Optimization Lifecycle
+# Make tree shaking work
 
-Understand Application
+Tree shaking removes unused exports — but only when the bundler can prove removal
+is safe. It silently fails to shake when:
 
-↓
+- The package ships **CommonJS** only. `require()` is dynamic, so nothing can be
+  proven. Prefer ESM builds.
+- The package has **side effects** at module scope and no `"sideEffects": false`
+  in its `package.json`.
+- You `import * as x` and then index dynamically.
+- A barrel file (`index.ts` re-exporting everything) pulls in a module chain the
+  bundler cannot prune. Barrel files are a common and invisible cause.
 
-Analyze Bundle
+```json
+// In your own package: tell bundlers it is safe to drop unused modules
+{ "sideEffects": ["*.css"] }
+```
 
-↓
-
-Identify Unnecessary Resources
-
-↓
-
-Optimize Delivery
-
-↓
-
-Validate Functionality
-
-↓
-
-Measure Performance
-
-↓
-
-Document Decisions
-
-↓
-
-Continuously Improve
-
-Bundle optimization should remain measurable.
+Verify rather than assume: build, then search the output for a symbol you believe
+was removed. Tree shaking is frequently believed to be working when it is not.
 
 ---
 
-# Stage 1 — Application Analysis
+# What else to cut
 
-Understand
+- **Polyfills**: target modern browsers and let older ones get a separate legacy
+  bundle, rather than serving everyone the polyfills the oldest needs.
+- **Locale and timezone data**: import the active locale, not all forty.
+- **Source maps**: generate them, upload them to your error tracker, and do not
+  serve them publicly.
+- **Development-only code**: assert that `NODE_ENV` is `production` so
+  development branches are eliminated.
+- **Duplicated framework runtimes**: two versions of React in one bundle is both a
+  size problem and a runtime bug.
+- **Third-party scripts** are not in your bundle but are on your critical path —
+  analytics and tag managers are frequently the largest script on the page and
+  nobody owns them. Inventory and defer them. → `Frontend/performance`
 
-Business Objectives
-
-↓
-
-User Journeys
-
-↓
-
-Critical Features
-
-↓
-
-Application Architecture
-
-↓
-
-Dependencies
-
-↓
-
-Operational Constraints
-
-↓
-
-Deployment Strategy
-
-↓
-
-Future Growth
-
-Bundle optimization begins with understanding application value.
+Then split what remains, so the initial download is only what the first screen
+needs. → `Frontend/code-splitting`
 
 ---
 
-# Stage 2 — Bundle Analysis
+# Anti-patterns
 
-Analyze
-
-Application Code
-
-↓
-
-Dependencies
-
-↓
-
-Assets
-
-↓
-
-Images
-
-↓
-
-Fonts
-
-↓
-
-Configuration
-
-↓
-
-Runtime Resources
-
-↓
-
-Generated Output
-
-Every delivered resource contributes to bundle size.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No size budget in CI | Growth is invisible until it is large | `size-limit` gate |
+| Measuring uncompressed only | Not what users download | Track compressed |
+| Cutting before analysing | Effort on the wrong modules | Bundle analysis first |
+| Adding a library for one utility | Tens of KB for a few lines | Platform API or inline |
+| Default-importing lodash | Whole library included | Named or `lodash-es` |
+| Assuming tree shaking works | CommonJS and side effects silently prevent it | Verify the output |
+| Barrel files re-exporting everything | Pulls in unprunable chains | Import directly |
+| No `sideEffects` field | Bundler cannot drop unused modules | Declare it |
+| Stale `browserslist` | Polyfills for browsers nobody uses | Update the target |
+| All locales bundled | Users download forty languages to read one | Load the active locale |
+| Duplicate library versions | Same code shipped twice | Deduplicate the lockfile |
+| Source maps served publicly | Source disclosure | Upload to the error tracker only |
+| Development code in production builds | Dead branches shipped | `NODE_ENV=production` |
+| Unaudited third-party scripts | Often the largest script on the page | Inventory and defer |
+| One giant vendor chunk | Any update invalidates all of it | Group by change frequency |
 
 ---
 
-# Stage 3 — Resource Classification
-
-Classify
-
-Critical Resources
-
-↓
-
-Required Resources
-
-↓
-
-Optional Resources
-
-↓
-
-Deferred Resources
-
-↓
-
-Rarely Used Resources
-
-↓
-
-Duplicate Resources
-
-↓
-
-Unused Resources
-
-↓
-
-Legacy Resources
-
-Resources should be classified according to actual business value.
-
----
-
-# Stage 4 — Dependency Evaluation
-
-Review
-
-Libraries
-
-↓
-
-Frameworks
-
-↓
-
-Third-Party Packages
-
-↓
-
-Shared Components
-
-↓
-
-Runtime Dependencies
-
-↓
-
-Development Dependencies
-
-↓
-
-Utility Modules
-
-↓
-
-Future Upgrades
-
-Dependencies should contribute more value than cost.
-
----
-
-# Stage 5 — Bundle Strategy
-
-Define
-
-Initial Bundle
-
-↓
-
-Deferred Bundle
-
-↓
-
-Shared Resources
-
-↓
-
-Feature Resources
-
-↓
-
-Route Resources
-
-↓
-
-Background Resources
-
-↓
-
-Loading Priorities
-
-↓
-
-Delivery Strategy
-
-Bundle architecture determines delivery efficiency.
-
----
-
-# Stage 6 — Resource Optimization
-
-Optimize
-
-Code
-
-↓
-
-Dependencies
-
-↓
-
-Assets
-
-↓
-
-Configuration
-
-↓
-
-Media
-
-↓
-
-Fonts
-
-↓
-
-Generated Resources
-
-↓
-
-Delivery Order
-
-Optimization should remove waste rather than functionality.
-
----
-
-# Stage 7 — Delivery Optimization
-
-Improve
-
-Download Size
-
-↓
-
-Transfer Efficiency
-
-↓
-
-Parsing Cost
-
-↓
-
-Execution Cost
-
-↓
-
-Caching Strategy
-
-↓
-
-Compression
-
-↓
-
-Progressive Delivery
-
-↓
-
-User Experience
-
-Delivery performance extends beyond file size.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Bundle Size
-
-↓
-
-Transfer Size
-
-↓
-
-Download Time
-
-↓
-
-Parsing Time
-
-↓
-
-Execution Time
-
-↓
-
-Memory Usage
-
-↓
-
-CPU Utilization
-
-↓
-
-User Experience
-
-Bundle quality should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Unused Code
-
-↓
-
-Duplicate Logic
-
-↓
-
-Oversized Dependencies
-
-↓
-
-Repeated Assets
-
-↓
-
-Blocking Resources
-
-↓
-
-Legacy Components
-
-↓
-
-Redundant Configuration
-
-↓
-
-Resource Waste
-
-Optimization follows objective evidence.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Module Boundaries
-
-↓
-
-Dependency Direction
-
-↓
-
-Shared Components
-
-↓
-
-Feature Isolation
-
-↓
-
-Code Organization
-
-↓
-
-Composition
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Architecture determines bundle growth.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Features
-
-↓
-
-Large Applications
-
-↓
-
-Multiple Teams
-
-↓
-
-Shared Libraries
-
-↓
-
-Enterprise Systems
-
-↓
-
-Component Expansion
-
-↓
-
-Operational Stability
-
-↓
-
-Future Evolution
-
-Bundle architecture should scale predictably.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Functional Correctness
-
-↓
-
-Loading Behavior
-
-↓
-
-Dependency Resolution
-
-↓
-
-Error Recovery
-
-↓
-
-Operational Stability
-
-↓
-
-Consistency
-
-↓
-
-Compatibility
-
-↓
-
-Engineering Quality
-
-Optimization must preserve application reliability.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Bundle Strategy
-
-↓
-
-Optimization Decisions
-
-↓
-
-Dependency Rationale
-
-↓
-
-Architecture
-
-↓
-
-Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves optimization knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Missing Dependencies
-
-↓
-
-Broken Features
-
-↓
-
-Oversized Growth
-
-↓
-
-Architecture Drift
-
-↓
-
-Performance Regression
-
-↓
-
-Operational Risks
-
-↓
-
-Maintenance Risks
-
-↓
-
-Technical Debt
-
-Bundle optimization should reduce long-term engineering risk.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Complexity
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every optimization introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Bundle Integrity
-
-↓
-
-Application Behavior
-
-↓
-
-Performance
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Bundle improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Bundle Summary
-
-↓
-
-Bundle Analysis
-
-↓
-
-Optimization Results
-
-↓
-
-Performance Metrics
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Opportunities
-
-↓
-
-Lessons Learned
-
-Reports preserve engineering knowledge.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Build
-
-↓
-
-Deployment
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-Bundle optimization should remain production-ready.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Bundle Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Dependency Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Engineering Discipline
-
-Bundle quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Bundle Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Resource Utilization
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional software continuously delivers less while accomplishing more.
-
----
-
-# Bundle Size Quality Attributes
-
-Evaluate
-
-Efficiency
-
-Responsiveness
-
-Maintainability
-
-Scalability
-
-Reliability
-
-Resource Utilization
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every delivered resource provide measurable value?
-
-↓
-
-Can unnecessary resources be eliminated?
-
-↓
-
-Will bundle architecture remain maintainable as the application grows?
-
-↓
-
-Have dependencies been justified through engineering value?
-
-↓
-
-Does optimization improve real user experience?
-
-↓
-
-Will future engineers understand these optimization decisions?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this bundle strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken application
-
-Missing critical resources
-
-Deployment failure
-
-Application instability
-
-Major
-
-Oversized bundles
-
-Dependency bloat
-
-Performance degradation
-
-Architecture inefficiency
-
-Medium
-
-Documentation gaps
-
-Measurement deficiencies
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Bundle Size Checklist
-
-✓ Application analyzed
-
-✓ Bundle analyzed
-
-✓ Resources classified
-
-✓ Dependencies reviewed
-
-✓ Bundle strategy defined
-
-✓ Resources optimized
-
-✓ Delivery optimized
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Adding dependencies without justification
-
-Shipping unused code
-
-Duplicate functionality
-
-Oversized libraries
-
-Ignoring bundle measurements
-
-Optimizing solely for benchmark scores
-
-Architecture driven by bundle hacks
-
-Removing maintainability for small savings
-
-Ignoring scalability
-
-Treating compression as optimization
-
-Optimizing without evidence
-
-Growing bundles without continuous review
-
----
-
-# Definition of Done
-
-A bundle optimization strategy is considered complete when
-
-- Only resources that provide measurable user or business value are included in the delivered application while preserving correctness, maintainability, architectural integrity, scalability, and operational reliability.
-- Bundle composition has been systematically analyzed to eliminate unnecessary code, redundant dependencies, duplicated assets, unused resources, and avoidable execution overhead through evidence-based engineering decisions.
-- Bundle architecture supports modular growth, efficient resource delivery, predictable dependency management, scalable application evolution, operational stability, and long-term maintainability without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate bundle composition, dependency quality, performance characteristics, architectural consistency, reliability, documentation quality, scalability, production readiness, and long-term sustainability before deployment.
-- Documentation clearly explains bundle strategy, dependency decisions, optimization rationale, engineering trade-offs, validation evidence, governance expectations, known constraints, and future optimization opportunities.
-- Bundle decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than temporary size reduction techniques.
-- The resulting application demonstrates engineering discipline, efficient resource delivery, responsive user experience, architectural clarity, maintainability, operational excellence, predictable scalability, and long-term software sustainability.
-
-Exceptional bundle optimization is not measured by achieving the smallest possible build.
-
-It is measured by delivering exactly the resources users need—no more and no less—while preserving engineering quality, architectural simplicity, operational reliability, and sustainable software evolution.
+# Checklist
+
+- [ ] Verify: A compressed-size budget is enforced in CI and fails the build
+- [ ] Verify: Uncompressed size is tracked for parse and execute cost
+- [ ] Verify: Pull requests report the bundle-size delta
+- [ ] Verify: The bundle has been analysed and the largest modules identified
+- [ ] Verify: No duplicate copies of a library exist at different versions
+- [ ] Verify: Dependency cost is checked before adding, not after
+- [ ] Verify: No dependency is included for a single small utility
+- [ ] Verify: Imports are named, from tree-shakeable ESM builds
+- [ ] Verify: `sideEffects` is declared in first-party packages
+- [ ] Verify: Tree shaking is verified against the built output, not assumed
+- [ ] Verify: Barrel files are not on hot import paths
+- [ ] Verify: `browserslist` reflects actually supported browsers
+- [ ] Verify: Only the active locale's data is bundled
+- [ ] Verify: Source maps are uploaded to error tracking, not served publicly
+- [ ] Verify: Development-only code is eliminated in production builds
+- [ ] Verify: Third-party scripts are inventoried, deferred and owned
+- [ ] Verify: Remaining code is split so the initial chunk serves the first screen only

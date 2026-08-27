@@ -5,1139 +5,196 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: sql-injection
+category: Security
+description: Preventing SQL injection with parameterised queries, safe dynamic SQL, and the escaping rules that do not work.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# sql-injection.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, SQL Injection prevention methodologies, database interaction frameworks, secure query construction strategies, data access controls, and long-term best practices for designing secure, scalable, maintainable, and production-ready applications that resist SQL Injection attacks.
+Rules for building SQL that cannot be subverted by input. Scope is injection into
+SQL specifically. Command injection is `Security/command-injection`; template and
+NoSQL injection are noted here only where the reasoning differs.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Cloud Platforms
-- Microservices
-- Administrative Systems
-- Developer Platforms
-- Production Software
-
-SQL Injection prevention is not escaping quotation marks.
-
-SQL Injection prevention is the engineering discipline of ensuring that user-controlled data is always interpreted strictly as data and never as executable database instructions while preserving database integrity, confidentiality, availability, and long-term maintainability.
-
-SQL Injection answers one question:
-
-**Can untrusted input ever change the intended behavior of a database query?**
+The single rule underneath everything: **data must never be parsed as code.**
+Every technique below is a way of keeping that boundary intact.
 
 ---
 
-# Core Philosophy
+# Parameterised queries
 
-Identify Untrusted Input
+## Bind values. Never concatenate them.
 
-↓
+```js
+// WRONG — the query text changes shape with the input
+db.query(`SELECT * FROM users WHERE email = '${email}'`);
 
-Separate Data From Queries
+// RIGHT — one fixed query, values sent separately
+db.query("SELECT * FROM users WHERE email = $1", [email]);
+```
 
-↓
+The parameterised form is not "escaping done for you". The driver sends the
+statement and the values over separate protocol fields, so the database plans the
+query before it ever sees the data. Input cannot alter the parse tree because
+parsing already happened.
 
-Validate Input
+Placeholder syntax by dialect:
 
-↓
+| Database | Placeholder | Library example |
+| --- | --- | --- |
+| PostgreSQL | `$1`, `$2` | `pg`, `postgres.js` |
+| MySQL / MariaDB | `?` | `mysql2` |
+| SQLite | `?` or `:name` | `better-sqlite3` |
+| SQL Server | `@name` | `mssql` |
+| Oracle | `:name` | `oracledb` |
 
-Protect Database Access
+**Never** build SQL with string concatenation, template literals, `+`, `format()`,
+`sprintf`, or f-strings — in any language. If the query text varies with user
+input, the boundary is already broken.
 
-↓
+**Never** rely on escaping functions like `mysql_real_escape_string` as your
+primary defence. They are dialect-specific, charset-sensitive, and historically
+bypassable — `GBK` multibyte sequences defeated exactly this pattern.
 
-Enforce Least Privilege
+## Parameters bind values, not identifiers
 
-↓
+A placeholder cannot stand in for a table name, a column name, `ASC`/`DESC`, or
+`LIMIT` in most drivers:
 
-Monitor Database Activity
+```js
+// This does NOT work — and the failure pushes people back to concatenation
+db.query("SELECT * FROM $1", [table]);
+```
 
-↓
+When structure must be dynamic, **allow-list it**:
 
-Detect Abuse
+```js
+const SORTABLE = { created: "created_at", name: "display_name" };
+const DIRECTION = { asc: "ASC", desc: "DESC" };
 
-↓
+const column = SORTABLE[req.query.sort] ?? "created_at";
+const order  = DIRECTION[req.query.dir]  ?? "ASC";
 
-Continuously Improve
+db.query(`SELECT * FROM users ORDER BY ${column} ${order} LIMIT $1`, [limit]);
+```
 
-User input should never influence database logic.
+The interpolated values came from a map the server controls, never from the
+request. An unknown key falls back to a default rather than passing through.
 
----
-
-# Primary Objective
-
-Every SQL Injection defense should maximize
-
-Query Integrity
-
-+
-
-Database Security
-
-+
-
-Confidentiality
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every database operation should execute only developer-defined logic.
+**Never** allow-list by regex (`/^[a-z_]+$/`) instead of an explicit map. A
+permissive pattern still admits valid identifiers you did not intend to expose,
+including columns holding password hashes.
 
 ---
 
-# Engineering Principles
+# ORMs and query builders
 
-Always prioritize
+An ORM is not automatic protection. Every major ORM has a raw-SQL escape hatch,
+and that hatch is where injection lives.
 
-Parameterized Queries
+```js
+// Prisma — parameterised
+await prisma.$queryRaw`SELECT * FROM users WHERE email = ${email}`;
 
-↓
+// Prisma — NOT parameterised, string is built before the driver sees it
+await prisma.$queryRawUnsafe(`SELECT * FROM users WHERE email = '${email}'`);
+```
 
-Least Privilege
+The tagged-template form (`$queryRaw`) parameterises. The `Unsafe` variants do
+not — the name is the warning.
 
-↓
+Equivalents to audit in review:
 
-Input Validation
+| ORM | Safe | Dangerous |
+| --- | --- | --- |
+| Prisma | `$queryRaw` (tagged) | `$queryRawUnsafe`, `$executeRawUnsafe` |
+| Sequelize | `replacements`, `bind` | `sequelize.query` with interpolation |
+| TypeORM | `.where("x = :v", { v })` | `.where(\`x = '${v}'\`)` |
+| Knex | `.where({ x })`, `knex.raw("?", [v])` | `knex.raw(\`... ${v}\`)` |
+| Django | `.filter()`, `params=` | `.extra()`, `RawSQL` with f-strings |
+| ActiveRecord | `where("x = ?", v)` | `where("x = #{v}")` |
 
-↓
+**Never** pass user input into `LIKE` without escaping the wildcards. `%` and `_`
+are pattern metacharacters, and an unescaped `%` turns a lookup into a full scan —
+a denial-of-service vector even when injection is prevented.
 
-Secure Database Design
-
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Database queries should remain deterministic regardless of user input.
-
----
-
-# SQL Injection Engineering Lifecycle
-
-Identify Input Sources
-
-↓
-
-Analyze Query Flow
-
-↓
-
-Protect Query Construction
-
-↓
-
-Validate Data
-
-↓
-
-Restrict Database Access
-
-↓
-
-Monitor Activity
-
-↓
-
-Review Security
-
-↓
-
-Continuously Improve
-
-Every database interaction should preserve the separation between instructions and data.
+```js
+const escaped = term.replace(/[\\%_]/g, (c) => "\\" + c);
+db.query("SELECT * FROM docs WHERE title LIKE $1 ESCAPE '\\'", [`%${escaped}%`]);
+```
 
 ---
 
-# Stage 1 — Input Analysis
+# Stored procedures and dynamic SQL
 
-Identify
+A stored procedure is only safe if it does not itself build SQL from its
+arguments.
 
-Forms
+```sql
+-- Vulnerable despite being "a stored procedure"
+CREATE PROCEDURE find_user(IN email VARCHAR(255))
+BEGIN
+  SET @q = CONCAT('SELECT * FROM users WHERE email = ''', email, '''');
+  PREPARE stmt FROM @q; EXECUTE stmt;
+END
+```
 
-↓
-
-API Requests
-
-↓
-
-Search Parameters
-
-↓
-
-Headers
-
-↓
-
-Cookies
-
-↓
-
-Uploaded Data
-
-↓
-
-Imported Files
-
-↓
-
-Third-Party Systems
-
-Every external value should be considered untrusted.
+Inside `EXECUTE`/`sp_executesql`/`EXECUTE IMMEDIATE`, bind parameters exactly as
+you would in application code. In PostgreSQL, use `format()` with `%L` (literal)
+or `%I` (identifier) — never `%s` — and prefer `USING` for values.
 
 ---
 
-# Stage 2 — Threat Analysis
+# Defence in depth
 
-Identify
+These do not replace parameterisation. They limit the damage when it fails.
 
-Classic SQL Injection
-
-↓
-
-Blind SQL Injection
-
-↓
-
-Time-Based Injection
-
-↓
-
-Union Injection
-
-↓
-
-Stored Injection
-
-↓
-
-Second-Order Injection
-
-↓
-
-Administrative Abuse
-
-↓
-
-Emerging Threats
-
-Understanding attack techniques strengthens database security.
+- **Least privilege.** The application role should not hold `DROP`, `CREATE`, or
+  `GRANT`. A read path should use a read-only role. Injection into a connection
+  that cannot write is a disclosure bug, not a destruction bug.
+- **Disable multi-statement execution** where the driver allows it. `mysql2`'s
+  `multipleStatements` defaults to `false`; keep it there. It converts
+  `'; DROP TABLE users; --` from catastrophic to a syntax error.
+- **Validate shape, then bind.** Rejecting a non-numeric `id` early is good
+  hygiene. It is not the control that stops injection — the bind is.
+- **Never expose raw database errors.** `ERROR: column "x" does not exist` is a
+  schema oracle. Log the detail server-side, return a generic message.
+- **Set statement timeouts** so a pathological injected query cannot hold
+  resources indefinitely.
 
 ---
 
-# Stage 3 — Data Flow Analysis
+# Anti-patterns
 
-Analyze
-
-Input Sources
-
-↓
-
-Validation
-
-↓
-
-Business Logic
-
-↓
-
-Database Layer
-
-↓
-
-ORM
-
-↓
-
-Stored Procedures
-
-↓
-
-Database Execution
-
-↓
-
-Returned Results
-
-Understanding data flow prevents query manipulation.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `"... WHERE id = " + id` | Input becomes query structure | Bind with `$1` / `?` |
+| Escaping with `replace("'", "''")` | Charset and context bypasses exist | Parameterise |
+| Blocking the word `UNION` | Trivially bypassed by casing, comments, encoding | Parameterise |
+| `$queryRawUnsafe` with a template literal | The unsafe variant does not bind | `$queryRaw` tagged template |
+| Regex allow-list for column names | Admits columns you did not mean to expose | Explicit map |
+| `LIKE '%' + term + '%'` | Unescaped `%` / `_`; scan-based DoS | Escape wildcards, use `ESCAPE` |
+| App connects as DB owner | Injection escalates to `DROP` | Least-privilege role |
+| Returning driver errors to the client | Leaks schema | Generic message, log server-side |
 
 ---
 
-# Stage 4 — Database Architecture
-
-Design
-
-Application Layer
-
-↓
-
-Database Layer
-
-↓
-
-Query Layer
-
-↓
-
-Permission Model
-
-↓
-
-Connection Management
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Future Expansion
-
-Architecture should isolate database execution from user input.
-
----
-
-# Stage 5 — Protection Strategy
-
-Define
-
-Parameterized Queries
-
-↓
-
-Prepared Statements
-
-↓
-
-Stored Procedures
-
-↓
-
-Input Validation
-
-↓
-
-Least Privilege
-
-↓
-
-Secure ORM Usage
-
-↓
-
-Query Reviews
-
-↓
-
-Operational Controls
-
-Protection should eliminate query manipulation opportunities.
-
----
-
-# Stage 6 — Database Protection
-
-Protect
-
-Application Accounts
-
-↓
-
-Database Credentials
-
-↓
-
-Queries
-
-↓
-
-Connections
-
-↓
-
-Transactions
-
-↓
-
-Schemas
-
-↓
-
-Sensitive Tables
-
-↓
-
-Operational Security
-
-Database permissions should minimize potential damage.
-
----
-
-# Stage 7 — Query Validation
-
-Validate
-
-Input Structure
-
-↓
-
-Expected Types
-
-↓
-
-Query Parameters
-
-↓
-
-Business Rules
-
-↓
-
-Permission Checks
-
-↓
-
-Database Constraints
-
-↓
-
-Execution Safety
-
-↓
-
-Engineering Quality
-
-Every database operation should be validated before execution.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Query Failures
-
-↓
-
-Rejected Requests
-
-↓
-
-Database Errors
-
-↓
-
-Permission Violations
-
-↓
-
-Unexpected Queries
-
-↓
-
-Audit Events
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Database security should remain measurable.
-
----
-
-# Stage 9 — Attack Detection
-
-Identify
-
-Injection Attempts
-
-↓
-
-Unexpected Queries
-
-↓
-
-Schema Enumeration
-
-↓
-
-Privilege Escalation
-
-↓
-
-Administrative Abuse
-
-↓
-
-Query Anomalies
-
-↓
-
-Automation
-
-↓
-
-Operational Threats
-
-Detection should identify attacks before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Database Boundaries
-
-↓
-
-Application Trust
-
-↓
-
-Permission Model
-
-↓
-
-Connection Security
-
-↓
-
-Query Lifecycle
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Database architecture should remain secure and understandable.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Queries
-
-↓
-
-Distributed Services
-
-↓
-
-Read Replicas
-
-↓
-
-Database Clusters
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Security should scale alongside database growth.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Query Reliability
-
-↓
-
-Database Availability
-
-↓
-
-Transaction Integrity
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Engineering Quality
-
-Reliable systems preserve database integrity.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Database Architecture
-
-↓
-
-Permission Model
-
-↓
-
-Query Standards
-
-↓
-
-Validation Rules
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves secure engineering practices.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Injection Risks
-
-↓
-
-Privilege Risks
-
-↓
-
-Configuration Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Technical Debt
-
-Database risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every database decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Query Safety
-
-↓
-
-Permission Model
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-SQL Injection defenses require continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Security Summary
-
-↓
-
-Threat Analysis
-
-↓
-
-Database Metrics
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen engineering maturity.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Configuration
-
-↓
-
-Database Accounts
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Audit Trails
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Database security should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Database Standards
-
-↓
-
-Security Reviews
-
-↓
-
-Query Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Database security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Query Safety
-
-↓
-
-Database Security
-
-↓
-
-Monitoring
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional SQL Injection prevention continuously strengthens query integrity while preserving maintainability, scalability, and operational simplicity.
-
----
-
-# SQL Injection Quality Attributes
-
-Evaluate
-
-Query Integrity
-
-Database Security
-
-Confidentiality
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Can any external input modify SQL query logic?
-
-↓
-
-Are database instructions always separated from user-controlled data?
-
-↓
-
-Does every database account operate with least privilege?
-
-↓
-
-Can database activity be monitored and audited effectively?
-
-↓
-
-Can injection attempts be detected before compromise?
-
-↓
-
-Will future engineers understand the database security architecture?
-
-↓
-
-Would experienced Security Engineers, Database Engineers, Principal Engineers, Database Architects, and Engineering Leadership confidently approve this SQL Injection protection strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Remote SQL Injection
-
-Database compromise
-
-Administrative database access
-
-Sensitive data disclosure
-
-Major
-
-Privilege escalation
-
-Weak database permissions
-
-Unsafe query construction
-
-Schema exposure
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# SQL Injection Checklist
-
-✓ Input sources identified
-
-✓ Threats analyzed
-
-✓ Data flow reviewed
-
-✓ Database architecture designed
-
-✓ Protection strategy selected
-
-✓ Database secured
-
-✓ Queries validated
-
-✓ Security measured
-
-✓ Attacks monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Dynamic SQL construction
-
-String concatenation for queries
-
-Trusting client validation
-
-Database administrator accounts for applications
-
-Excessive database privileges
-
-Ignoring ORM misuse
-
-Displaying raw database errors
-
-Missing query validation
-
-Sharing database credentials
-
-Ignoring audit logging
-
-Treating stored procedures as automatically secure
-
-Optimizing development speed over database security
-
----
-
-# Definition of Done
-
-A SQL Injection protection strategy is considered complete when
-
-- Input sources, database interactions, query construction mechanisms, permission models, database accounts, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every database operation preserves strict separation between executable SQL instructions and untrusted input while preventing query manipulation, privilege escalation, schema disclosure, unauthorized data access, and database compromise throughout the software lifecycle.
-- The database architecture supports scalable applications, distributed systems, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate query integrity, database permissions, architectural consistency, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains database architecture, trust boundaries, query construction standards, permission models, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, and future database security improvements.
-- SQL Injection prevention decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving database technologies, cloud platforms, distributed architectures, ORMs, and future software engineering environments.
-- The resulting application demonstrates engineering discipline, strong query integrity, resilient database security, predictable execution behavior, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional SQL Injection prevention is not measured by the number of filters implemented.
-
-It is measured by how consistently software prevents untrusted input from influencing database execution, preserves query integrity, protects sensitive data, minimizes attack opportunities, withstands evolving database threats, and continuously delivers secure, maintainable, and resilient database interactions throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: Every query sends values as bound parameters, not concatenated text
+- [ ] Verify: No template literal, `+`, `format()` or f-string builds SQL from input
+- [ ] Verify: Dynamic identifiers and sort direction come from an explicit allow-list map
+- [ ] Verify: No `Unsafe` ORM variant receives interpolated input
+- [ ] Verify: `LIKE` patterns escape `%` and `_` and declare `ESCAPE`
+- [ ] Verify: Stored procedures bind inside `EXECUTE`, never `CONCAT`
+- [ ] Verify: Application database role lacks `DROP`, `CREATE` and `GRANT`
+- [ ] Verify: Multi-statement execution is disabled in the driver
+- [ ] Verify: Database errors are logged server-side and never returned to clients
+- [ ] Verify: Statement timeouts are configured

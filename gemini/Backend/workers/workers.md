@@ -5,994 +5,225 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: workers
+category: Backend
+description: Worker processes — pool sizing, concurrency against downstream limits, graceful shutdown, isolation, and autoscaling on the right signal.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# email.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines how Gemini should design, implement, review, optimize, and maintain Email systems.
+Rules for the processes that consume queues and run background work. Job design
+is `Backend/background-jobs`; queue semantics are `Backend/queues`. This package
+covers the runtime: how many workers, how much concurrency, and how they start and
+stop.
 
-Email is not simply sending messages.
-
-Email is a reliable communication channel used for authentication, notifications, transactional workflows, business communication, compliance, and customer engagement.
-
-The objective is to build email systems that are reliable, secure, scalable, observable, compliant, and capable of delivering the right message to the right recipient at the right time.
-
-Emails are user communication.
-
-Treat them as part of the product experience.
+A worker is different from an API server in one way that drives everything: **it
+pulls its own load.** An overloaded API server sheds requests; an overloaded
+worker pool keeps pulling until something downstream breaks.
 
 ---
 
-# Core Philosophy
+# Concurrency is bounded by the narrowest downstream resource
 
-Trigger Event
+```
+worker replicas × per-worker concurrency  ≤  available capacity of the slowest dependency
+```
 
-↓
+Almost always the database connection pool:
 
-Validate Request
+```ts
+// 6 replicas × 8 concurrency = 48 concurrent handlers.
+// The pool must have ≥ 48 free connections, alongside the API's usage.
+new Worker("orders", handler, { connection, concurrency: 8 });
+```
 
-↓
+| Dependency | Limit to respect |
+| --- | --- |
+| Database | Pool size, and `max_connections` across all consumers → `Database/postgres` |
+| Partner API | Their published rate limit, not your throughput |
+| Object storage | Per-prefix request rate |
+| CPU-bound work | Physical cores; more concurrency only adds context switching |
+| Memory | Peak per handler × concurrency must fit the container limit |
 
-Generate Content
+Raising concurrency to clear a backlog usually makes it worse — the pool
+saturates, every query slows, and throughput falls. Measure before raising it.
 
-↓
-
-Queue Email
-
-↓
-
-Send Email
-
-↓
-
-Track Delivery
-
-↓
-
-Handle Failures
-
-↓
-
-Approve
-
-Email sending should never block business operations.
+For CPU-bound work in a single-threaded runtime, concurrency does nothing. Use
+worker threads or more replicas, and keep the event loop free.
 
 ---
 
-# Primary Objective
+# Graceful shutdown is not optional
 
-Every email system should answer one question.
+Every deploy, autoscale-down and node rotation sends `SIGTERM`. Without a handler,
+the process dies mid-job and relies on redelivery — which means duplicate work
+several times a day.
 
-"Can important emails be delivered reliably, securely, and observably without negatively affecting application performance or user experience?"
+```ts
+let shuttingDown = false;
+process.on("SIGTERM", async () => {
+  shuttingDown = true;
+  await worker.close();          // stop fetching, wait for in-flight handlers
+  await db.$disconnect();
+  process.exit(0);
+});
+```
 
-If the answer is uncertain,
-
-the email architecture requires improvement.
-
----
-
-# Email Principles
-
-Every implementation should maximize
-
-Reliability
-
-↓
-
-Deliverability
-
-↓
-
-Security
-
-↓
-
-Scalability
-
-↓
-
-Maintainability
-
-↓
-
-Observability
-
-↓
-
-Compliance
-
-↓
-
-Developer Experience
-
-Emails should reach users.
-
-Not spam folders.
+- Stop fetching new work **first**, then drain.
+- The platform's grace period must exceed the longest job timeout, or the drain is
+  killed halfway: `terminationGracePeriodSeconds` in Kubernetes, `stopTimeout` in
+  ECS. → `DevOps/deployment`
+- Long-running handlers should check a shutdown flag at checkpoints and stop
+  cleanly rather than being cut off.
+- After the grace period the runtime sends `SIGKILL`. Design so that is survivable
+  — at-least-once redelivery plus idempotent handlers.
 
 ---
 
-# Email Workflow
+# Isolate workloads
 
-Business Event
+One pool for everything means the slowest job type sets the latency for all of
+them.
 
-↓
+| Pool | Characteristics |
+| --- | --- |
+| Interactive | Emails, notifications — seconds, high volume, low memory |
+| Bulk | Exports, imports, reports — minutes, high memory |
+| External | Partner API calls — rate-limited, slow, retry-heavy |
+| Critical | Payments, provisioning — small, must not queue behind anything |
 
-Validate Recipient
+Separate pools give independent concurrency, independent scaling, independent
+failure, and stop a 40-minute export from delaying a password-reset email.
 
-↓
-
-Generate Email
-
-↓
-
-Queue Message
-
-↓
-
-Send Email
-
-↓
-
-Track Delivery
-
-↓
-
-Handle Failures
-
-↓
-
-Approve
+Run **untrusted or customer-supplied code** in a separate, network-restricted,
+resource-capped pool. → `Security/command-injection`
 
 ---
 
-# Stage 1 — Email Classification
+# Autoscale on the right signal
 
-Identify email categories.
+CPU is the wrong metric for a worker. A worker waiting on I/O has low CPU and a
+growing backlog — CPU-based autoscaling scales **down** exactly when it should
+scale up.
 
-Examples
+| Signal | Use |
+| --- | --- |
+| **Oldest message age** | Best. Directly expresses "are we keeping up?" |
+| Queue depth per worker | Good, and simple to reason about |
+| CPU | Only for genuinely CPU-bound pools |
 
-Account Verification
+```yaml
+# KEDA: scale on backlog, with a floor that keeps latency low for a quiet queue
+triggers:
+  - type: aws-sqs-queue
+    metadata: { queueURL: …, queueLength: "20" }
+minReplicaCount: 2
+maxReplicaCount: 40
+```
 
-↓
-
-Password Reset
-
-↓
-
-Magic Links
-
-↓
-
-Purchase Confirmation
-
-↓
-
-Invoice Delivery
-
-↓
-
-Security Alerts
-
-↓
-
-Welcome Emails
-
-↓
-
-Order Updates
-
-↓
-
-Marketing Campaigns
-
-↓
-
-Weekly Reports
-
-Transactional and marketing emails should remain independent.
+Cap `maxReplicaCount` at what the database and downstream partners can absorb —
+otherwise autoscaling turns a backlog into a downstream outage. Scale down slowly
+so a bursty queue does not thrash.
 
 ---
 
-# Stage 2 — Trigger Design
+# Health, restarts and failure
 
-Emails should be triggered by
-
-Business events
-
-↓
-
-User actions
-
-↓
-
-Scheduled jobs
-
-↓
-
-Administrative actions
-
-↓
-
-System events
-
-Avoid triggering emails directly from controllers whenever possible.
+- **Readiness**: can it reach the broker and the database?
+- **Liveness**: is the process wedged? Track a `last_progress_timestamp` updated
+  by the handler loop and fail liveness if it stalls beyond a threshold — an
+  always-`200` liveness endpoint never detects a stuck worker.
+- **Never** check dependencies in liveness. A database blip would restart the
+  entire pool mid-job. → `Backend/monitoring`
+- Set a memory limit and let the platform restart on OOM rather than degrading.
+  Investigate a repeating OOM as a leak or an unbounded batch.
+- A crash loop must not silently retry a poison message forever — bound attempts
+  and dead-letter it. → `Backend/queues`
 
 ---
 
-# Stage 3 — Recipient Validation
+# Configuration and observability
 
-Validate
+- Concurrency, pool size, timeouts and rate limits from environment variables, so
+  they can be tuned without a code change.
+- Validate configuration at startup and refuse to boot on a bad value.
+- Emit: `jobs_processed_total` by type and outcome, `job_duration_seconds`,
+  `worker_inflight_jobs`, `db_pool_in_use`, and `queue_oldest_message_seconds`
+  per queue.
+- `db_pool_in_use` sitting at `DB_POOL_SIZE` means every handler is queueing for a
+  connection — the symptom looks like a slow database and is actually
+  over-concurrency.
+- `worker_inflight_jobs` stuck below `WORKER_CONCURRENCY` while a backlog grows
+  means the broker fetch is the bottleneck, not the handler.
+- Log worker start and stop with the version and configuration in effect — during
+  an incident the first question is which build is running.
 
-Email format
+```bash
+WORKER_QUEUES=orders,receipts     # which pools this process serves
+WORKER_CONCURRENCY=8              # handlers in flight per process
+WORKER_JOB_TIMEOUT_MS=120000      # below the broker ack deadline
+WORKER_SHUTDOWN_TIMEOUT_MS=150000 # below terminationGracePeriodSeconds
+DB_POOL_SIZE=10                   # ≥ concurrency, with headroom
+OTEL_SERVICE_NAME=orders-worker
+```
 
-↓
-
-Verified account
-
-↓
-
-Subscription status
-
-↓
-
-Bounce history
-
-↓
-
-Suppression list
-
-↓
-
-Recipient permissions
-
-Never send to invalid recipients.
-
----
-
-# Stage 4 — Template Design
-
-Templates should be
-
-Reusable
-
-↓
-
-Responsive
-
-↓
-
-Accessible
-
-↓
-
-Versioned
-
-↓
-
-Localized
-
-↓
-
-Brand consistent
-
-↓
-
-Maintainable
-
-Business logic should never live inside templates.
+```yaml
+# The grace period must exceed the longest job, or the drain is cut off.
+spec:
+  terminationGracePeriodSeconds: 180
+  containers:
+    - name: worker
+      resources:
+        requests: { cpu: "500m", memory: "512Mi" }
+        limits:   { memory: "1Gi" }
+      livenessProbe:
+        exec: { command: ["node", "bin/healthcheck.js", "--stalled-after=300"] }
+```
 
 ---
 
-# Stage 5 — Personalization
+# Anti-patterns
 
-Support
-
-User name
-
-↓
-
-Organization
-
-↓
-
-Language
-
-↓
-
-Time zone
-
-↓
-
-Preferences
-
-↓
-
-Dynamic data
-
-Personalization should improve relevance without exposing sensitive information.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Concurrency set independently of the pool | Connection exhaustion; every query slows | Size against the narrowest dependency |
+| Raising concurrency to clear a backlog | Saturation reduces throughput | Measure; scale replicas instead |
+| High concurrency for CPU-bound work | Context switching only | Worker threads or more replicas |
+| No `SIGTERM` handler | Jobs cut off on every deploy | Drain then exit |
+| Grace period below the job timeout | Drain killed halfway | Grace period exceeds the longest job |
+| One pool for all job types | Slow jobs starve fast ones | Separate pools |
+| Untrusted code in the main pool | Escapes affect everything | Isolated, restricted pool |
+| Autoscaling on CPU | Scales down while the backlog grows | Oldest-message age or depth |
+| Unbounded max replicas | Autoscaling causes a downstream outage | Cap at downstream capacity |
+| Liveness checking dependencies | Mass restarts during a dependency blip | Process-local liveness |
+| Always-`200` liveness | A stuck worker is never restarted | Progress-timestamp check |
+| Concurrency hard-coded | Cannot tune without a deploy | Environment configuration |
+| No per-queue backlog metric | Backlogs discovered by customers | Alert on oldest-message age |
 
 ---
 
-# Stage 6 — Localization
-
-Support
-
-Multiple languages
-
-↓
-
-Regional formatting
-
-↓
-
-Currencies
-
-↓
-
-Dates
-
-↓
-
-Time zones
-
-↓
-
-Localized templates
-
-Global applications require localized communication.
-
----
-
-# Stage 7 — Email Generation
-
-Generate
-
-Subject
-
-↓
-
-Plain text version
-
-↓
-
-HTML version
-
-↓
-
-Attachments (when required)
-
-↓
-
-Tracking metadata
-
-↓
-
-Headers
-
-Every email should have a readable plain-text alternative.
-
----
-
-# Stage 8 — Attachments
-
-Review
-
-File type
-
-↓
-
-File size
-
-↓
-
-Virus scanning
-
-↓
-
-Access permissions
-
-↓
-
-Download expiration
-
-↓
-
-Compression
-
-Avoid unnecessary attachments.
-
-Prefer secure download links for large files.
-
----
-
-# Stage 9 — Queue Integration
-
-Email delivery should use
-
-Background jobs
-
-↓
-
-Queues
-
-↓
-
-Workers
-
-↓
-
-Retry policies
-
-↓
-
-Priority handling
-
-Never block HTTP requests while sending email.
-
----
-
-# Stage 10 — Deliverability
-
-Review
-
-SPF
-
-↓
-
-DKIM
-
-↓
-
-DMARC
-
-↓
-
-Sender reputation
-
-↓
-
-Bounce rate
-
-↓
-
-Spam score
-
-↓
-
-Domain alignment
-
-Deliverability is part of system reliability.
-
----
-
-# Stage 11 — Failure Handling
-
-Handle
-
-Temporary SMTP failures
-
-↓
-
-Provider outages
-
-↓
-
-Rate limiting
-
-↓
-
-Soft bounces
-
-↓
-
-Hard bounces
-
-↓
-
-Invalid recipients
-
-Every delivery failure should be observable.
-
----
-
-# Stage 12 — Retry Strategy
-
-Retry only transient failures.
-
-Implement
-
-Exponential backoff
-
-↓
-
-Retry limits
-
-↓
-
-Dead Letter Queue
-
-↓
-
-Alerting
-
-↓
-
-Manual replay
-
-Permanent failures should not be retried indefinitely.
-
----
-
-# Stage 13 — Security
-
-Review
-
-Encrypted transport
-
-↓
-
-Secret management
-
-↓
-
-Signed links
-
-↓
-
-One-time tokens
-
-↓
-
-Sensitive content
-
-↓
-
-Phishing resistance
-
-Security emails require the highest level of protection.
-
----
-
-# Stage 14 — Compliance
-
-Support
-
-Unsubscribe
-
-↓
-
-Consent management
-
-↓
-
-Data retention
-
-↓
-
-Privacy regulations
-
-↓
-
-Audit logging
-
-↓
-
-Legal requirements
-
-Compliance varies by jurisdiction and email category.
-
----
-
-# Stage 15 — Observability
-
-Monitor
-
-Delivery rate
-
-↓
-
-Open rate
-
-↓
-
-Click rate
-
-↓
-
-Bounce rate
-
-↓
-
-Complaint rate
-
-↓
-
-Queue latency
-
-↓
-
-Provider latency
-
-Every email should be traceable.
-
----
-
-# Stage 16 — Logging
-
-Log
-
-Email ID
-
-↓
-
-Recipient ID
-
-↓
-
-Template
-
-↓
-
-Provider
-
-↓
-
-Delivery status
-
-↓
-
-Retry count
-
-↓
-
-Failure reason
-
-Never log
-
-Passwords
-
-Reset tokens
-
-Secrets
-
-Sensitive email content
-
----
-
-# Stage 17 — Scalability
-
-Support
-
-Bulk sending
-
-↓
-
-Multiple providers
-
-↓
-
-Provider failover
-
-↓
-
-Regional delivery
-
-↓
-
-Horizontal workers
-
-↓
-
-Auto scaling
-
-Email infrastructure should scale independently of applications.
-
----
-
-# Stage 18 — Testing
-
-Verify
-
-Successful delivery
-
-↓
-
-Template rendering
-
-↓
-
-Localization
-
-↓
-
-Retry behavior
-
-↓
-
-Bounce handling
-
-↓
-
-Attachments
-
-↓
-
-Large campaigns
-
-↓
-
-Failure recovery
-
-Email systems require both functional and operational testing.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Email types
-
-↓
-
-Templates
-
-↓
-
-Trigger events
-
-↓
-
-Providers
-
-↓
-
-Retry policy
-
-↓
-
-Compliance rules
-
-↓
-
-Monitoring
-
-↓
-
-Recovery procedures
-
-Documentation should support both developers and operations teams.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Delivery metrics
-
-↓
-
-Bounce trends
-
-↓
-
-Template performance
-
-↓
-
-Infrastructure cost
-
-↓
-
-Provider reliability
-
-↓
-
-User feedback
-
-Email systems should improve continuously.
-
----
-
-# Email Quality Attributes
-
-Evaluate
-
-Reliability
-
-Deliverability
-
-Performance
-
-Scalability
-
-Security
-
-Compliance
-
-Observability
-
-Developer Experience
-
----
-
-# Email Questions
-
-Before approval ask
-
-Can important emails always be delivered?
-
-↓
-
-Can failed emails recover automatically?
-
-↓
-
-Can users receive localized content?
-
-↓
-
-Can delivery be fully observed?
-
-↓
-
-Can infrastructure scale during peak demand?
-
-↓
-
-Can compliance requirements be satisfied?
-
-↓
-
-Would another engineering team trust this email architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Lost transactional emails
-
-Password reset failure
-
-Verification email failure
-
-Sensitive information leakage
-
-Provider outage without recovery
-
-Major
-
-Poor deliverability
-
-Weak retry strategy
-
-Broken templates
-
-High bounce rate
-
-Missing monitoring
-
-Medium
-
-Localization improvements
-
-Performance optimization
-
-Template improvements
-
-Minor
-
-Formatting
-
-Brand consistency
-
-Operational enhancements
-
-Future optimization
-
----
-
-# Email Checklist
-
-✓ Email categories identified
-
-✓ Trigger events defined
-
-✓ Recipient validation implemented
-
-✓ Templates reusable
-
-✓ Localization supported
-
-✓ Plain-text version included
-
-✓ Queue integration implemented
-
-✓ Deliverability configured
-
-✓ Retry strategy implemented
-
-✓ Compliance reviewed
-
-✓ Logging enabled
-
-✓ Monitoring configured
-
-✓ Security validated
-
-✓ Testing completed
-
-✓ Documentation complete
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Sending emails inside HTTP requests
-
-Hardcoded email templates
-
-Business logic inside templates
-
-Sending to unverified recipients
-
-Ignoring SPF, DKIM, and DMARC
-
-Infinite retries
-
-Logging email secrets
-
-Large attachments without validation
-
-Ignoring unsubscribe preferences
-
-No plain-text alternative
-
-Provider-specific implementation throughout the codebase
-
-Ignoring bounce handling
-
-Treating transactional and marketing emails identically
-
----
-
-# Definition of Done
-
-Email system review is complete when
-
-- Transactional and marketing emails are clearly separated and independently managed.
-- Email generation is asynchronous and does not affect request-response performance.
-- Templates are reusable, localized, accessible, and version-controlled.
-- Deliverability is protected through proper authentication, reputation management, and monitoring.
-- Retry strategies recover from temporary failures without causing duplicate or excessive delivery.
-- Sensitive emails use secure links, encrypted transport, and minimal exposure of confidential information.
-- Logging and monitoring provide complete visibility into delivery, failures, and provider performance.
-- Compliance requirements for consent, privacy, retention, and unsubscribe management are satisfied.
-- Documentation explains email workflows, templates, providers, retries, and operational procedures.
-- The email system continues delivering reliable communication despite provider outages, traffic spikes, infrastructure failures, or increasing business scale.
-
-Exceptional email systems are nearly invisible.
-
-Users receive timely, secure, and relevant communication, transactional messages arrive reliably, marketing campaigns remain compliant, operators have complete visibility into delivery health, and the platform communicates with confidence regardless of scale or infrastructure conditions.
+# Checklist
+
+- [ ] Verify: Total concurrency is sized against the narrowest downstream resource
+- [ ] Verify: Database pool capacity accounts for both API and worker usage
+- [ ] Verify: CPU-bound work uses threads or replicas rather than async concurrency
+- [ ] Verify: Peak memory per handler × concurrency fits the container limit
+- [ ] Verify: `SIGTERM` stops fetching, drains in-flight work, then exits
+- [ ] Verify: The platform grace period exceeds the longest job timeout
+- [ ] Verify: Long handlers check a shutdown flag at checkpoints
+- [ ] Verify: Handlers are idempotent so a `SIGKILL` is survivable
+- [ ] Verify: Workloads are separated into pools by shape and criticality
+- [ ] Verify: Untrusted work runs in an isolated, network-restricted pool
+- [ ] Verify: Autoscaling uses backlog age or depth, not CPU
+- [ ] Verify: Maximum replicas are capped at downstream capacity
+- [ ] Verify: Liveness detects a stalled handler loop and checks no dependencies
+- [ ] Verify: Memory limits are set and repeated OOMs are investigated
+- [ ] Verify: Concurrency and timeouts are environment-configurable and validated at boot
+- [ ] Verify: Throughput, duration, in-flight count and backlog age are all emitted

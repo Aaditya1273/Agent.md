@@ -5,1143 +5,183 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: server-components
+category: Frontend
+description: React Server Components — what runs where, the serialisation boundary, data fetching without waterfalls, and keeping secrets off the client.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# server-components.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural boundaries, rendering strategies, data ownership rules, security guidelines, and long-term best practices for building production-grade applications using React Server Components.
+Rules for React Server Components. The model: components render on the server by
+default, ship no JavaScript, and can read data directly. Interactivity opts in
+with `"use client"`.
 
-It applies to
+The two things worth internalising: **the boundary is a security boundary**, and
+**everything crossing it is serialised into the HTML**.
 
-- Next.js Applications
-- Enterprise Platforms
-- SaaS Products
-- AI Applications
-- E-Commerce Systems
-- Dashboards
-- Internal Tools
-- Documentation Platforms
-- Production Web Applications
-
-Server Components are not server-side rendered React components.
-
-They are architectural execution units that render on the server, own server-side responsibilities, minimize client-side JavaScript, and establish clear separation between server logic and browser interaction.
-
-Client Components handle interaction.
-
-Server Components own computation.
+Client-component specifics are `Frontend/client-components`; framework wiring is
+`Backend/nextjs`.
 
 ---
 
-# Core Philosophy
+# What belongs where
 
-Understand Requirements
+| Server component | Client component |
+| --- | --- |
+| Data fetching, database access | `useState`, `useReducer`, `useEffect` |
+| Secrets and API keys | Event handlers (`onClick`, `onChange`) |
+| Large dependencies (markdown, syntax highlighting) | Browser APIs (`window`, `localStorage`) |
+| Static content and layout | Animation, focus, scroll |
+| Authorization decisions | Anything needing interactivity |
 
-↓
+Default to a server component. Push `"use client"` **down** the tree, to the
+smallest interactive leaf:
 
-Determine Execution Location
+```tsx
+// Bad: the whole page becomes a client component, and every child ships to the browser
+"use client";
+export default function ProductPage() { … }
 
-↓
+// Good: the page stays on the server; only the button is interactive
+export default async function ProductPage({ id }) {
+  const product = await db.product.findUnique({ where: { id } });   // server-only
+  return (<article><h1>{product.name}</h1><AddToCart id={product.id} /></article>);
+}
+```
 
-Design Server Boundaries
-
-↓
-
-Fetch Data
-
-↓
-
-Render UI
-
-↓
-
-Stream Responses
-
-↓
-
-Optimize Performance
-
-↓
-
-Continuously Improve
-
-Every responsibility should execute in the environment where it is most efficient and secure.
+`"use client"` marks an **entry point**, not a single file: everything it imports
+also ends up in the bundle. One `"use client"` at the top of a layout ships the
+entire tree below it.
 
 ---
 
-# Primary Objective
+# The boundary is a security boundary
 
-Every Server Component architecture should maximize
+```ts
+// lib/db.ts
+import "server-only";        // importing this from a client component fails the build
+export const db = new PrismaClient();
+```
 
-Performance
+- Mark every module holding secrets, database access or internal service calls
+  with `server-only`. It converts a silent leak into a build error.
+- **Props passed to a client component are serialised into the HTML** and visible
+  in view-source. Passing a whole user record sends the password hash to the
+  browser.
 
-+
+```tsx
+// Leaks every column, including internal flags and hashes
+<Profile user={user} />
 
-Security
+// Explicit projection
+<Profile user={{ id: user.id, name: user.name, avatarUrl: user.avatarUrl }} />
+```
 
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Predictability
-
-+
-
-Developer Experience
-
-+
-
-Resource Efficiency
-
-+
-
-Long-Term Sustainability
-
-Server execution should reduce client complexity rather than increase server complexity.
+- Only serialisable values cross: primitives, plain objects, arrays, `Date`, `Map`,
+  `Set`, and Server Action references. Functions, class instances and `Symbol`s do
+  not — a Prisma model with methods will fail or silently lose them.
+- Authorization is enforced on the server, in the component or the data layer.
+  A client component conditionally rendering nothing still received the data.
+  → `Backend/authorization`
 
 ---
 
-# Engineering Principles
+# Fetch without waterfalls
 
-Always prioritize
+Server components can `await` directly, which removes the client-side
+fetch-on-render waterfall. It also makes it easy to create a **server-side**
+waterfall by awaiting sequentially.
 
-Server Execution
+```tsx
+// Sequential — 300ms + 400ms
+const user = await getUser(id);
+const orders = await getOrders(id);
 
-↓
+// Parallel — max(300ms, 400ms)
+const [user, orders] = await Promise.all([getUser(id), getOrders(id)]);
+```
 
-Minimal Client JavaScript
+- Start independent requests together.
+- Fetch **where the data is used**, not high in the tree and drilled down.
+  React deduplicates identical `fetch` calls within a render pass, so two
+  components asking for the same thing cost one request.
+- Stream slow sections with `<Suspense>` so the fast part of the page appears
+  immediately:
 
-↓
+```tsx
+<Suspense fallback={<OrdersSkeleton />}>
+  <Orders userId={id} />       {/* the rest of the page does not wait */}
+</Suspense>
+```
 
-Secure Data Access
-
-↓
-
-Component Composition
-
-↓
-
-Streaming
-
-↓
-
-Caching
-
-↓
-
-Performance
-
-↓
-
-Continuous Improvement
-
-Move work to the server whenever browser execution is unnecessary.
+- Provide a real skeleton with the same dimensions as the content, or streaming
+  trades a slow page for a shifting one. → `Frontend/performance`
 
 ---
 
-# Server Component Lifecycle
+# Composition across the boundary
 
-Understand Requirements
+A client component cannot import a server component — but it can **render one
+passed as `children`**:
 
-↓
+```tsx
+// Server component page
+<ClientTabs>
+  <ServerRenderedPanel />     {/* stays on the server; only its output crosses */}
+</ClientTabs>
+```
 
-Identify Server Responsibilities
+This is the pattern that keeps a heavy dependency out of the bundle while still
+using an interactive shell around it. Use it before restructuring the tree.
 
-↓
+Other rules:
 
-Design Component Boundaries
-
-↓
-
-Fetch Data
-
-↓
-
-Render Output
-
-↓
-
-Stream Content
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Architecture should define execution boundaries before implementation.
+- A server component cannot use hooks, state, effects, or browser APIs. If you
+  need one, you need a client component.
+- Context providers must be client components, but they can wrap server-rendered
+  `children`.
+- Server components re-render on navigation and revalidation, not on interaction.
+  Anything that must change on click belongs in a client component.
 
 ---
 
-# Stage 1 — Responsibility Analysis
+# Anti-patterns
 
-Identify
-
-Business Logic
-
-↓
-
-Rendering Requirements
-
-↓
-
-Authentication
-
-↓
-
-Database Access
-
-↓
-
-External APIs
-
-↓
-
-Caching
-
-↓
-
-Performance Goals
-
-↓
-
-Future Evolution
-
-Every responsibility should execute in its natural environment.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `"use client"` at the top of a page or layout | The entire subtree ships to the browser | Push it to interactive leaves |
+| Secret module imported by a client component | The secret is in the bundle | `server-only` |
+| Passing a whole database row as a prop | Serialised into the HTML | Explicit projection |
+| Passing a function or class instance | Not serialisable; fails or silently degrades | Plain data, or a Server Action |
+| Sequential independent `await`s | Server-side waterfall | `Promise.all` |
+| Fetching high and prop-drilling | Couples the tree; blocks streaming | Fetch where used |
+| No `<Suspense>` around slow sections | The whole page waits for the slowest query | Stream with boundaries |
+| Skeletons of the wrong size | Streaming causes layout shift | Match the content dimensions |
+| Hiding data with a client-side condition | The data still reached the browser | Authorize on the server |
+| Hooks in a server component | Not supported | Client component |
+| Duplicating a fetch instead of relying on dedup | Extra load for no reason | Let React deduplicate |
+| Restructuring instead of `children` composition | Heavy dependencies pushed to the client | Pass server output as `children` |
 
 ---
 
-# Stage 2 — Execution Boundaries
-
-Separate
-
-Server Responsibilities
-
-↓
-
-Client Responsibilities
-
-↓
-
-Shared Components
-
-↓
-
-Rendering Logic
-
-↓
-
-Interactions
-
-↓
-
-Data Ownership
-
-↓
-
-Security
-
-↓
-
-Architecture
-
-Server execution should remain explicit.
-
----
-
-# Stage 3 — Data Ownership
-
-Assign
-
-Database Access
-
-↓
-
-External APIs
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Business Logic
-
-↓
-
-Transformations
-
-↓
-
-Caching
-
-↓
-
-Consistency
-
-Sensitive data should remain on the server.
-
----
-
-# Stage 4 — Rendering Strategy
-
-Choose
-
-Static Rendering
-
-↓
-
-Dynamic Rendering
-
-↓
-
-Streaming
-
-↓
-
-Incremental Updates
-
-↓
-
-Partial Rendering
-
-↓
-
-Nested Components
-
-↓
-
-Progressive Delivery
-
-↓
-
-User Experience
-
-Rendering should prioritize responsiveness.
-
----
-
-# Stage 5 — Component Composition
-
-Compose
-
-Server Components
-
-↓
-
-Shared Components
-
-↓
-
-Client Components
-
-↓
-
-Layouts
-
-↓
-
-Templates
-
-↓
-
-Nested Trees
-
-↓
-
-Reusable Patterns
-
-↓
-
-Maintainability
-
-Composition should minimize unnecessary client execution.
-
----
-
-# Stage 6 — Data Fetching
-
-Design
-
-Server Fetching
-
-↓
-
-Parallel Fetching
-
-↓
-
-Caching
-
-↓
-
-Revalidation
-
-↓
-
-Streaming
-
-↓
-
-Error Recovery
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-Data should be fetched as close to its source as possible.
-
----
-
-# Stage 7 — Security
-
-Protect
-
-Secrets
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Database Queries
-
-↓
-
-Environment Variables
-
-↓
-
-Business Rules
-
-↓
-
-Sensitive Logic
-
-↓
-
-Operational Integrity
-
-Security boundaries belong on the server.
-
----
-
-# Stage 8 — Caching
-
-Manage
-
-Static Data
-
-↓
-
-Dynamic Data
-
-↓
-
-Revalidation
-
-↓
-
-Request Deduplication
-
-↓
-
-Cache Invalidation
-
-↓
-
-Performance
-
-↓
-
-Freshness
-
-↓
-
-Scalability
-
-Caching strategy should match data volatility.
-
----
-
-# Stage 9 — Streaming
-
-Optimize
-
-Progressive Rendering
-
-↓
-
-Loading States
-
-↓
-
-Nested Streaming
-
-↓
-
-Suspense Boundaries
-
-↓
-
-Latency Reduction
-
-↓
-
-User Experience
-
-↓
-
-Resource Usage
-
-↓
-
-Operational Efficiency
-
-Deliver useful content as early as possible.
-
----
-
-# Stage 10 — Performance
-
-Optimize
-
-Server Execution
-
-↓
-
-Database Queries
-
-↓
-
-Rendering Time
-
-↓
-
-Network Requests
-
-↓
-
-Caching
-
-↓
-
-Payload Size
-
-↓
-
-Resource Usage
-
-↓
-
-Infrastructure Cost
-
-Performance begins with architectural decisions.
-
----
-
-# Stage 11 — Error Handling
-
-Handle
-
-Database Failures
-
-↓
-
-API Failures
-
-↓
-
-Rendering Errors
-
-↓
-
-Authentication Failures
-
-↓
-
-Fallback UI
-
-↓
-
-Recovery
-
-↓
-
-Logging
-
-↓
-
-Observability
-
-Server failures should degrade gracefully.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Feature Modules
-
-↓
-
-Server Components
-
-↓
-
-Shared Components
-
-↓
-
-Utilities
-
-↓
-
-Services
-
-↓
-
-Data Access
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-Organization should reinforce architectural boundaries.
-
----
-
-# Stage 13 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-Growing Traffic
-
-↓
-
-Independent Modules
-
-↓
-
-Distributed Systems
-
-↓
-
-Caching Layers
-
-↓
-
-Regional Deployment
-
-↓
-
-Future Evolution
-
-Architecture should support growth without restructuring.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Execution Boundaries
-
-↓
-
-Rendering Decisions
-
-↓
-
-Caching Strategy
-
-↓
-
-Data Ownership
-
-↓
-
-Security Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Known Constraints
-
-↓
-
-Future Improvements
-
-Documentation preserves architectural intent.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Execution Boundaries
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Caching
-
-↓
-
-Maintainability
-
-↓
-
-Composition
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-Review architecture before reviewing implementation.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Leaked Secrets
-
-↓
-
-Incorrect Execution
-
-↓
-
-Performance Bottlenecks
-
-↓
-
-Caching Problems
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Operational Risk
-
-↓
-
-Maintenance Cost
-
-Poor boundaries increase long-term complexity.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Server Architecture
-
-↓
-
-Rendering
-
-↓
-
-Caching
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Optimization should preserve architectural simplicity.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Security
-
-↓
-
-Rendering
-
-↓
-
-Caching
-
-↓
-
-Performance
-
-↓
-
-Streaming
-
-↓
-
-Error Recovery
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Reliable server execution enables reliable applications.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Architecture Standards
-
-↓
-
-Review Process
-
-↓
-
-Security Standards
-
-↓
-
-Caching Rules
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Engineering Discipline
-
-↓
-
-Continuous Evolution
-
-Server architecture requires governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Execution Boundaries
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-Software Longevity
-
-Exceptional Server Component architectures remain efficient regardless of application scale.
-
----
-
-# Server Components Quality Attributes
-
-Evaluate
-
-Performance
-
-Security
-
-Maintainability
-
-Scalability
-
-Predictability
-
-Resource Efficiency
-
-Developer Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does this responsibility belong on the server?
-
-↓
-
-Can sensitive logic remain completely server-side?
-
-↓
-
-Is unnecessary client-side JavaScript eliminated?
-
-↓
-
-Does caching reflect data volatility?
-
-↓
-
-Can rendering begin before all data is available?
-
-↓
-
-Will future engineers understand these execution boundaries?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Sensitive logic exposed to the client
-
-Security boundary violations
-
-Broken rendering architecture
-
-Server/client responsibility confusion
-
-Major
-
-Poor execution boundaries
-
-Caching inconsistencies
-
-Performance bottlenecks
-
-Duplicated business logic
-
-Medium
-
-Weak organization
-
-Naming inconsistencies
-
-Documentation gaps
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Server Components Checklist
-
-✓ Responsibilities identified
-
-✓ Execution boundaries defined
-
-✓ Data ownership established
-
-✓ Rendering strategy selected
-
-✓ Component composition designed
-
-✓ Data fetching optimized
-
-✓ Security validated
-
-✓ Caching strategy implemented
-
-✓ Streaming configured
-
-✓ Performance reviewed
-
-✓ Error handling completed
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using Server Components for browser interactions
-
-Fetching sensitive data in Client Components
-
-Duplicating business logic
-
-Ignoring caching strategy
-
-Large monolithic Server Components
-
-Mixing server and client responsibilities
-
-Leaking environment variables
-
-Moving unnecessary logic to the browser
-
-Ignoring streaming opportunities
-
-Over-fetching data
-
-Treating Server Components as traditional SSR
-
-Ignoring execution boundaries
-
-Optimizing implementation before architecture
-
----
-
-# Definition of Done
-
-A Server Component architecture is considered production-ready when
-
-- Every component executes on the server only when its responsibilities require secure data access, server-side computation, rendering optimization, or infrastructure integration that should never be exposed to the browser.
-- Server Components, Client Components, rendering strategies, data fetching, caching policies, streaming behavior, and security boundaries work together as a cohesive architecture that minimizes client-side JavaScript while maximizing performance and maintainability.
-- Business logic, authentication, authorization, database access, external service integration, environment variables, and sensitive operations remain fully isolated within trusted server execution boundaries.
-- Rendering pipelines progressively deliver meaningful user interfaces through efficient streaming, predictable caching, optimized data fetching, and resilient error recovery while preserving responsive user experiences.
-- Engineering reviews validate execution boundaries, security posture, rendering correctness, caching strategies, architectural consistency, documentation quality, scalability, and operational readiness before production deployment.
-- Documentation preserves execution philosophy through clearly defined responsibilities, rendering decisions, architectural trade-offs, caching models, known constraints, and future evolution strategies.
-- The resulting architecture demonstrates engineering discipline, architectural clarity, operational reliability, maintainability, scalability, security, and long-term software sustainability.
-
-Exceptional Server Component architectures are not defined by how much rendering occurs on the server.
-
-They are defined by how intentionally responsibilities are assigned to the correct execution environment, how effectively client-side complexity is eliminated, how securely sensitive operations remain isolated, and how confidently future engineers can evolve the system while preserving architectural integrity.environments.md
+# Checklist
+
+- [ ] Verify: Components are server components by default
+- [ ] Verify: `"use client"` appears at the smallest interactive leaves, not at layouts
+- [ ] Verify: Every server-only module is marked with `server-only`
+- [ ] Verify: No secret, database client or internal service is reachable from client code
+- [ ] Verify: Props crossing to client components are explicitly projected
+- [ ] Verify: Only serialisable values cross the boundary
+- [ ] Verify: Authorization is enforced on the server, not by conditional rendering
+- [ ] Verify: Independent data fetches run in parallel
+- [ ] Verify: Data is fetched where it is used, relying on request deduplication
+- [ ] Verify: Slow sections are wrapped in `<Suspense>` with correctly sized fallbacks
+- [ ] Verify: Server content is passed to interactive shells as `children`
+- [ ] Verify: No hooks, state or browser APIs appear in server components

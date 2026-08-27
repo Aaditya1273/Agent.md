@@ -5,1146 +5,204 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: react
+category: Frontend
+description: React component rules — state placement, effects that are actually necessary, keys and identity, memoisation on evidence, and rendering untrusted content.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# react.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural patterns, development standards, lifecycle expectations, and long-term best practices for building React applications.
+Rules for writing React components. Most React bugs are not rendering bugs — they
+are **state-modelling bugs**: state that should have been derived, state
+duplicated in two places, or an effect synchronising something that did not need
+synchronising.
 
-It applies to
-
-- Single Page Applications
-- Enterprise Frontends
-- SaaS Platforms
-- Dashboards
-- Design Systems
-- Component Libraries
-- AI Applications
-- Internal Tools
-- Production Web Applications
-
-React is not a collection of components.
-
-React is a system for building predictable, maintainable, scalable user interfaces through composition, state management, and unidirectional data flow.
-
-Components implement behavior.
-
-Architecture determines maintainability.
+Hooks discipline is `Frontend/hooks`; global state is
+`Frontend/state-management`.
 
 ---
 
-# Core Philosophy
+# Derive, do not store
 
-Understand Requirements
+```tsx
+// Two sources of truth — they will diverge
+const [items, setItems] = useState([]);
+const [total, setTotal] = useState(0);          // must be updated everywhere items is
 
-↓
+// One source. `total` cannot be stale by construction.
+const [items, setItems] = useState([]);
+const total = items.reduce((s, i) => s + i.priceCents * i.qty, 0);
+```
 
-Design Components
+Before adding state, ask whether it can be computed from props, existing state, or
+the URL. Only add `useMemo` if that computation is measurably expensive.
 
-↓
+Keep state at the **lowest common owner** of the components that read it. Lifting
+state higher than necessary re-renders subtrees that do not care.
 
-Define State
+Model impossible states out of existence:
 
-↓
+```tsx
+// Permits { loading: true, error: Error, data: Data } — meaningless
+const [loading, setLoading] = useState(false);
+const [error, setError] = useState(null);
+const [data, setData] = useState(null);
 
-Compose UI
-
-↓
-
-Handle Events
-
-↓
-
-Optimize Rendering
-
-↓
-
-Validate Behavior
-
-↓
-
-Continuously Improve
-
-Good React applications are built from reusable systems rather than isolated components.
+// One value; illegal combinations cannot be represented
+type State =
+  | { status: "idle" } | { status: "loading" }
+  | { status: "error"; error: Error } | { status: "success"; data: Data };
+```
 
 ---
 
-# Primary Objective
+# Most effects are unnecessary
 
-Every React application should maximize
+`useEffect` synchronises with something **outside** React: the DOM, a
+subscription, a timer, an analytics SDK. It is not a general-purpose "run this
+after render" hook.
 
-Clarity
+| Instead of an effect | Do this |
+| --- | --- |
+| Computing derived data | Calculate during render |
+| Resetting state when a prop changes | Change the `key` so React remounts |
+| Handling a user action | Do it in the event handler |
+| Fetching data | Use a data library or a framework loader |
+| Syncing two pieces of state | Remove one of them |
 
-+
+```tsx
+// Effect chain: renders twice, and the intermediate state is visible
+useEffect(() => { setFullName(`${first} ${last}`); }, [first, last]);
 
-Maintainability
+// Just compute it
+const fullName = `${first} ${last}`;
+```
 
-+
+When you do use an effect: include **every** referenced value in the dependency
+array, return a cleanup function, and handle the fact that it may run twice in
+development Strict Mode — which is a bug detector, not a bug.
 
-Reusability
-
-+
-
-Predictability
-
-+
-
-Performance
-
-+
-
-Accessibility
-
-+
-
-Scalability
-
-+
-
-Long-Term Sustainability
-
-The UI should remain understandable as the application grows.
+Fetching in `useEffect` is where race conditions live: two requests, the slower
+one resolving last and overwriting fresh data. Use an `AbortController` and ignore
+stale results, or use a library that already does. → `Frontend/hooks`
 
 ---
 
-# Engineering Principles
+# Keys are identity, not position
 
-Always prioritize
+```tsx
+// Index keys: deleting the first item makes React reuse the wrong DOM node.
+// Input values, focus and scroll position follow the index, not the item.
+{items.map((item, i) => <Row key={i} item={item} />)}
 
-Composition
+// Stable identity
+{items.map((item) => <Row key={item.id} item={item} />)}
+```
 
-↓
+Index keys are safe **only** for a list that is never reordered, filtered, or
+prepended to. Since that is rarely guaranteed, use the id.
 
-Single Responsibility
-
-↓
-
-Predictable State
-
-↓
-
-Reusable Components
-
-↓
-
-Explicit Data Flow
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Continuous Improvement
-
-Every component should solve exactly one responsibility.
+The same mechanism is a feature: changing the `key` on a component discards its
+state and remounts it — the correct way to reset a form when the selected record
+changes.
 
 ---
 
-# React Development Lifecycle
+# Memoise on evidence
 
-Understand Requirements
+`memo`, `useMemo` and `useCallback` are not free: they add allocation, comparison
+cost and code that must stay correct.
 
-↓
+- Profile first with the React DevTools Profiler. Optimise the component that
+  actually shows up.
+- The React Compiler handles most memoisation automatically. If it is enabled,
+  manual memoisation is usually noise.
+- `useMemo` for a genuinely expensive computation or a referentially-stable value
+  passed to a memoised child — not for `{a: 1}`.
+- Composition often beats memoisation: passing `children` through means the parent
+  re-rendering does not re-render them.
 
-Design Component Hierarchy
-
-↓
-
-Define State Ownership
-
-↓
-
-Build Components
-
-↓
-
-Compose Features
-
-↓
-
-Optimize Rendering
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Architecture should evolve before implementation.
+**Never** memoise to fix an infinite loop. That is a dependency bug; fix the
+dependency.
 
 ---
 
-# Stage 1 — Requirements Analysis
+# Rendering untrusted content
 
-Understand
+```tsx
+// React escapes this automatically — safe
+<div>{userComment}</div>
 
-Business Goals
+// This bypasses every protection React gives you
+<div dangerouslySetInnerHTML={{ __html: userComment }} />
+```
 
-↓
+If you must render HTML, sanitise it with `DOMPurify` on a strict allowlist,
+server-side where possible.
 
-User Workflows
-
-↓
-
-Interaction Patterns
-
-↓
-
-Data Requirements
-
-↓
-
-Accessibility Needs
-
-↓
-
-Performance Expectations
-
-↓
-
-Scalability Goals
-
-↓
-
-Future Evolution
-
-Components should solve user problems rather than mirror visual designs.
+Also unsafe: `href={userUrl}` permits `javascript:` — validate the scheme.
+`<script src={userValue}>` and `style={{ background: userValue }}` are equally
+injectable. → `Security/xss`
 
 ---
 
-# Stage 2 — Component Architecture
+# Accessibility is not optional
 
-Design
-
-Component Hierarchy
-
-↓
-
-Responsibility Boundaries
-
-↓
-
-Composition Strategy
-
-↓
-
-Shared Components
-
-↓
-
-Reusable Patterns
-
-↓
-
-Feature Isolation
-
-↓
-
-Dependency Direction
-
-↓
-
-Long-Term Maintainability
-
-Prefer composition over inheritance.
+- Semantic elements first: `<button>`, `<a href>`, `<nav>`, `<main>`. A `<div
+  onClick>` is not keyboard-reachable and is invisible to a screen reader.
+- Every input has a `<label>` associated by `htmlFor`.
+- Focus must be visible and managed: on route change, on modal open, and returned
+  on close.
+- ARIA is a last resort. A correct native element needs none.
+- Images have `alt`; decorative images have `alt=""`.
+- Test with a keyboard only, and run `axe` in CI. → `Testing/accessibility`
 
 ---
 
-# Stage 3 — State Architecture
+# Anti-patterns
 
-Identify
-
-Local State
-
-↓
-
-Shared State
-
-↓
-
-Derived State
-
-↓
-
-Server State
-
-↓
-
-UI State
-
-↓
-
-Ownership
-
-↓
-
-Synchronization
-
-↓
-
-Predictability
-
-State should exist in the lowest reasonable location.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| State duplicating derived data | Two sources of truth diverge | Compute during render |
+| Boolean flags for a state machine | Permits impossible combinations | A discriminated union |
+| State lifted too high | Re-renders unrelated subtrees | Lowest common owner |
+| Effect to compute derived state | Extra render; visible intermediate state | Compute during render |
+| Effect to reset state on prop change | Runs after paint; flashes | Change the `key` |
+| Fetching in an effect without cleanup | Race conditions overwrite fresh data | `AbortController` or a data library |
+| Missing effect dependencies | Stale closures capture old values | Exhaustive deps lint rule |
+| Index as key | Wrong DOM reused; input state follows position | Stable id |
+| Memoising everything | Cost with no measured benefit | Profile first |
+| Memoising to stop a loop | Hides a dependency bug | Fix the dependency |
+| Mutating state directly | React does not re-render | Replace, never mutate |
+| `dangerouslySetInnerHTML` with user content | XSS | Sanitise on an allowlist |
+| Unvalidated `href` from input | `javascript:` execution | Validate the scheme |
+| `<div onClick>` | Not keyboard or screen-reader accessible | `<button>` |
+| Business logic inside components | Untestable without rendering | Extract to functions |
 
 ---
 
-# Stage 4 — Component Design
-
-Ensure
-
-Single Responsibility
-
-↓
-
-Clear Inputs
-
-↓
-
-Predictable Outputs
-
-↓
-
-Minimal Dependencies
-
-↓
-
-Explicit Interfaces
-
-↓
-
-Reusable Behavior
-
-↓
-
-Consistent Naming
-
-↓
-
-Maintainability
-
-Small components are easier to understand and evolve.
-
----
-
-# Stage 5 — Data Flow
-
-Maintain
-
-Top-Down Flow
-
-↓
-
-Explicit Props
-
-↓
-
-Controlled Updates
-
-↓
-
-Derived Values
-
-↓
-
-Minimal Mutation
-
-↓
-
-Stable References
-
-↓
-
-Predictable Rendering
-
-↓
-
-Consistent Behavior
-
-Data should always move in predictable directions.
-
----
-
-# Stage 6 — Hooks
-
-Use hooks to
-
-Share Logic
-
-↓
-
-Manage Lifecycle
-
-↓
-
-Synchronize Effects
-
-↓
-
-Handle State
-
-↓
-
-Access Context
-
-↓
-
-Integrate APIs
-
-↓
-
-Improve Reusability
-
-↓
-
-Reduce Duplication
-
-Hooks should encapsulate behavior rather than UI.
-
----
-
-# Stage 7 — Side Effects
-
-Manage
-
-API Calls
-
-↓
-
-Subscriptions
-
-↓
-
-Timers
-
-↓
-
-Browser APIs
-
-↓
-
-Storage
-
-↓
-
-Cleanup
-
-↓
-
-Synchronization
-
-↓
-
-Error Handling
-
-Every effect should have a clearly defined lifecycle.
-
----
-
-# Stage 8 — Rendering Strategy
-
-Optimize
-
-Component Boundaries
-
-↓
-
-Conditional Rendering
-
-↓
-
-List Rendering
-
-↓
-
-Stable Keys
-
-↓
-
-Memoization
-
-↓
-
-Lazy Loading
-
-↓
-
-Suspense
-
-↓
-
-User Experience
-
-Rendering should prioritize correctness before optimization.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Rendering Frequency
-
-↓
-
-Bundle Size
-
-↓
-
-State Updates
-
-↓
-
-Memoization
-
-↓
-
-Network Requests
-
-↓
-
-Images
-
-↓
-
-Assets
-
-↓
-
-Runtime Efficiency
-
-Measure before optimizing.
-
----
-
-# Stage 10 — Accessibility
-
-Ensure
-
-Semantic HTML
-
-↓
-
-Keyboard Navigation
-
-↓
-
-Screen Reader Support
-
-↓
-
-Color Contrast
-
-↓
-
-Focus Management
-
-↓
-
-ARIA Usage
-
-↓
-
-Error Feedback
-
-↓
-
-Inclusive Design
-
-Accessibility is a core engineering requirement.
-
----
-
-# Stage 11 — Error Handling
-
-Handle
-
-Rendering Errors
-
-↓
-
-Validation Errors
-
-↓
-
-Network Failures
-
-↓
-
-Unexpected States
-
-↓
-
-Fallback UI
-
-↓
-
-Recovery
-
-↓
-
-Logging
-
-↓
-
-User Guidance
-
-Applications should fail gracefully.
-
----
-
-# Stage 12 — Testing Strategy
-
-Validate
-
-Components
-
-↓
-
-Hooks
-
-↓
-
-User Flows
-
-↓
-
-Accessibility
-
-↓
-
-Rendering
-
-↓
-
-Integration
-
-↓
-
-Regression
-
-↓
-
-Reliability
-
-Test behavior rather than implementation.
-
----
-
-# Stage 13 — Code Organization
-
-Maintain
-
-Feature Separation
-
-↓
-
-Reusable Components
-
-↓
-
-Utilities
-
-↓
-
-Hooks
-
-↓
-
-Contexts
-
-↓
-
-Assets
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-Organization should simplify navigation.
-
----
-
-# Stage 14 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Reusable Systems
-
-↓
-
-Shared Components
-
-↓
-
-Independent Modules
-
-↓
-
-Design Systems
-
-↓
-
-Performance Growth
-
-↓
-
-Team Collaboration
-
-↓
-
-Long-Term Evolution
-
-Architecture should support future complexity.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Architecture
-
-↓
-
-Component Responsibilities
-
-↓
-
-State Ownership
-
-↓
-
-Design Decisions
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Patterns
-
-↓
-
-Future Improvements
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 16 — Review
-
-Review
-
-Readability
-
-↓
-
-Architecture
-
-↓
-
-Component Boundaries
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Maintainability
-
-↓
-
-Consistency
-
-↓
-
-Engineering Standards
-
-Reviews improve systems rather than syntax.
-
----
-
-# Stage 17 — Risk Assessment
-
-Evaluate
-
-Component Coupling
-
-↓
-
-State Complexity
-
-↓
-
-Performance Risks
-
-↓
-
-Accessibility Risks
-
-↓
-
-Technical Debt
-
-↓
-
-Architecture Drift
-
-↓
-
-Maintainability
-
-↓
-
-Operational Risk
-
-Every feature introduces long-term maintenance cost.
-
----
-
-# Stage 18 — Continuous Optimization
-
-Continuously improve
-
-Architecture
-
-↓
-
-Rendering
-
-↓
-
-Accessibility
-
-↓
-
-Developer Experience
-
-↓
-
-Performance
-
-↓
-
-Code Quality
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-Improvement should be iterative.
-
----
-
-# Stage 19 — Production Readiness
-
-Validate
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Cross-Browser Compatibility
-
-↓
-
-Responsiveness
-
-↓
-
-Error Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Operational Stability
-
-Production readiness is an engineering milestone.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Architecture
-
-↓
-
-Component Reusability
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-System Consistency
-
-↓
-
-Software Longevity
-
-Excellent React applications remain easy to evolve years after their initial release.
-
----
-
-# React Quality Attributes
-
-Evaluate
-
-Clarity
-
-Maintainability
-
-Reusability
-
-Predictability
-
-Performance
-
-Accessibility
-
-Scalability
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every component have a single responsibility?
-
-↓
-
-Is state owned by the correct component?
-
-↓
-
-Is data flow predictable?
-
-↓
-
-Can components be reused elsewhere?
-
-↓
-
-Is rendering optimized without unnecessary complexity?
-
-↓
-
-Is accessibility built into the design?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken architecture
-
-State inconsistency
-
-Accessibility failures
-
-Rendering instability
-
-Major
-
-Poor component boundaries
-
-Excessive re-rendering
-
-Duplicated logic
-
-Performance bottlenecks
-
-Medium
-
-Naming inconsistencies
-
-Large components
-
-Weak organization
-
-Documentation gaps
-
-Minor
-
-Formatting
-
-Comments
-
-Metadata
-
-Styling consistency
-
----
-
-# React Checklist
-
-✓ Requirements understood
-
-✓ Component hierarchy designed
-
-✓ State ownership defined
-
-✓ Components reusable
-
-✓ Data flow predictable
-
-✓ Hooks appropriately used
-
-✓ Side effects managed
-
-✓ Rendering optimized
-
-✓ Accessibility ensured
-
-✓ Error handling implemented
-
-✓ Testing completed
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Performance validated
-
-✓ Production readiness confirmed
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-God components
-
-Prop drilling without reason
-
-Duplicated state
-
-Deep component nesting
-
-Business logic inside presentation components
-
-Large effects
-
-Uncontrolled side effects
-
-Premature optimization
-
-Ignoring accessibility
-
-Overusing context
-
-Coupling unrelated components
-
-Ignoring architectural boundaries
-
-Optimizing before measuring
-
----
-
-# Definition of Done
-
-A React application is considered production-ready when
-
-- Components have clear responsibilities, explicit interfaces, and compose naturally into larger features without creating unnecessary coupling.
-- State ownership is intentional, predictable, and maintained at the appropriate architectural level while avoiding duplication and synchronization issues.
-- Rendering behavior remains deterministic, efficient, and understandable, with performance optimizations guided by measurement rather than assumption.
-- Accessibility, responsiveness, error recovery, and user experience are integrated into the architecture rather than treated as post-development enhancements.
-- Component composition, hook design, state management, side-effect handling, testing strategy, and project organization collectively support long-term maintainability and team scalability.
-- Engineering reviews validate architectural quality, consistency, performance characteristics, accessibility compliance, documentation completeness, and future maintainability before production deployment.
-- The application preserves engineering knowledge through consistent patterns, documented architectural decisions, and reusable design principles that remain valuable as the system evolves.
-- The resulting codebase demonstrates engineering discipline, architectural clarity, operational reliability, maintainability, scalability, and long-term software sustainability.
-
-Exceptional React applications are not defined by the number of components they contain.
-
-They are defined by the clarity of their architecture, the predictability of their behavior, the simplicity of their evolution, and the confidence with which future engineers can extend them without compromising the integrity of the system.
+# Checklist
+
+- [ ] Verify: No state stores what can be derived from other state or props
+- [ ] Verify: State lives at the lowest common owner of its consumers
+- [ ] Verify: Related state is modelled so impossible combinations cannot exist
+- [ ] Verify: Effects are used only to synchronise with systems outside React
+- [ ] Verify: Derived values are computed during render, not in effects
+- [ ] Verify: State resets are done with `key`, not effects
+- [ ] Verify: Every effect has exhaustive dependencies and a cleanup function
+- [ ] Verify: Data fetching cancels or ignores stale responses
+- [ ] Verify: List keys are stable identities, never array indices
+- [ ] Verify: Memoisation is applied only where profiling showed a cost
+- [ ] Verify: State is replaced, never mutated
+- [ ] Verify: `dangerouslySetInnerHTML` is unused, or the input is sanitised
+- [ ] Verify: URLs from user input are scheme-validated
+- [ ] Verify: Interactive elements are semantic and keyboard-reachable
+- [ ] Verify: Every input has an associated label; focus is managed on navigation
+- [ ] Verify: Business logic lives outside components and is unit-tested

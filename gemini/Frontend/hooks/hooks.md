@@ -5,1143 +5,199 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: hooks
+category: Frontend
+description: React hooks — the rules that make them work, dependency correctness, custom hook design, and the ones that replace an effect entirely.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# hooks.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, composition strategies, synchronization patterns, and long-term best practices for designing and using React Hooks in production software.
+Rules for using and writing hooks. Hooks are positional: React identifies them by
+**call order**, not by name. Everything in the Rules of Hooks follows from that
+one implementation detail.
 
-It applies to
-
-- React Applications
-- Next.js Applications
-- Enterprise Frontends
-- SaaS Platforms
-- AI Applications
-- Design Systems
-- Component Libraries
-- Internal Tools
-- Production Web Applications
-
-Hooks are not reusable functions.
-
-Hooks are architectural building blocks that encapsulate state, side effects, synchronization, and reusable behavior while preserving predictable component composition.
-
-Components describe interfaces.
-
-Hooks describe behavior.
+Component-level state modelling is `Frontend/react`.
 
 ---
 
-# Core Philosophy
+# The rules, and why they exist
 
-Understand Behavior
+```tsx
+// Broken — the hook order changes between renders, so React associates
+// state with the wrong hook and the component corrupts silently.
+if (isLoggedIn) { const [name, setName] = useState(""); }
 
-↓
+// Correct — unconditional call, conditional value
+const [name, setName] = useState("");
+```
 
-Identify Responsibilities
+- Call hooks at the **top level** only. Never inside a condition, loop, nested
+  function, or after an early `return`.
+- Call them only from components or other hooks.
+- Enable `eslint-plugin-react-hooks` and treat both `rules-of-hooks` and
+  `exhaustive-deps` as errors. A disabled `exhaustive-deps` warning is a stale
+  closure waiting to happen.
 
-↓
-
-Encapsulate Logic
-
-↓
-
-Synchronize State
-
-↓
-
-Compose Features
-
-↓
-
-Optimize Reuse
-
-↓
-
-Review Architecture
-
-↓
-
-Continuously Improve
-
-Good Hooks separate behavior from presentation.
+An early `return` before a hook is the most common accidental violation — it makes
+the hook count differ between renders.
 
 ---
 
-# Primary Objective
+# Dependencies are not a suggestion
 
-Every Hook should maximize
+```tsx
+// Stale closure: `query` is captured from the first render forever
+useEffect(() => { search(query); }, []);
 
-Reusability
+// Correct
+useEffect(() => { search(query); }, [query]);
+```
 
-+
+If the exhaustive list causes a loop, the fix is upstream, not a shortened array:
 
-Predictability
+| Symptom | Real cause | Fix |
+| --- | --- | --- |
+| Effect loops on an object/array dep | New reference each render | `useMemo` it, or depend on a primitive field |
+| Effect loops on a function dep | New function each render | `useCallback`, or move it inside the effect |
+| Effect needs a value but should not re-run on it | A latest-value read, not a dependency | `useEffectEvent`, or a ref |
+| Effect re-runs on every render | Missing dependency array entirely | Add one |
 
-+
+```tsx
+// Depend on the field, not the object identity
+useEffect(() => { track(user.id); }, [user.id]);
+```
 
-Maintainability
-
-+
-
-Readability
-
-+
-
-Performance
-
-+
-
-Composability
-
-+
-
-Developer Experience
-
-+
-
-Long-Term Sustainability
-
-Hooks should simplify components rather than complicate them.
+**Never** silence the lint rule to stop a loop. It converts a visible re-render
+problem into an invisible stale-data problem.
 
 ---
 
-# Engineering Principles
+# The right hook for the job
 
-Always prioritize
+| Hook | Use for |
+| --- | --- |
+| `useState` | Independent values |
+| `useReducer` | Several values that change together, or complex transitions |
+| `useRef` | A mutable value that must **not** trigger a render; DOM handles |
+| `useMemo` | A genuinely expensive computation, or a stable reference |
+| `useCallback` | A stable function identity passed to a memoised child |
+| `useSyncExternalStore` | Reading any store outside React |
+| `useId` | Generated ids that must match between server and client |
+| `useDeferredValue` | Keeping input responsive while an expensive list updates |
+| `useTransition` | Marking a state update as non-urgent |
+| `useOptimistic` | Showing the result of a mutation before it confirms |
 
-Behavior Composition
+`useSyncExternalStore` is the one people miss. Reading `localStorage`,
+`matchMedia`, `navigator.onLine` or an external store with `useState` +
+`useEffect` produces a hydration mismatch and a flash of wrong content:
 
-↓
+```tsx
+const isOnline = useSyncExternalStore(
+  (cb) => { addEventListener("online", cb); addEventListener("offline", cb);
+            return () => { removeEventListener("online", cb); removeEventListener("offline", cb); }; },
+  () => navigator.onLine,        // client snapshot
+  () => true                     // server snapshot — must be deterministic
+);
+```
 
-Single Responsibility
-
-↓
-
-Explicit Dependencies
-
-↓
-
-Predictable Execution
-
-↓
-
-Minimal Side Effects
-
-↓
-
-Stable APIs
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Hooks should encapsulate behavior, not UI.
+A ref changing does **not** re-render. If the UI must reflect a value, it is
+state, not a ref.
 
 ---
 
-# Hook Development Lifecycle
+# Effects need cleanup
 
-Understand Requirements
+```tsx
+useEffect(() => {
+  const controller = new AbortController();
+  fetch(url, { signal: controller.signal })
+    .then((r) => r.json())
+    .then(setData)
+    .catch((e) => { if (e.name !== "AbortError") setError(e); });
+  return () => controller.abort();        // cancels on unmount AND on url change
+}, [url]);
+```
 
-↓
+Without the cleanup, two rapid changes to `url` can resolve out of order and the
+stale response wins — the classic React data race.
 
-Identify Shared Behavior
+Every subscription, timer, listener and observer must be torn down. Strict Mode
+mounts, unmounts and remounts each component in development specifically to expose
+a missing cleanup: if that breaks your component, it is already broken.
 
-↓
-
-Design Hook API
-
-↓
-
-Implement Logic
-
-↓
-
-Synchronize Effects
-
-↓
-
-Validate Correctness
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Behavior should be reusable before it is extracted.
+For data fetching, prefer a library (`@tanstack/react-query`, SWR) or a framework
+loader. They handle caching, deduplication, retries and races — all of which you
+would otherwise reimplement per component.
 
 ---
 
-# Stage 1 — Behavior Analysis
+# Custom hooks
 
-Understand
+Extract a custom hook when **stateful logic** is reused. Extract a plain function
+when the logic has no state — a function is easier to test and to reason about.
 
-Business Logic
+```tsx
+// Named for what it does, returns a stable shape, cleans up after itself
+export function useDebouncedValue<T>(value: T, delayMs = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
+```
 
-↓
-
-User Interactions
-
-↓
-
-State Requirements
-
-↓
-
-External Dependencies
-
-↓
-
-Side Effects
-
-↓
-
-Performance Goals
-
-↓
-
-Reusability
-
-↓
-
-Future Evolution
-
-Extract behavior only when it represents a meaningful abstraction.
+- Name it `useX` — the lint rules depend on that prefix to apply hook rules.
+- Return a consistent shape: a tuple for two values, an object for more.
+- Do not accept `props` wholesale; take the specific values needed.
+- A custom hook containing no hooks should be a plain function.
+- Test with `renderHook` from `@testing-library/react`.
 
 ---
 
-# Stage 2 — Responsibility
+# Anti-patterns
 
-Ensure
-
-Single Responsibility
-
-↓
-
-Focused Logic
-
-↓
-
-Minimal Scope
-
-↓
-
-Clear Purpose
-
-↓
-
-Explicit Boundaries
-
-↓
-
-Stable Behavior
-
-↓
-
-Predictable Output
-
-↓
-
-Maintainability
-
-Every Hook should solve one problem.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Conditional or early-return hook calls | Hook order shifts; state corrupts | Unconditional top-level calls |
+| Silencing `exhaustive-deps` | Stale closures read old values | Fix the real dependency |
+| Empty deps with captured values | Value frozen at first render | List every dependency |
+| Object or array as a dependency | New reference each render; infinite loop | Depend on primitive fields |
+| Effect without cleanup | Leaks; out-of-order responses | Return a teardown |
+| Fetch in an effect without abort | Race conditions; stale data wins | `AbortController` or a data library |
+| Ref used for rendered data | Changing it does not re-render | Use state |
+| `useState` + `useEffect` for an external store | Hydration mismatch; flash of wrong content | `useSyncExternalStore` |
+| Many `useState` for one concept | Impossible states; scattered updates | `useReducer` |
+| `useCallback`/`useMemo` everywhere | Cost without measured benefit | Profile first |
+| Custom hook not prefixed `use` | Lint rules do not apply | Name it `useX` |
+| Custom hook taking whole props | Re-runs on unrelated changes | Take specific values |
+| Stateless helper written as a hook | Harder to test for no reason | Plain function |
+| Breaking on Strict Mode double-invoke | The bug is real, not the mode | Make effects idempotent |
 
 ---
 
-# Stage 3 — API Design
-
-Design
-
-Inputs
-
-↓
-
-Outputs
-
-↓
-
-Configuration
-
-↓
-
-Return Values
-
-↓
-
-Callbacks
-
-↓
-
-Errors
-
-↓
-
-Extensibility
-
-↓
-
-Future Compatibility
-
-Hook APIs should remain simple and predictable.
-
----
-
-# Stage 4 — State Management
-
-Manage
-
-Local State
-
-↓
-
-Derived State
-
-↓
-
-Initialization
-
-↓
-
-Updates
-
-↓
-
-Consistency
-
-↓
-
-Isolation
-
-↓
-
-Synchronization
-
-↓
-
-Predictability
-
-State should remain private unless intentionally exposed.
-
----
-
-# Stage 5 — Side Effects
-
-Coordinate
-
-API Calls
-
-↓
-
-Subscriptions
-
-↓
-
-Timers
-
-↓
-
-Browser APIs
-
-↓
-
-Storage
-
-↓
-
-Cleanup
-
-↓
-
-Synchronization
-
-↓
-
-Error Recovery
-
-Every side effect requires a complete lifecycle.
-
----
-
-# Stage 6 — Dependency Management
-
-Maintain
-
-Explicit Dependencies
-
-↓
-
-Stable References
-
-↓
-
-Memoization
-
-↓
-
-Derived Values
-
-↓
-
-Minimal Recomputations
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-↓
-
-Correctness
-
-Dependencies should reflect behavior rather than implementation.
-
----
-
-# Stage 7 — Composition
-
-Compose
-
-Small Hooks
-
-↓
-
-Feature Hooks
-
-↓
-
-Domain Hooks
-
-↓
-
-Shared Logic
-
-↓
-
-Layered Behavior
-
-↓
-
-Independent Modules
-
-↓
-
-Reusable Patterns
-
-↓
-
-Scalable Architecture
-
-Compose behavior instead of duplicating it.
-
----
-
-# Stage 8 — Error Handling
-
-Handle
-
-Validation Errors
-
-↓
-
-Network Failures
-
-↓
-
-Unexpected States
-
-↓
-
-Recovery
-
-↓
-
-Fallback Behavior
-
-↓
-
-Logging
-
-↓
-
-Observability
-
-↓
-
-User Guidance
-
-Hooks should recover gracefully from failures.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Rendering
-
-↓
-
-Memoization
-
-↓
-
-Subscriptions
-
-↓
-
-State Updates
-
-↓
-
-Reference Stability
-
-↓
-
-Lazy Initialization
-
-↓
-
-Resource Usage
-
-↓
-
-Developer Experience
-
-Optimize behavior only after measuring its impact.
-
----
-
-# Stage 10 — Synchronization
-
-Synchronize
-
-State
-
-↓
-
-Effects
-
-↓
-
-External Systems
-
-↓
-
-Server Data
-
-↓
-
-Storage
-
-↓
-
-Events
-
-↓
-
-Browser APIs
-
-↓
-
-Consistency
-
-Synchronization should remain deterministic.
-
----
-
-# Stage 11 — Testing Strategy
-
-Validate
-
-Behavior
-
-↓
-
-State Changes
-
-↓
-
-Side Effects
-
-↓
-
-Edge Cases
-
-↓
-
-Error Handling
-
-↓
-
-Integration
-
-↓
-
-Regression
-
-↓
-
-Reliability
-
-Test observable behavior rather than implementation details.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Feature Hooks
-
-↓
-
-Shared Hooks
-
-↓
-
-Utilities
-
-↓
-
-Services
-
-↓
-
-Domain Logic
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-↓
-
-Maintainability
-
-Organization should improve discoverability.
-
----
-
-# Stage 13 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-Reusable Behavior
-
-↓
-
-Independent Modules
-
-↓
-
-Large Applications
-
-↓
-
-Shared Libraries
-
-↓
-
-Future Evolution
-
-↓
-
-Long-Term Maintenance
-
-Hooks should scale through composition.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Purpose
-
-↓
-
-Inputs
-
-↓
-
-Outputs
-
-↓
-
-Dependencies
-
-↓
-
-Side Effects
-
-↓
-
-Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves behavioral intent.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Responsibility
-
-↓
-
-API Design
-
-↓
-
-Dependencies
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Reusability
-
-↓
-
-Consistency
-
-↓
-
-Engineering Standards
-
-Review architecture before implementation.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Hidden Side Effects
-
-↓
-
-Dependency Errors
-
-↓
-
-Performance Risks
-
-↓
-
-Duplicated Logic
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Maintenance Cost
-
-↓
-
-Operational Risk
-
-Complex Hooks increase long-term maintenance cost.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Behavior
-
-↓
-
-Composition
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Refine abstractions through practical usage.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Behavior
-
-↓
-
-Performance
-
-↓
-
-Error Recovery
-
-↓
-
-Testing
-
-↓
-
-Documentation
-
-↓
-
-Observability
-
-↓
-
-Consistency
-
-↓
-
-Operational Stability
-
-Reliable Hooks support reliable applications.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Naming Standards
-
-↓
-
-Review Process
-
-↓
-
-API Consistency
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Engineering Discipline
-
-↓
-
-Version Management
-
-↓
-
-Continuous Evolution
-
-Hooks require disciplined governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Behavior Composition
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-System Consistency
-
-↓
-
-Software Longevity
-
-Exceptional Hooks remain simple regardless of application complexity.
-
----
-
-# Hooks Quality Attributes
-
-Evaluate
-
-Reusability
-
-Predictability
-
-Maintainability
-
-Performance
-
-Readability
-
-Composability
-
-Developer Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does this Hook solve exactly one responsibility?
-
-↓
-
-Can this behavior be reused elsewhere?
-
-↓
-
-Are dependencies explicit and complete?
-
-↓
-
-Does it expose the smallest possible API?
-
-↓
-
-Are side effects fully managed?
-
-↓
-
-Will future engineers immediately understand its purpose?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this Hook architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Hidden side effects
-
-Broken dependency management
-
-Infinite rendering
-
-State synchronization failures
-
-Major
-
-Large Hooks
-
-Poor API design
-
-Duplicated behavior
-
-Performance bottlenecks
-
-Medium
-
-Weak naming
-
-Documentation gaps
-
-Architecture inconsistencies
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Hooks Checklist
-
-✓ Behavior analyzed
-
-✓ Responsibility defined
-
-✓ API designed
-
-✓ State managed
-
-✓ Side effects controlled
-
-✓ Dependencies validated
-
-✓ Composition optimized
-
-✓ Error handling implemented
-
-✓ Performance reviewed
-
-✓ Synchronization verified
-
-✓ Testing completed
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-God Hooks
-
-Hidden side effects
-
-Business logic inside UI components
-
-Duplicated Hooks
-
-Conditional Hook execution
-
-Large dependency arrays without reasoning
-
-Returning unnecessary values
-
-Mixing unrelated responsibilities
-
-Overusing memoization
-
-Premature abstraction
-
-Ignoring cleanup
-
-Leaking implementation details
-
-Creating Hooks before behavior is reusable
-
----
-
-# Definition of Done
-
-A Hook architecture is considered production-ready when
-
-- Every Hook encapsulates a single, well-defined behavioral responsibility with clear inputs, predictable outputs, explicit dependencies, and minimal public surface area.
-- State management, side effects, synchronization, external integrations, subscriptions, cleanup, and performance considerations operate together as a cohesive behavioral unit without exposing unnecessary implementation details.
-- Hook composition enables scalable software architecture by separating reusable behavior from presentation logic, reducing duplication, and preserving modular engineering boundaries.
-- Dependencies accurately represent behavioral requirements, ensuring deterministic execution, reliable synchronization, safe refactoring, and predictable rendering characteristics throughout the application lifecycle.
-- Error handling, testing, documentation, performance validation, and engineering reviews collectively ensure reliability, maintainability, scalability, and operational stability before production deployment.
-- Documentation preserves architectural intent by describing responsibilities, behavioral contracts, dependencies, side effects, known constraints, trade-offs, and future evolution strategies.
-- The resulting Hook system demonstrates engineering discipline, architectural clarity, predictable composition, maintainability, scalability, developer productivity, and long-term software sustainability.
-
-Exceptional Hooks are not measured by the amount of logic they contain.
-
-They are measured by how effectively they encapsulate behavior, how naturally they compose into larger systems, how safely they isolate side effects, and how confidently future engineers can reuse them while preserving architectural integrity.
+# Checklist
+
+- [ ] Verify: Hooks are called unconditionally at the top level of every component
+- [ ] Verify: No hook follows an early return
+- [ ] Verify: `eslint-plugin-react-hooks` runs with both rules set to error
+- [ ] Verify: No `exhaustive-deps` suppression exists without a written justification
+- [ ] Verify: Dependency arrays are complete; object identity is not depended on
+- [ ] Verify: Every effect returns a cleanup for its subscriptions, timers and requests
+- [ ] Verify: Data fetching aborts or ignores stale responses
+- [ ] Verify: Components survive Strict Mode double-invocation
+- [ ] Verify: External stores are read with `useSyncExternalStore`
+- [ ] Verify: Refs hold only values that must not trigger a render
+- [ ] Verify: Related state uses `useReducer` rather than many booleans
+- [ ] Verify: Memoisation is applied only where profiling justified it
+- [ ] Verify: Custom hooks are prefixed `use` and return a consistent shape
+- [ ] Verify: Stateless logic is a plain function, not a hook
+- [ ] Verify: Custom hooks are tested with `renderHook`

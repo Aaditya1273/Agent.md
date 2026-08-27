@@ -5,1154 +5,187 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: redis
+category: Database
+description: Using Redis as a cache, lock and queue without losing data or correctness — eviction, persistence, atomicity, and the locking pattern that actually holds.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# redis.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, operating, optimizing, and scaling systems using Redis.
+Rules for Redis. Redis is fast because it is in memory and single-threaded for
+command execution. Both facts drive every rule here: memory is finite and must be
+bounded, and one slow command blocks every other client.
 
-It applies to
-
-- SaaS Platforms
-- AI Applications
-- APIs
-- Microservices
-- Real-Time Systems
-- Gaming Platforms
-- Financial Applications
-- Event-Driven Architectures
-- Cloud-Native Services
-
-Redis is not simply a cache.
-
-Redis is a high-performance in-memory data platform used to accelerate applications, coordinate distributed systems, manage transient data, and improve operational efficiency.
-
-Redis should enhance the system.
-
-It should never become the system of record.
+Decide first what role Redis plays. A **cache** may lose data. A **queue** or
+**session store** may not. Configure differently for each, and never mix roles in
+one instance.
 
 ---
 
-# Core Philosophy
+# Keys and memory
 
-Correct Data
+Every key needs a TTL unless you can state why it must live forever.
 
-↓
+```
+namespace:entity:id:field        →  session:user:8fd2:data
+```
 
-Persistent Storage
+A flat, prefixed namespace makes it possible to reason about, measure, and expire
+whole classes of key. Untracked keys with no TTL are how an instance reaches
+`maxmemory` at 3am.
 
-↓
+```
+maxmemory 4gb
+maxmemory-policy allkeys-lru        # cache role
+maxmemory-policy noeviction         # queue / session role — fail writes, don't drop data
+```
 
-Fast Access
+| Policy | Use for |
+| --- | --- |
+| `allkeys-lru` | Pure cache — anything may be dropped |
+| `volatile-lru` | Mixed, where only TTL'd keys are droppable |
+| `noeviction` | Queues, locks, sessions — losing a key is a correctness bug |
 
-↓
+**Never** run a queue or session store on `allkeys-lru`. Redis will evict a job or
+a live session under memory pressure and report nothing.
 
-Efficient Caching
-
-↓
-
-Reliable Coordination
-
-↓
-
-Observability
-
-↓
-
-Scalability
-
-↓
-
-Operational Simplicity
-
-Cache accelerates truth.
-
-It does not replace truth.
+**Never** run `KEYS *` against production. It is O(N) and blocks the single
+command thread for the duration. Use `SCAN` with a cursor.
 
 ---
 
-# Primary Objective
+# Atomicity
 
-Every Redis deployment should maximize
+Redis executes each command atomically, but a read-then-write in application code
+is not atomic.
 
-Performance
+```js
+// Race — two clients both read 5, both write 6
+const n = await redis.get(k);
+await redis.set(k, Number(n) + 1);
 
-+
+// Atomic
+await redis.incr(k);
+```
 
-Reliability
+For anything multi-step, use a Lua script — it runs as a single atomic unit:
 
-+
+```lua
+-- Release a lock only if we still own it. Compare-and-delete must be atomic;
+-- a GET-then-DEL can delete a lock that expired and was re-acquired by another
+-- client in between.
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0
+```
 
-Consistency
-
-+
-
-Availability
-
-+
-
-Efficiency
-
-+
-
-Scalability
-
-+
-
-Observability
-
-+
-
-Maintainability
-
-Redis should reduce latency without increasing operational complexity.
+`MULTI`/`EXEC` batches commands but permits no logic between them. Use `WATCH`
+for optimistic concurrency, or Lua when you need branching.
 
 ---
 
-# Engineering Principles
+# Distributed locks
 
-Always prioritize
+```js
+// Acquire: atomic set-if-absent with an expiry and a unique owner token
+const token = crypto.randomUUID();
+const ok = await redis.set(key, token, { NX: true, PX: 30_000 });
+```
 
-Persistent Source of Truth
+Three requirements, all mandatory:
 
-↓
+1. **`NX`** — set only if absent, in one command. A separate `EXISTS` check races.
+2. **`PX`** — always an expiry. A lock without one survives a crashed holder forever.
+3. **A unique token** — released via the compare-and-delete Lua script above.
 
-Predictable Cache Behavior
+**Never** release a lock with a bare `DEL`. If your work outran the TTL, the lock
+is now held by someone else and you have just released theirs.
 
-↓
-
-Simple Data Structures
-
-↓
-
-Controlled Memory Usage
-
-↓
-
-Efficient Expiration
-
-↓
-
-Operational Visibility
-
-↓
-
-Scalability
-
-↓
-
-Continuous Optimization
-
-Redis should improve application performance.
-
-Not application correctness.
+A single-instance Redis lock is not safe across failover — the lock lives only in
+memory on the primary and is lost on election. For correctness-critical mutual
+exclusion, use the database (`SELECT … FOR UPDATE`, or a unique constraint), not
+Redis. Redis locks are appropriate for reducing duplicate work, not for
+preventing double-spend.
 
 ---
 
-# Redis Lifecycle
+# Caching patterns
 
-Requirements
+Cache-aside is the default: read cache, miss → read source → write cache with TTL.
 
-↓
+```js
+const hit = await redis.get(k);
+if (hit) return JSON.parse(hit);
+const fresh = await loadFromDb();
+await redis.set(k, JSON.stringify(fresh), { EX: 300 });
+return fresh;
+```
 
-Workload Analysis
+Two failure modes worth designing against:
 
-↓
+- **Stampede.** A hot key expires and a thousand requests hit the database at
+  once. Fix with a short lock around the recompute, or jittered TTLs
+  (`EX: 300 + random(60)`).
+- **Stale after write.** Invalidate on write; do not rely on TTL alone for data
+  the user just changed and expects to see.
 
-Data Modeling
-
-↓
-
-Key Design
-
-↓
-
-Implementation
-
-↓
-
-Validation
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
+Every cache needs a stated invalidation mechanism before it is added.
+→ `Performance/caching`
 
 ---
 
-# Stage 1 — Requirements Analysis
+# Persistence
 
-Understand
+| Mode | Guarantee |
+| --- | --- |
+| None | Everything lost on restart |
+| RDB snapshot | Lose everything since the last snapshot |
+| AOF `everysec` | Lose at most one second |
+| AOF `always` | No loss, significant throughput cost |
 
-Latency Requirements
-
-↓
-
-Read Patterns
-
-↓
-
-Write Patterns
-
-↓
-
-Traffic Volume
-
-↓
-
-Consistency Requirements
-
-↓
-
-Availability
-
-↓
-
-Scaling Expectations
-
-↓
-
-Business Objectives
-
-Use Redis only where memory provides measurable value.
+A cache needs no persistence. A queue needs AOF at minimum — and if losing a job
+is genuinely unacceptable, it belongs in a durable broker or a database table,
+not in Redis. Be explicit about which you have chosen.
 
 ---
 
-# Stage 2 — Workload Analysis
+# Anti-patterns
 
-Identify
-
-Cache Workloads
-
-↓
-
-Session Storage
-
-↓
-
-Rate Limiting
-
-↓
-
-Distributed Locks
-
-↓
-
-Queues
-
-↓
-
-Pub/Sub
-
-↓
-
-Leaderboards
-
-↓
-
-Real-Time Data
-
-Redis excels at short-lived, high-speed workloads.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `KEYS *` in production | O(N), blocks the single thread | `SCAN` |
+| No TTL on cache keys | Memory grows to `maxmemory`, then evicts randomly | TTL on every cache key |
+| `allkeys-lru` on a queue | Jobs silently evicted | `noeviction` for durable roles |
+| Cache and queue in one instance | One eviction policy cannot serve both | Separate instances |
+| GET-then-SET counter | Lost updates under concurrency | `INCR` |
+| Lock without `PX` | Crashed holder deadlocks the system | Always set an expiry |
+| Lock released with `DEL` | Releases someone else's lock after TTL expiry | Compare-and-delete in Lua |
+| Redis lock for financial correctness | Lost on failover | Database lock or constraint |
+| Uniform TTLs on hot keys | Synchronised stampede | Jitter the TTL |
+| Large values (multi-MB) | Blocks the thread on transfer | Keep values small; paginate |
+| Big `MGET`/pipeline of 100k keys | One slow command stalls all clients | Chunk the batch |
 
 ---
 
-# Stage 3 — Data Modeling
-
-Design
-
-Keys
-
-↓
-
-Values
-
-↓
-
-Data Structures
-
-↓
-
-Expiration Policies
-
-↓
-
-Namespaces
-
-↓
-
-Serialization
-
-↓
-
-Ownership
-
-↓
-
-Lifecycle
-
-Choose the simplest data structure that solves the problem.
-
----
-
-# Stage 4 — Key Design
-
-Design keys using
-
-Consistent Naming
-
-↓
-
-Logical Hierarchy
-
-↓
-
-Namespaces
-
-↓
-
-Versioning
-
-↓
-
-Ownership
-
-↓
-
-Predictable Patterns
-
-↓
-
-Minimal Length
-
-↓
-
-Easy Discovery
-
-Well-designed keys simplify operations.
-
----
-
-# Stage 5 — Data Structures
-
-Select appropriate structures
-
-Strings
-
-↓
-
-Hashes
-
-↓
-
-Lists
-
-↓
-
-Sets
-
-↓
-
-Sorted Sets
-
-↓
-
-Streams
-
-↓
-
-Bitmaps
-
-↓
-
-HyperLogLogs
-
-Every structure exists for a specific workload.
-
----
-
-# Stage 6 — Cache Strategy
-
-Define
-
-Cache-Aside
-
-↓
-
-Read-Through
-
-↓
-
-Write-Through
-
-↓
-
-Write-Behind
-
-↓
-
-Refresh Policies
-
-↓
-
-TTL Strategy
-
-↓
-
-Invalidation Rules
-
-↓
-
-Eviction Policy
-
-Caching without invalidation eventually becomes incorrect.
-
----
-
-# Stage 7 — Expiration
-
-Define
-
-TTL Policies
-
-↓
-
-Automatic Expiration
-
-↓
-
-Refresh Strategy
-
-↓
-
-Session Lifetime
-
-↓
-
-Temporary Objects
-
-↓
-
-Cleanup Rules
-
-↓
-
-Memory Recovery
-
-↓
-
-Consistency
-
-Expired data should disappear predictably.
-
----
-
-# Stage 8 — Performance
-
-Continuously evaluate
-
-Latency
-
-↓
-
-Throughput
-
-↓
-
-Memory Usage
-
-↓
-
-Network Usage
-
-↓
-
-Command Efficiency
-
-↓
-
-Connection Pooling
-
-↓
-
-Pipeline Usage
-
-↓
-
-Resource Consumption
-
-Optimize measured bottlenecks.
-
-Not assumptions.
-
----
-
-# Stage 9 — Reliability
-
-Prepare for
-
-Node Failures
-
-↓
-
-Persistence
-
-↓
-
-Snapshots
-
-↓
-
-Append Only Files
-
-↓
-
-Replication
-
-↓
-
-Automatic Recovery
-
-↓
-
-Failover
-
-↓
-
-Operational Continuity
-
-Performance is meaningless without reliability.
-
----
-
-# Stage 10 — Security
-
-Protect
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Network Isolation
-
-↓
-
-TLS
-
-↓
-
-Secrets
-
-↓
-
-Role Separation
-
-↓
-
-Audit Logging
-
-↓
-
-Compliance
-
-Redis should never be publicly exposed.
-
----
-
-# Stage 11 — Scalability
-
-Plan for
-
-Growing Traffic
-
-↓
-
-Memory Expansion
-
-↓
-
-Horizontal Scaling
-
-↓
-
-Cluster Mode
-
-↓
-
-Replication
-
-↓
-
-Sharding
-
-↓
-
-Regional Deployment
-
-↓
-
-Operational Growth
-
-Scaling should preserve predictable latency.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Memory Usage
-
-↓
-
-Hit Ratio
-
-↓
-
-Miss Ratio
-
-↓
-
-Evictions
-
-↓
-
-Latency
-
-↓
-
-Replication
-
-↓
-
-Connections
-
-↓
-
-Errors
-
-Healthy Redis systems are continuously monitored.
-
----
-
-# Stage 13 — Maintenance
-
-Regularly perform
-
-Configuration Review
-
-↓
-
-Memory Analysis
-
-↓
-
-Persistence Validation
-
-↓
-
-Backup Verification
-
-↓
-
-Security Review
-
-↓
-
-Capacity Planning
-
-↓
-
-Health Checks
-
-↓
-
-Performance Review
-
-Maintenance prevents operational surprises.
-
----
-
-# Stage 14 — Testing
-
-Validate
-
-Cache Logic
-
-↓
-
-Expiration
-
-↓
-
-Persistence
-
-↓
-
-Replication
-
-↓
-
-Recovery
-
-↓
-
-Performance
-
-↓
-
-Scaling
-
-↓
-
-Failure Scenarios
-
-Test failures before production experiences them.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Key Naming
-
-↓
-
-Data Structures
-
-↓
-
-TTL Policies
-
-↓
-
-Cache Strategy
-
-↓
-
-Persistence
-
-↓
-
-Operational Procedures
-
-↓
-
-Architecture Decisions
-
-↓
-
-Recovery Plans
-
-Documentation reduces operational risk.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Configuration History
-
-↓
-
-Architecture Changes
-
-↓
-
-Migration Plans
-
-↓
-
-Compatibility
-
-↓
-
-Release Notes
-
-↓
-
-Operational Records
-
-↓
-
-Recovery Procedures
-
-↓
-
-Review History
-
-Infrastructure evolves continuously.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Key Design
-
-↓
-
-Memory Efficiency
-
-↓
-
-Cache Effectiveness
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Business Alignment
-
-Review operational simplicity before adding complexity.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Memory Exhaustion
-
-↓
-
-Cache Stampede
-
-↓
-
-Data Loss
-
-↓
-
-Replication Failure
-
-↓
-
-Configuration Errors
-
-↓
-
-Security Risks
-
-↓
-
-Scaling Risks
-
-↓
-
-Recovery Risks
-
-Fast failures can become expensive failures.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Memory Efficiency
-
-↓
-
-Hit Ratio
-
-↓
-
-Latency
-
-↓
-
-Cache Policies
-
-↓
-
-Persistence
-
-↓
-
-Scaling
-
-↓
-
-Automation
-
-↓
-
-Developer Experience
-
-Optimization should reduce operational cost.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Security
-
-↓
-
-Operational Simplicity
-
-↓
-
-Documentation
-
-↓
-
-Redis Excellence
-
-Great Redis systems remain fast because they remain simple.
-
----
-
-# Redis Quality Attributes
-
-Evaluate
-
-Performance
-
-Reliability
-
-Availability
-
-Efficiency
-
-Scalability
-
-Observability
-
-Maintainability
-
-Operational Simplicity
-
----
-
-# Redis Questions
-
-Before production ask
-
-Is Redis improving performance rather than replacing persistence?
-
-↓
-
-Can the application survive Redis becoming unavailable?
-
-↓
-
-Are cache invalidation rules clearly defined?
-
-↓
-
-Is memory growth predictable?
-
-↓
-
-Are failures recoverable?
-
-↓
-
-Is monitoring sufficient?
-
-↓
-
-Would experienced Redis engineers confidently approve this architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Redis as system of record
-
-Data loss
-
-Memory exhaustion
-
-Replication failure
-
-Security exposure
-
-Major
-
-Poor cache strategy
-
-Low hit ratio
-
-High latency
-
-Persistence failures
-
-Operational instability
-
-Medium
-
-TTL improvements
-
-Memory optimization
-
-Configuration tuning
-
-Documentation improvements
-
-Minor
-
-Key naming
-
-Formatting
-
-Comments
-
-Operational refinements
-
----
-
-# Redis Checklist
-
-✓ Requirements understood
-
-✓ Workloads identified
-
-✓ Data modeled
-
-✓ Keys designed
-
-✓ Data structures selected
-
-✓ Cache strategy defined
-
-✓ TTL policies established
-
-✓ Performance optimized
-
-✓ Reliability configured
-
-✓ Security implemented
-
-✓ Scalability planned
-
-✓ Monitoring enabled
-
-✓ Maintenance scheduled
-
-✓ Testing completed
-
-✓ Documentation updated
-
-✓ Versioning maintained
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using Redis as the primary database
-
-Missing expiration policies
-
-Unlimited key growth
-
-Poor key naming
-
-Ignoring cache invalidation
-
-Large serialized objects
-
-Excessive memory fragmentation
-
-Ignoring persistence configuration
-
-No monitoring
-
-No replication
-
-Public network exposure
-
-Optimizing without measuring hit ratios
-
----
-
-# Definition of Done
-
-A Redis architecture is considered production-ready when
-
-- Redis serves as a high-performance acceleration layer while the primary system of record remains authoritative and independently reliable.
-- Cache strategies, expiration policies, invalidation mechanisms, and data structures are intentionally selected based on workload characteristics and business requirements.
-- Key naming conventions, namespaces, serialization formats, and memory usage remain predictable, maintainable, and operationally efficient.
-- Authentication, authorization, encryption, network isolation, persistence, replication, backups, and disaster recovery protect system reliability and operational continuity.
-- Performance monitoring continuously measures latency, throughput, hit ratios, evictions, memory consumption, replication health, and operational risks.
-- Scalability planning supports increasing traffic, growing datasets, cluster expansion, replication, and regional deployments while maintaining low latency.
-- Testing validates cache correctness, expiration behavior, persistence, failover, replication, recovery, and performance under realistic workloads.
-- Documentation preserves cache architecture, operational procedures, configuration decisions, persistence strategies, and recovery processes for future engineering teams.
-- Operational practices prioritize simplicity, predictability, automation, and observability over unnecessary optimization.
-- Redis consistently improves application responsiveness, infrastructure efficiency, and user experience while remaining reliable, maintainable, and operationally sustainable.
-
-Exceptional Redis systems are almost invisible.
-
-They quietly eliminate latency, reduce infrastructure load, coordinate distributed workloads, recover gracefully from failures, and consistently deliver fast, predictable performance without ever becoming a single point of truth or operational complexity.
+# Checklist
+
+- [ ] Verify: The role of each instance (cache / queue / session) is explicit
+- [ ] Verify: `maxmemory` and an appropriate `maxmemory-policy` are set for that role
+- [ ] Verify: Durable roles run `noeviction`, never `allkeys-lru`
+- [ ] Verify: Every cache key carries a TTL, with jitter on hot keys
+- [ ] Verify: Keys follow a documented namespace convention
+- [ ] Verify: `KEYS` is not used in application or operational code
+- [ ] Verify: Read-modify-write sequences use atomic commands or Lua
+- [ ] Verify: Locks use `SET NX PX` with a unique token
+- [ ] Verify: Lock release is a compare-and-delete Lua script
+- [ ] Verify: Correctness-critical exclusion uses the database, not Redis
+- [ ] Verify: Persistence mode matches the durability the role requires
+- [ ] Verify: Cache invalidation on write is implemented, not just TTL expiry

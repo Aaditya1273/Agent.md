@@ -5,1152 +5,201 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: backup
+category: Database
+description: Backups that actually restore — point-in-time recovery, retention, encryption, and the restore drill that is the only proof a backup exists.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# backup.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, implementing, validating, and operating database backup and recovery systems.
+Rules for backing up a database. The only meaningful definition: **a backup is
+something you have restored.** Everything else is a file of unknown quality.
 
-It applies to
+Start by writing down two numbers, because every decision below follows from them:
 
-- PostgreSQL
-- MySQL
-- MariaDB
-- SQL Server
-- Oracle
-- MongoDB
-- Redis
-- Cloud Databases
-- Distributed Database Systems
+- **RPO** — recovery point objective: how much data may be lost, in minutes.
+- **RTO** — recovery time objective: how long a restore may take, in minutes.
 
-Backups are not copies of data.
-
-Backups are business continuity.
-
-The value of a backup is measured only by its ability to successfully restore production systems.
-
-Unverified backups are assumptions.
-
-Verified backups are resilience.
+An RPO of five minutes rules out nightly dumps. An RTO of fifteen minutes rules
+out restoring a 2 TB dump on a fresh host. If you cannot meet the numbers, change
+the architecture or change the numbers — do not leave them aspirational.
 
 ---
 
-# Core Philosophy
+# Point-in-time recovery, not just dumps
 
-Protect Data
+| Method | RPO | Restores to | Suitable for |
+| --- | --- | --- | --- |
+| `pg_dump` nightly | 24 hours | The dump instant | Small databases, dev seeding |
+| Base backup + WAL archive | Seconds | **Any** instant in the window | Production |
+| Filesystem/EBS snapshot | Snapshot interval | The snapshot instant | Fast large restores, with WAL for PITR |
+| Managed provider PITR | Seconds | Any instant in the window | Default when available |
 
-↓
+PITR is what lets you restore to 14:32:59 — one second before the migration that
+deleted the column.
 
-Automate Backups
+```bash
+# Postgres: continuous archiving
+archive_mode = on
+archive_command = 'pgbackrest --stanza=main archive-push %p'
 
-↓
+# Base backup, then restore to a moment
+pgbackrest --stanza=main backup --type=full
+pgbackrest --stanza=main --type=time --target='2026-08-23 14:32:59+00' restore
+```
 
-Verify Integrity
+Use `pgbackrest`, `wal-g`, or `barman` — not hand-rolled `cp` in
+`archive_command`. A failing `archive_command` silently stops WAL from being
+archived while `pg_wal` grows until the disk fills.
 
-↓
+MySQL equivalent: `xtrabackup` for the base plus binlogs for the replay window.
+→ `Database/mysql`
 
-Test Recovery
+**Never** rely on `pg_dump` alone for a production database. It is a logical
+snapshot of one instant with no way to reach any other instant, and restoring one
+is slow because it rebuilds every index.
 
-↓
-
-Monitor Continuously
-
-↓
-
-Recover Predictably
-
-↓
-
-Document Procedures
-
-↓
-
-Continuously Improve
-
-Every backup exists for one purpose.
-
-Successful recovery.
-
----
-
-# Primary Objective
-
-Every backup strategy should maximize
-
-Recoverability
-
-+
-
-Reliability
-
-+
-
-Integrity
-
-+
-
-Availability
-
-+
-
-Automation
-
-+
-
-Observability
-
-+
-
-Security
-
-+
-
-Maintainability
-
-Backups are successful only when recovery succeeds.
+**Never** treat a replica as a backup. `DROP TABLE` replicates in milliseconds.
+→ `Database/replication`
 
 ---
 
-# Engineering Principles
+# The restore drill
 
-Always prioritize
+An untested backup has a failure rate that is unknown and, empirically, high.
 
-Business Continuity
+Run a restore on a schedule — monthly at minimum — into a scratch environment,
+and record:
 
-↓
+- [ ] Verify: Wall-clock time from decision to a serving database (this is your real RTO)
+- [ ] Verify: Row counts on the largest tables against expectation
+- [ ] Verify: Application boots and passes a smoke test against the restored data
+- [ ] Verify: The most recent restorable timestamp (this is your real RPO)
 
-Recovery
+Automate the drill in CI if the dataset allows it. A restore that only a
+particular person can perform, from memory, is not a recovery capability.
 
-↓
-
-Data Integrity
-
-↓
-
-Automation
-
-↓
-
-Verification
-
-↓
-
-Operational Simplicity
-
-↓
-
-Monitoring
-
-↓
-
-Continuous Improvement
-
-Recovery planning is more important than backup creation.
+**Never** count a backup as verified because the job exited zero. Verify the
+restore, not the backup.
 
 ---
 
-# Backup Lifecycle
+# Retention and the 3-2-1 rule
 
-Identify Critical Data
+Three copies, on two media types, one off-site — and, for ransomware, one
+**immutable**.
 
-↓
+| Tier | Retention | Purpose |
+| --- | --- | --- |
+| PITR window | 7–35 days | Operator error, bad migration |
+| Daily | 30 days | Recent recovery |
+| Monthly | 12 months | Compliance, audit |
+| Yearly | As legally required | Retention obligations |
 
-Design Backup Strategy
+```
+# pgbackrest — expiry is declarative; the tool prunes, not a cron job with rm
+repo1-retention-full=4
+repo1-retention-diff=14
+repo1-retention-archive=7
+repo1-cipher-type=aes-256-cbc
+repo1-s3-bucket=acme-db-backups
+repo1-s3-kms-key-id=arn:aws:kms:eu-west-1:…:key/…
+```
 
-↓
+Store off-site backups in a **separate account or subscription** with separate
+credentials. A backup in the same account as production is deleted by the same
+compromised key that deleted production.
 
-Automate Backups
+Use object-lock / immutability (`s3:ObjectLockMode=COMPLIANCE`, or the equivalent)
+so that even a valid admin credential cannot delete backups inside the retention
+window. This is the control that survives ransomware.
 
-↓
-
-Validate Integrity
-
-↓
-
-Secure Storage
-
-↓
-
-Test Recovery
-
-↓
-
-Monitor
-
-↓
-
-Continuously Improve
-
----
-
-# Stage 1 — Business Impact Analysis
-
-Identify
-
-Critical Systems
-
-↓
-
-Critical Data
-
-↓
-
-Recovery Requirements
-
-↓
-
-Compliance
-
-↓
-
-Business Priorities
-
-↓
-
-Downtime Tolerance
-
-↓
-
-Recovery Objectives
-
-↓
-
-Risk Profile
-
-Backups begin with business requirements.
+Backups also inherit deletion obligations — a GDPR erasure request applies to
+data in backups. Document how it is honoured, usually by policy: the request is
+re-applied on restore rather than by editing backup archives.
 
 ---
 
-# Stage 2 — Backup Strategy
+# Encryption and secrets
 
-Define
+- Encrypt at rest and in transit. Managed KMS, not a key file beside the archive.
+- Store the decryption key **outside** the backup system, and outside the
+  database it protects.
+- The restore procedure must be executable by someone who is not the person who
+  set it up — including access to the key. Document where the key lives.
+  → `Security/secret-management`
 
-Full Backups
-
-↓
-
-Incremental Backups
-
-↓
-
-Differential Backups
-
-↓
-
-Point-in-Time Recovery
-
-↓
-
-Snapshot Strategy
-
-↓
-
-Archive Policy
-
-↓
-
-Retention
-
-↓
-
-Recovery Objectives
-
-Choose backup methods intentionally.
+**Never** back up production data into a developer's environment unmasked. Restore
+to staging through an anonymisation step, or restore into an access-controlled
+environment.
 
 ---
 
-# Stage 3 — Recovery Objectives
+# Monitoring
 
-Define
+Alert on the **absence** of a recent successful backup, not on job failure. A job
+that stops running emits no failures at all — this is how teams discover, during
+an incident, that backups stopped three months ago.
 
-Recovery Time Objective (RTO)
+```sql
+-- Is WAL archiving actually working? failed_count climbing is the alarm.
+SELECT archived_count, last_archived_time, failed_count, last_failed_time
+FROM pg_stat_archiver;
+```
 
-↓
+```bash
+# Backup age in seconds — export this as a gauge, alert above 26h for a daily job
+pgbackrest --stanza=main --output=json info \
+  | jq '.[0].backup[-1].timestamp.stop'
+```
 
-Recovery Point Objective (RPO)
-
-↓
-
-Business Continuity
-
-↓
-
-Acceptable Data Loss
-
-↓
-
-Operational Recovery
-
-↓
-
-Service Availability
-
-↓
-
-Infrastructure Readiness
-
-↓
-
-Disaster Readiness
-
-Recovery objectives drive backup design.
+| Metric | Alert when |
+| --- | --- |
+| `backup_age_seconds` | > 1.25 × the backup interval |
+| `wal_archive_age_seconds` | > 300 |
+| `pg_stat_archiver.failed_count` | Increasing at all |
+| `backup_size_bytes` | Deviates > 30% from trend — a sudden drop means an empty backup |
+| `restore_drill_age_days` | > 35 |
+| `pg_wal` directory size | Growing steadily — archiving has stalled |
 
 ---
 
-# Stage 4 — Backup Scheduling
+# Anti-patterns
 
-Plan
-
-Daily Backups
-
-↓
-
-Weekly Backups
-
-↓
-
-Monthly Backups
-
-↓
-
-Critical Event Backups
-
-↓
-
-Maintenance Windows
-
-↓
-
-Traffic Awareness
-
-↓
-
-Automation
-
-↓
-
-Validation
-
-Schedules should align with business activity.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Never restoring | Unknown, high failure rate | Scheduled restore drill |
+| Replica treated as backup | Deletes replicate instantly | Independent PITR backups |
+| `pg_dump` only, nightly | 24-hour RPO; slow restore | Base backup + WAL archive |
+| Backups in the production account | One compromised credential loses both | Separate account, immutable storage |
+| No immutability | Ransomware deletes the backups too | Object lock for the retention window |
+| Alerting only on job failure | A job that stops running is silent | Alert on backup age |
+| Undocumented restore procedure | Only one person can recover | Written, drilled runbook |
+| Encryption key in the backup system | Circular dependency at restore time | External KMS |
+| Unmasked production restore to dev | Data exposure | Anonymise on restore |
+| RPO/RTO never written down | No basis for any of these decisions | Write both numbers first |
+| Hand-rolled `archive_command` | Silent archive failure fills the disk | `pgbackrest` / `wal-g` |
 
 ---
 
-# Stage 5 — Data Integrity
-
-Ensure
-
-Complete Backups
-
-↓
-
-Consistent Snapshots
-
-↓
-
-Transactional Consistency
-
-↓
-
-Checksum Validation
-
-↓
-
-Metadata Preservation
-
-↓
-
-Relationship Integrity
-
-↓
-
-Version Consistency
-
-↓
-
-Verification
-
-Incomplete backups create false confidence.
-
----
-
-# Stage 6 — Storage Strategy
-
-Store backups using
-
-Local Storage
-
-↓
-
-Remote Storage
-
-↓
-
-Cloud Storage
-
-↓
-
-Multi-Region Storage
-
-↓
-
-Offline Archives
-
-↓
-
-Immutable Storage
-
-↓
-
-Long-Term Archives
-
-↓
-
-Disaster Recovery Sites
-
-Never depend on a single storage location.
-
----
-
-# Stage 7 — Security
-
-Protect
-
-Encryption
-
-↓
-
-Access Control
-
-↓
-
-Authentication
-
-↓
-
-Key Management
-
-↓
-
-Secrets
-
-↓
-
-Audit Logs
-
-↓
-
-Compliance
-
-↓
-
-Data Privacy
-
-Backups often contain the most sensitive data.
-
----
-
-# Stage 8 — Automation
-
-Automate
-
-Backup Execution
-
-↓
-
-Validation
-
-↓
-
-Notifications
-
-↓
-
-Retention
-
-↓
-
-Rotation
-
-↓
-
-Cleanup
-
-↓
-
-Reporting
-
-↓
-
-Health Checks
-
-Manual backups eventually fail.
-
----
-
-# Stage 9 — Monitoring
-
-Observe
-
-Backup Success
-
-↓
-
-Backup Duration
-
-↓
-
-Storage Usage
-
-↓
-
-Integrity Checks
-
-↓
-
-Failure Rates
-
-↓
-
-Alerts
-
-↓
-
-Recovery Readiness
-
-↓
-
-Infrastructure Health
-
-Visibility enables confidence.
-
----
-
-# Stage 10 — Validation
-
-Verify
-
-Backup Integrity
-
-↓
-
-Checksum Validation
-
-↓
-
-Metadata
-
-↓
-
-Restore Capability
-
-↓
-
-Consistency
-
-↓
-
-Corruption Detection
-
-↓
-
-Recovery Readiness
-
-↓
-
-Operational Confidence
-
-A backup is incomplete until verified.
-
----
-
-# Stage 11 — Recovery Testing
-
-Regularly test
-
-File Recovery
-
-↓
-
-Database Recovery
-
-↓
-
-Point-in-Time Recovery
-
-↓
-
-Infrastructure Recovery
-
-↓
-
-Disaster Recovery
-
-↓
-
-Cross-Region Recovery
-
-↓
-
-Recovery Automation
-
-↓
-
-Operational Readiness
-
-Recovery should never be theoretical.
-
----
-
-# Stage 12 — Disaster Recovery
-
-Prepare for
-
-Hardware Failure
-
-↓
-
-Cloud Failure
-
-↓
-
-Data Corruption
-
-↓
-
-Human Error
-
-↓
-
-Cyber Attacks
-
-↓
-
-Ransomware
-
-↓
-
-Regional Outages
-
-↓
-
-Business Continuity
-
-Expect disasters before they happen.
-
----
-
-# Stage 13 — Scalability
-
-Prepare for
-
-Growing Databases
-
-↓
-
-Growing Storage
-
-↓
-
-Higher Backup Frequency
-
-↓
-
-Multi-Tenant Systems
-
-↓
-
-Distributed Systems
-
-↓
-
-Global Infrastructure
-
-↓
-
-Cloud Expansion
-
-↓
-
-Future Growth
-
-Backup systems should scale automatically.
-
----
-
-# Stage 14 — Performance
-
-Optimize
-
-Backup Duration
-
-↓
-
-Network Usage
-
-↓
-
-Compression
-
-↓
-
-Deduplication
-
-↓
-
-Storage Throughput
-
-↓
-
-Restore Speed
-
-↓
-
-Resource Usage
-
-↓
-
-Infrastructure Cost
-
-Fast backups reduce operational risk.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Backup Policy
-
-↓
-
-Schedules
-
-↓
-
-Recovery Procedures
-
-↓
-
-Storage Locations
-
-↓
-
-Retention Rules
-
-↓
-
-Recovery Contacts
-
-↓
-
-Architecture Decisions
-
-↓
-
-Operational Procedures
-
-Documentation enables rapid recovery.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Backup History
-
-↓
-
-Retention Records
-
-↓
-
-Policy Changes
-
-↓
-
-Recovery Tests
-
-↓
-
-Operational Reviews
-
-↓
-
-Audit Records
-
-↓
-
-Compliance Reports
-
-↓
-
-Infrastructure Changes
-
-Backup history supports operational maturity.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Coverage
-
-↓
-
-Recovery Success
-
-↓
-
-Storage Costs
-
-↓
-
-Automation
-
-↓
-
-Security
-
-↓
-
-Compliance
-
-↓
-
-Maintainability
-
-↓
-
-Business Alignment
-
-Backups deserve regular engineering review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Data Loss
-
-↓
-
-Storage Failure
-
-↓
-
-Backup Corruption
-
-↓
-
-Recovery Failure
-
-↓
-
-Security Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Business Impact
-
-Know recovery risks before production does.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Backup Speed
-
-↓
-
-Recovery Speed
-
-↓
-
-Automation
-
-↓
-
-Monitoring
-
-↓
-
-Security
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Operational Excellence
-
-Reliable recovery evolves continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Recoverability
-
-↓
-
-Reliability
-
-↓
-
-Automation
-
-↓
-
-Scalability
-
-↓
-
-Security
-
-↓
-
-Observability
-
-↓
-
-Documentation
-
-↓
-
-Engineering Excellence
-
-Exceptional backup systems improve every release.
-
----
-
-# Backup Quality Attributes
-
-Evaluate
-
-Recoverability
-
-Reliability
-
-Integrity
-
-Availability
-
-Automation
-
-Security
-
-Scalability
-
-Maintainability
-
----
-
-# Backup Questions
-
-Before production ask
-
-Can every critical system be restored?
-
-↓
-
-Has recovery been tested recently?
-
-↓
-
-Can backups survive infrastructure failure?
-
-↓
-
-Are backups encrypted?
-
-↓
-
-Can point-in-time recovery be performed?
-
-↓
-
-Are recovery procedures documented?
-
-↓
-
-Would experienced database engineers confidently approve this backup strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-No backups
-
-Failed recovery
-
-Corrupted backups
-
-Data loss
-
-Ransomware exposure
-
-Major
-
-Backup failures
-
-Missed schedules
-
-Recovery delays
-
-Storage failures
-
-Incomplete validation
-
-Medium
-
-Slow backups
-
-Storage optimization
-
-Automation improvements
-
-Documentation gaps
-
-Minor
-
-Naming consistency
-
-Reporting improvements
-
-Formatting
-
-Operational refinements
-
----
-
-# Backup Checklist
-
-✓ Critical systems identified
-
-✓ Backup strategy defined
-
-✓ Recovery objectives established
-
-✓ Schedule implemented
-
-✓ Data integrity verified
-
-✓ Storage secured
-
-✓ Encryption enabled
-
-✓ Automation configured
-
-✓ Monitoring enabled
-
-✓ Validation completed
-
-✓ Recovery tested
-
-✓ Disaster recovery prepared
-
-✓ Scalability reviewed
-
-✓ Performance optimized
-
-✓ Documentation completed
-
-✓ Version history maintained
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Assuming backups work without testing
-
-Single backup location
-
-Manual backup execution
-
-No recovery testing
-
-Ignoring backup failures
-
-Unencrypted backups
-
-Unlimited retention
-
-No monitoring
-
-No automation
-
-Keeping backups beside production systems
-
-No disaster recovery plan
-
-Treating backups as compliance checkboxes
-
----
-
-# Definition of Done
-
-A backup architecture is considered production-ready when
-
-- Every critical database, service, configuration, and business asset is protected according to documented recovery objectives and business continuity requirements.
-- Backup strategies intentionally combine full, incremental, differential, snapshot, and point-in-time recovery mechanisms where appropriate for operational needs.
-- Backup integrity is continuously verified through automated validation, checksum verification, consistency checks, and scheduled recovery testing.
-- Recovery procedures are documented, automated where practical, regularly rehearsed, and capable of restoring production systems within defined RTO and RPO objectives.
-- Backup storage is geographically resilient, encrypted, access-controlled, monitored, versioned, and protected against accidental deletion, infrastructure failure, and ransomware.
-- Monitoring continuously reports backup success, failures, storage utilization, recovery readiness, infrastructure health, and operational risks.
-- Disaster recovery planning supports hardware failures, cloud outages, cyber attacks, human error, regional failures, and large-scale operational incidents.
-- Documentation preserves backup policies, recovery procedures, retention strategies, architectural decisions, operational responsibilities, and audit history.
-- Regular engineering reviews validate that backup strategies continue to support evolving business requirements, infrastructure growth, regulatory obligations, and operational complexity.
-- The backup system consistently demonstrates recoverability, reliability, automation, security, scalability, operational excellence, and long-term engineering maturity.
-
-Exceptional backup systems rarely receive recognition because disasters become recoverable events instead of catastrophic failures.
-
-When infrastructure fails, databases become corrupted, deployments go wrong, or entire regions become unavailable, recovery proceeds with confidence because every backup has already been validated, every recovery path has already been rehearsed, and every operational decision was designed around preserving business continuity rather than merely storing copies of data.
+# Checklist
+
+- [ ] Verify: RPO and RTO are written down and agreed with the business
+- [ ] Verify: Point-in-time recovery is configured, not just periodic dumps
+- [ ] Verify: Archiving uses a proven tool, and archive failures alert
+- [ ] Verify: Backups are stored in a separate account with separate credentials
+- [ ] Verify: At least one copy is immutable for its retention window
+- [ ] Verify: Retention tiers cover operational, compliance and legal needs
+- [ ] Verify: Backups are encrypted, with keys held outside the backup system
+- [ ] Verify: A restore drill runs at least monthly and its duration is recorded
+- [ ] Verify: Measured restore time meets the stated RTO
+- [ ] Verify: Alerts fire on backup **age**, not only on job failure
+- [ ] Verify: The restore runbook is written and has been followed by a second person
+- [ ] Verify: Restores into lower environments pass through anonymisation

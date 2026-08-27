@@ -5,1139 +5,167 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: command-injection
+category: Security
+description: Executing external programs without letting input become part of the command — argument arrays, why shells are the problem, and safe temporary files.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# command-injection.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, Command Injection prevention methodologies, operating system interaction frameworks, secure process execution strategies, privilege isolation practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready applications that resist Command Injection attacks.
+Rules for invoking external processes safely. The rule underneath everything:
+**never let user input reach a shell.**
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Software
-- APIs
-- Cloud Platforms
-- Microservices
-- Automation Platforms
-- Developer Tools
-- Production Software
-
-Command Injection prevention is not filtering dangerous characters.
-
-Command Injection prevention is the engineering discipline of ensuring that untrusted input can never modify, construct, or influence operating system commands, shell execution, process behavior, or system-level instructions while preserving system integrity, operational reliability, and long-term maintainability.
-
-Command Injection answers one question:
-
-**Can untrusted input ever influence operating system command execution?**
+A shell interprets `;`, `|`, `&`, `` ` ``, `$()`, `>`, `<`, `&&` and newline as
+control characters. Remove the shell and almost every injection vector goes with
+it.
 
 ---
 
-# Core Philosophy
+# Pass arguments as an array, never a string
 
-Identify Untrusted Input
+```js
+// WRONG — a shell parses this. `file` can contain `; rm -rf /`
+exec(`convert ${file} out.png`);
 
-↓
+// RIGHT — no shell; argv[1] is the filename even if it contains `;`
+execFile("convert", [file, "out.png"]);
+```
 
-Avoid Shell Execution
+The array form is safe because the operating system receives an argument vector
+directly. There is no parsing step for input to escape from.
 
-↓
+| Language | Dangerous | Safe |
+| --- | --- | --- |
+| Node | `exec`, `execSync`, `spawn(…, { shell: true })` | `execFile`, `spawn` with an array |
+| Python | `os.system`, `subprocess.run(..., shell=True)` | `subprocess.run([...])` |
+| Ruby | `system("cmd #{x}")`, backticks | `system("cmd", x)` |
+| Go | `exec.Command("sh", "-c", s)` | `exec.Command("cmd", args...)` |
+| PHP | `system`, `exec`, `shell_exec` | `proc_open` with an array |
+| Java | `Runtime.exec(String)` | `ProcessBuilder(List<String>)` |
 
-Separate Data From Commands
+**Never** set `shell: true` to make a command "work". It reintroduces the parser
+you just removed. If you need a pipeline, build it with two processes and connect
+their streams rather than handing a string to `sh -c`.
 
-↓
-
-Validate Operations
-
-↓
-
-Restrict Privileges
-
-↓
-
-Monitor Process Activity
-
-↓
-
-Detect Abuse
-
-↓
-
-Continuously Improve
-
-Applications should communicate with operating systems intentionally—not through user-controlled instructions.
+**Never** try to sanitise your way to safety by stripping metacharacters. The set
+differs per shell, quoting rules are subtle, and encodings differ. Escaping
+helpers such as `shlex.quote` exist for the case where a shell is genuinely
+unavoidable — treat that as a last resort, not a default.
 
 ---
 
-# Primary Objective
+# Arguments that start with a dash
 
-Every Command Injection defense should maximize
+Even with an argument array, a value beginning with `-` may be read as an option:
 
-Command Integrity
+```js
+// A file literally named "--output" changes what the program does
+execFile("grep", [pattern, file]);
+```
 
-+
+Two defences, used together:
 
-Operating System Security
+```js
+// 1. End option parsing explicitly
+execFile("grep", ["--", pattern, file]);
 
-+
+// 2. Force a path to be a path
+execFile("grep", ["--", pattern, path.resolve(dir, file)]);
+```
 
-Least Privilege
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every operating system command should remain completely under developer control.
+Most GNU tools honour `--`. Where a program does not, prefix relative paths with
+`./` so they cannot be read as flags.
 
 ---
 
-# Engineering Principles
+# Choosing the program itself
 
-Always prioritize
+- **Never** let input decide which binary runs. Allow-list the command:
 
-Avoid Shell Commands
+```js
+const ALLOWED = { thumbnail: "convert", probe: "ffprobe" };
+const bin = ALLOWED[req.body.action];
+if (!bin) throw new Error("unsupported action");
+```
 
-↓
+- **Never** resolve the binary through `PATH` in a privileged context. `PATH` may
+  be attacker-influenced. Use an absolute path — `/usr/bin/convert`.
+- Reset the child environment rather than inheriting it. `LD_PRELOAD`,
+  `PYTHONPATH`, `NODE_OPTIONS` and `IFS` all change behaviour:
 
-Explicit Operations
-
-↓
-
-Least Privilege
-
-↓
-
-Input Validation
-
-↓
-
-Process Isolation
-
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Continuous Improvement
-
-Applications should invoke operating system functionality without exposing command construction to user input.
+```js
+execFile("/usr/bin/convert", ["--", input, output], {
+  env: { PATH: "/usr/bin:/bin" },   // explicit, minimal
+  timeout: 10_000,
+  maxBuffer: 1024 * 1024,
+  cwd: workDir,
+});
+```
 
 ---
 
-# Command Injection Engineering Lifecycle
+# Indirect injection
 
-Identify System Operations
+Command injection frequently arrives through something other than a command
+string:
 
-↓
-
-Analyze Input Flow
-
-↓
-
-Design Safe Execution
-
-↓
-
-Restrict Privileges
-
-↓
-
-Validate Operations
-
-↓
-
-Monitor Activity
-
-↓
-
-Review Security
-
-↓
-
-Continuously Improve
-
-Every interaction with the operating system should preserve complete command integrity.
+- **Filenames.** A user-supplied name reaching `tar`, `zip`, `git`, or a shell
+  glob. Generate server-side names; never persist the client's.
+- **`git` arguments.** A branch or remote beginning with `--upload-pack=` executes
+  a program. Validate against `^[A-Za-z0-9._/-]+$` and reject leading `-`.
+- **Archive extraction.** Entries may contain `../` or absolute paths, or be
+  symlinks pointing outside the destination — see `Security/path-traversal`.
+- **Environment values** interpolated into a script by a later stage.
 
 ---
 
-# Stage 1 — Input Analysis
+# Reducing the blast radius
 
-Identify
+Assume the guard fails and limit what a successful injection achieves:
 
-Forms
-
-↓
-
-API Requests
-
-↓
-
-Headers
-
-↓
-
-Cookies
-
-↓
-
-Uploaded Files
-
-↓
-
-Environment Variables
-
-↓
-
-Configuration
-
-↓
-
-Third-Party Systems
-
-Every external value should be considered untrusted.
+- Run as an unprivileged user; never `root`.
+- Set `timeout` and `maxBuffer` on every child process. Unbounded output and
+  never-exiting children are denial of service.
+- Confine to a container, a `chroot`, or a sandbox with no network access when
+  the tool does not need one.
+- Give the process a working directory containing only what it needs.
+- **Never** return raw `stderr` to the user — it leaks paths, versions and
+  arguments. Log it, return something generic.
 
 ---
 
-# Stage 2 — Threat Analysis
+# Anti-patterns
 
-Identify
-
-Command Injection
-
-↓
-
-Shell Injection
-
-↓
-
-Argument Injection
-
-↓
-
-Environment Manipulation
-
-↓
-
-Process Abuse
-
-↓
-
-Privilege Escalation
-
-↓
-
-Remote Code Execution
-
-↓
-
-Emerging Threats
-
-Understanding operating system attack vectors strengthens application security.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `exec(\`cmd ${input}\`)` | A shell parses `;`, `\|`, `$()` | `execFile("cmd", [input])` |
+| `spawn(cmd, args, { shell: true })` | Reintroduces the parser | Drop `shell: true` |
+| Stripping `;` and `\|` from input | Metacharacter sets differ per shell | Remove the shell |
+| Input selects the binary | Arbitrary program execution | Allow-list the command |
+| Relying on `PATH` when privileged | `PATH` may be attacker-influenced | Absolute binary path |
+| Inheriting the full environment | `LD_PRELOAD`, `IFS`, `NODE_OPTIONS` | Explicit minimal `env` |
+| Passing a filename that may start with `-` | Read as an option | Use `--` and `path.resolve` |
+| No `timeout` or `maxBuffer` | Hung or flooding children | Set both |
+| Returning `stderr` to the client | Leaks paths and versions | Log it; return generic |
 
 ---
 
-# Stage 3 — Execution Flow Analysis
-
-Analyze
-
-Input Sources
-
-↓
-
-Validation
-
-↓
-
-Business Logic
-
-↓
-
-System Calls
-
-↓
-
-Process Execution
-
-↓
-
-Operating System
-
-↓
-
-Generated Output
-
-↓
-
-Operational Logging
-
-Understanding execution flow prevents command manipulation.
-
----
-
-# Stage 4 — Execution Architecture
-
-Design
-
-Application Layer
-
-↓
-
-Execution Layer
-
-↓
-
-Process Isolation
-
-↓
-
-Privilege Boundaries
-
-↓
-
-Sandboxing
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Future Expansion
-
-Execution architecture should isolate business logic from operating system commands.
-
----
-
-# Stage 5 — Protection Strategy
-
-Define
-
-Native APIs
-
-↓
-
-Safe Process Execution
-
-↓
-
-Input Validation
-
-↓
-
-Allowlisted Operations
-
-↓
-
-Least Privilege
-
-↓
-
-Sandboxing
-
-↓
-
-Resource Isolation
-
-↓
-
-Operational Controls
-
-Protection should eliminate unnecessary shell interaction.
-
----
-
-# Stage 6 — Operating System Protection
-
-Protect
-
-System Processes
-
-↓
-
-Application Accounts
-
-↓
-
-Environment Variables
-
-↓
-
-Configuration Files
-
-↓
-
-System Utilities
-
-↓
-
-Temporary Files
-
-↓
-
-Execution Environment
-
-↓
-
-Operational Security
-
-Operating system permissions should minimize potential damage.
-
----
-
-# Stage 7 — Execution Validation
-
-Validate
-
-Requested Operation
-
-↓
-
-Expected Parameters
-
-↓
-
-Business Rules
-
-↓
-
-Permission Boundaries
-
-↓
-
-Execution Context
-
-↓
-
-Resource Limits
-
-↓
-
-Operational Policies
-
-↓
-
-Engineering Quality
-
-Every system operation should be validated before execution.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Executed Processes
-
-↓
-
-Rejected Operations
-
-↓
-
-Validation Failures
-
-↓
-
-Permission Violations
-
-↓
-
-Unexpected Execution
-
-↓
-
-Audit Events
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Process security should remain measurable.
-
----
-
-# Stage 9 — Attack Detection
-
-Identify
-
-Unexpected Commands
-
-↓
-
-Shell Usage
-
-↓
-
-Privilege Escalation
-
-↓
-
-Process Anomalies
-
-↓
-
-Environment Abuse
-
-↓
-
-Automation
-
-↓
-
-Execution Patterns
-
-↓
-
-Operational Threats
-
-Detection should identify abuse before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Execution Boundaries
-
-↓
-
-Application Trust
-
-↓
-
-Privilege Model
-
-↓
-
-Process Isolation
-
-↓
-
-Execution Lifecycle
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Execution architecture should remain secure and understandable.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Processes
-
-↓
-
-Distributed Services
-
-↓
-
-Containerized Systems
-
-↓
-
-Cloud Infrastructure
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Secure execution should scale without increasing attack surface.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Execution Reliability
-
-↓
-
-System Availability
-
-↓
-
-Process Stability
-
-↓
-
-Operational Consistency
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Engineering Quality
-
-Reliable execution preserves operating system integrity.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Execution Architecture
-
-↓
-
-Privilege Model
-
-↓
-
-Allowed Operations
-
-↓
-
-Validation Rules
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves secure execution practices.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Execution Risks
-
-↓
-
-Privilege Risks
-
-↓
-
-Sandbox Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Technical Debt
-
-Execution risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every operating system interaction introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Execution Safety
-
-↓
-
-Privilege Model
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Command Injection defenses require continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Security Summary
-
-↓
-
-Threat Analysis
-
-↓
-
-Execution Metrics
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen engineering maturity.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Configuration
-
-↓
-
-Application Permissions
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Audit Trails
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Secure execution should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Execution Standards
-
-↓
-
-Security Reviews
-
-↓
-
-Privilege Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Operating system security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Execution Safety
-
-↓
-
-Operating System Security
-
-↓
-
-Monitoring
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional Command Injection prevention continuously strengthens execution integrity while preserving maintainability, scalability, and operational simplicity.
-
----
-
-# Command Injection Quality Attributes
-
-Evaluate
-
-Command Integrity
-
-Operating System Security
-
-Least Privilege
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Can any external input influence operating system commands?
-
-↓
-
-Can shell execution be eliminated entirely?
-
-↓
-
-Are operating system permissions restricted to the minimum required?
-
-↓
-
-Can execution activity be monitored and audited effectively?
-
-↓
-
-Can execution abuse be detected before compromise?
-
-↓
-
-Will future engineers understand the execution architecture?
-
-↓
-
-Would experienced Security Engineers, Principal Engineers, Platform Engineers, Infrastructure Engineers, and Engineering Leadership confidently approve this execution strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Remote command execution
-
-Operating system compromise
-
-Privilege escalation
-
-Complete infrastructure compromise
-
-Major
-
-Unsafe process execution
-
-Excessive privileges
-
-Environment manipulation
-
-Execution isolation failures
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Command Injection Checklist
-
-✓ Input sources identified
-
-✓ Threats analyzed
-
-✓ Execution flow reviewed
-
-✓ Execution architecture designed
-
-✓ Protection strategy selected
-
-✓ Operating system secured
-
-✓ Execution validated
-
-✓ Security measured
-
-✓ Attacks monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Executing shell commands with user input
-
-Building commands through string concatenation
-
-Trusting client validation
-
-Running applications with administrative privileges
-
-Executing unnecessary operating system commands
-
-Passing unvalidated arguments to system utilities
-
-Ignoring environment variable manipulation
-
-Disabling process isolation
-
-Missing execution logging
-
-Ignoring privilege boundaries
-
-Treating command execution as harmless automation
-
-Optimizing development speed over execution security
-
----
-
-# Definition of Done
-
-A Command Injection protection strategy is considered complete when
-
-- Input sources, operating system interactions, execution mechanisms, privilege models, process isolation strategies, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every operating system interaction preserves strict separation between executable commands and untrusted input while preventing shell injection, argument manipulation, privilege escalation, remote command execution, environment abuse, and operating system compromise throughout the software lifecycle.
-- The execution architecture supports scalable applications, distributed systems, cloud platforms, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate execution integrity, privilege boundaries, architectural consistency, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains execution architecture, trust boundaries, privilege models, allowed operations, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, and future execution security improvements.
-- Command Injection prevention decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving operating systems, cloud platforms, container environments, distributed architectures, and future software engineering environments.
-- The resulting application demonstrates engineering discipline, strong execution integrity, resilient operating system security, predictable process behavior, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional Command Injection prevention is not measured by how many dangerous characters are filtered.
-
-It is measured by how consistently software prevents untrusted input from influencing operating system execution, preserves process integrity, minimizes execution privileges, withstands evolving infrastructure threats, and continuously delivers secure, maintainable, and resilient operating system interactions throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: No `exec`, `system`, `shell_exec` or `shell: true` receives input
+- [ ] Verify: Every invocation passes an argument array
+- [ ] Verify: `--` terminates options where the program supports it
+- [ ] Verify: Paths are resolved before being passed as arguments
+- [ ] Verify: The binary is chosen from a server-side allow-list, by absolute path
+- [ ] Verify: The child environment is set explicitly, not inherited
+- [ ] Verify: `timeout`, `maxBuffer` and `cwd` are configured
+- [ ] Verify: The process runs unprivileged and, where possible, sandboxed
+- [ ] Verify: Filenames and `git` refs are validated and never taken from the client verbatim
+- [ ] Verify: `stderr` is logged server-side and never returned to the caller

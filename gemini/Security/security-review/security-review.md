@@ -5,1145 +5,189 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: security-review
+category: Security
+description: Reviewing a change for security — the diff patterns that matter, questions that find real bugs, and what to automate instead of eyeballing.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# security-review.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, security review methodologies, security assessment frameworks, risk evaluation strategies, governance practices, and long-term best practices for conducting comprehensive, repeatable, scalable, and production-ready security reviews throughout the software engineering lifecycle.
+How to review a code change for security, and how to spend that attention where
+it pays.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Cloud Platforms
-- Microservices
-- Infrastructure
-- Developer Platforms
-- Production Software
-
-Security review is not running an automated vulnerability scanner.
-
-Security review is the engineering discipline of systematically evaluating software architecture, implementation, infrastructure, operational practices, and governance to identify security weaknesses before they become production incidents.
-
-Security review answers one question:
-
-**Can this software be trusted to operate securely under realistic conditions throughout its lifecycle?**
+The governing principle: **review the trust boundaries, not the whole diff.** A
+2,000-line refactor that touches no input handling, no query, no authorisation
+check and no dependency is a smaller security event than a three-line change to a
+`WHERE` clause.
 
 ---
 
-# Core Philosophy
+# Triage the diff first
 
-Understand the System
+Ask what the change touches before reading it line by line:
 
-↓
+| Signal in the diff | Attention |
+| --- | --- |
+| New route, endpoint or handler | **High** — new attack surface |
+| `WHERE`, `findFirst`, raw SQL | **High** — authorisation and injection |
+| Authentication, session, token, cookie | **High** |
+| File path, upload, archive extraction | **High** |
+| `exec`, `spawn`, `child_process` | **High** |
+| Outbound `fetch` to a dynamic URL | **High** — SSRF |
+| New dependency | **High** — supply chain |
+| `innerHTML`, `dangerouslySetInnerHTML`, `v-html` | **High** |
+| CI workflow, `Dockerfile`, IaC | **High** — often unreviewed, always privileged |
+| Copy, styling, tests only | Low |
 
-Identify Assets
-
-↓
-
-Analyze Threats
-
-↓
-
-Evaluate Controls
-
-↓
-
-Assess Risk
-
-↓
-
-Validate Security
-
-↓
-
-Recommend Improvements
-
-↓
-
-Continuously Improve
-
-Security reviews should evaluate the complete system—not isolated vulnerabilities.
+A useful heuristic: **security bugs cluster where data crosses a boundary** —
+network to application, application to database, application to shell,
+application to filesystem, one tenant to another.
 
 ---
 
-# Primary Objective
+# Questions that find real bugs
 
-Every security review should maximize
+Ask these of the change, in order:
 
-Risk Visibility
+1. **Where does input enter, and what is it trusted to be?**
+   Query params, body, headers, cookies, uploaded filenames, webhook payloads, and
+   values read back from the database that were once user input.
 
-+
+2. **Is the data access scoped to the caller?**
+   A new query must filter by owner or tenant. → `Security/authorization`
 
-Security Assurance
+   ```js
+   // The review question: what stops user A passing user B's id?
+   await db.invoice.findUnique({ where: { id: req.params.id } });
+   ```
 
-+
+3. **Does any string become code?**
+   SQL, shell, HTML, a template, a deserializer.
+   → `Security/sql-injection`, `Security/command-injection`, `Security/xss`
 
-Reliability
+4. **What happens on the error path?**
+   Does a failure return a stack trace, leak a schema, or — worse — fall through
+   and continue as though it succeeded?
 
-+
+5. **What is logged?** Does the diff add a credential, token or personal data to a
+   log line? → `Security/audit-log`
 
-Maintainability
+6. **Is this endpoint rate limited?** New authentication or expensive endpoints
+   need an explicit answer. → `Security/rate-limiting`
 
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Governance
-
-+
-
-Long-Term Sustainability
-
-Every engineering decision should be evaluated from a security perspective before production deployment.
+7. **Did the blast radius change?** New permission, broader database grant, new
+   outbound network destination, new secret.
 
 ---
 
-# Engineering Principles
+# Patterns that deserve a comment every time
 
-Always prioritize
+```js
+// 1. Authorisation by route, data access unscoped
+if (!req.user) return res.status(401).end();
+const doc = await db.doc.findUnique({ where: { id: req.params.id } });
 
-Risk-Based Thinking
+// 2. Interpolation into a query or a command
+db.query(`SELECT * FROM t WHERE id = ${id}`);
+exec(`convert ${file} out.png`);
 
-↓
+// 3. Verification disabled to make something work
+const agent = new https.Agent({ rejectUnauthorized: false });
 
-Defense in Depth
+// 4. A comparison that should be constant-time
+if (providedToken === storedToken) { … }
 
-↓
+// 5. Randomness that is not cryptographic
+const token = Math.random().toString(36);
 
-Least Privilege
+// 6. A silenced error
+try { await verify(sig); } catch { /* ignore */ }
+```
 
-↓
-
-Evidence-Based Assessment
-
-↓
-
-Secure Architecture
-
-↓
-
-Continuous Validation
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Security reviews should measure engineering quality—not checklist completion.
+Each of these is a defect, not a style preference. The last is the most dangerous
+because it looks tidy.
 
 ---
 
-# Security Review Lifecycle
+# Automate what humans read badly
 
-Understand System
+Humans are poor at scanning for known patterns and good at reasoning about intent.
+Give each the work it suits.
 
-↓
+| Automate | Tool |
+| --- | --- |
+| Known-vulnerable dependencies | `npm audit`, Dependabot, `osv-scanner` |
+| Committed secrets | `gitleaks`, `trufflehog`, push protection |
+| Injection and taint patterns | `semgrep`, CodeQL |
+| Insecure IaC defaults | `checkov`, `tfsec` |
+| Container CVEs | `trivy`, `grype` |
 
-Identify Assets
+Fail the build on **high and critical**, and require an explicit, expiring
+exception with an owner for anything suppressed. A permanent suppression with no
+owner is how a known CVE ships for two years.
 
-↓
+```yaml
+# Gate the build. An exception must name an owner and an expiry, so a
+# suppression cannot quietly become permanent.
+- name: Dependency and secret scan
+  run: |
+    npm audit --omit=dev --audit-level=high
+    gitleaks detect --no-banner --redact
+    semgrep --config=p/owasp-top-ten --error --severity=ERROR
+```
 
-Analyze Threats
-
-↓
-
-Review Architecture
-
-↓
-
-Evaluate Controls
-
-↓
-
-Assess Risk
-
-↓
-
-Document Findings
-
-↓
-
-Continuously Improve
-
-Every production system should undergo structured security review.
+Reserve human review for: authorisation logic, business-rule abuse, error paths,
+trust assumptions, and whether the feature should exist in this shape at all.
 
 ---
 
-# Stage 1 — System Analysis
+# Reviewing the review
 
-Identify
-
-Architecture
-
-↓
-
-Applications
-
-↓
-
-APIs
-
-↓
-
-Infrastructure
-
-↓
-
-Users
-
-↓
-
-Services
-
-↓
-
-Dependencies
-
-↓
-
-Business Objectives
-
-Security begins with understanding the complete system.
+- **Say what you checked**, not only what you found. "Verified the new query is
+  tenant-scoped and the upload path is resolved before use" is far more useful to
+  the next reviewer than a silent approval.
+- **Be specific about severity.** Distinguish "this is exploitable today" from
+  "this weakens a defence in depth". Treating both as blockers trains people to
+  ignore you.
+- **Suggest the fix**, not just the flaw. `Security/*` packages exist to be linked.
+- **Never approve a security-relevant change you did not understand.** Ask. An
+  approval is an assertion.
 
 ---
 
-# Stage 2 — Asset Analysis
+# Anti-patterns
 
-Identify
-
-Sensitive Data
-
-↓
-
-Credentials
-
-↓
-
-Infrastructure
-
-↓
-
-Source Code
-
-↓
-
-Business Logic
-
-↓
-
-User Accounts
-
-↓
-
-Administrative Systems
-
-↓
-
-Critical Services
-
-Assets determine what requires protection.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Reviewing line count rather than boundaries | Attention on the harmless 2,000 lines | Triage by what is touched |
+| Trusting the ORM to prevent injection | Every ORM has an unsafe escape hatch | Check the raw-query APIs |
+| Approving CI and IaC changes unread | Highest-privilege code in the repo | Review them as production code |
+| Treating every finding as a blocker | Reviewers get ignored | Grade severity honestly |
+| Manual scanning for known CVEs | Humans are bad at this; tools are good | Automate and fail the build |
+| Suppressions with no owner or expiry | Known issues ship indefinitely | Expiring, owned exceptions |
+| Silent approval | No record of what was verified | State what you checked |
+| Reviewing only added lines | Deleted checks are invisible | Read removals too |
+| "It's internal" as a justification | Internal networks are not trusted | Require the same controls |
 
 ---
 
-# Stage 3 — Threat Analysis
-
-Identify
-
-External Attackers
-
-↓
-
-Insider Threats
-
-↓
-
-Supply Chain Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Cloud Risks
-
-↓
-
-Business Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Emerging Threats
-
-Threat understanding guides effective security decisions.
-
----
-
-# Stage 4 — Architecture Review
-
-Review
-
-Trust Boundaries
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Data Flow
-
-↓
-
-Network Design
-
-↓
-
-Infrastructure
-
-↓
-
-Operational Controls
-
-↓
-
-Future Expansion
-
-Architecture determines long-term security.
-
----
-
-# Stage 5 — Control Assessment
-
-Evaluate
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Encryption
-
-↓
-
-Logging
-
-↓
-
-Monitoring
-
-↓
-
-Secrets
-
-↓
-
-Infrastructure Security
-
-↓
-
-Operational Controls
-
-Security controls should work together as a complete system.
-
----
-
-# Stage 6 — Implementation Review
-
-Review
-
-Input Validation
-
-↓
-
-Output Protection
-
-↓
-
-Session Management
-
-↓
-
-API Security
-
-↓
-
-Database Security
-
-↓
-
-Filesystem Security
-
-↓
-
-Error Handling
-
-↓
-
-Engineering Quality
-
-Implementation should reflect architectural intent.
-
----
-
-# Stage 7 — Operational Review
-
-Validate
-
-Deployment
-
-↓
-
-Configuration
-
-↓
-
-Monitoring
-
-↓
-
-Incident Response
-
-↓
-
-Backup
-
-↓
-
-Recovery
-
-↓
-
-Access Management
-
-↓
-
-Operational Security
-
-Operational security determines production resilience.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Attack Surface
-
-↓
-
-Security Coverage
-
-↓
-
-Policy Compliance
-
-↓
-
-Risk Exposure
-
-↓
-
-Operational Health
-
-↓
-
-Security Events
-
-↓
-
-Audit Coverage
-
-↓
-
-Engineering Quality
-
-Security posture should remain measurable.
-
----
-
-# Stage 9 — Weakness Identification
-
-Identify
-
-Architecture Weaknesses
-
-↓
-
-Implementation Weaknesses
-
-↓
-
-Configuration Errors
-
-↓
-
-Operational Risks
-
-↓
-
-Compliance Gaps
-
-↓
-
-Technical Debt
-
-↓
-
-Human Risks
-
-↓
-
-Emerging Risks
-
-Weaknesses should be identified before exploitation.
-
----
-
-# Stage 10 — Risk Evaluation
-
-Evaluate
-
-Likelihood
-
-↓
-
-Impact
-
-↓
-
-Business Risk
-
-↓
-
-Operational Risk
-
-↓
-
-Compliance Risk
-
-↓
-
-Technical Risk
-
-↓
-
-Residual Risk
-
-↓
-
-Future Risk
-
-Risk should guide prioritization.
-
----
-
-# Stage 11 — Scalability Review
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Infrastructure
-
-↓
-
-Growing Teams
-
-↓
-
-Cloud Expansion
-
-↓
-
-Distributed Systems
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Security should improve as systems grow.
-
----
-
-# Stage 12 — Reliability Review
-
-Verify
-
-Operational Stability
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Failure Handling
-
-↓
-
-Auditability
-
-↓
-
-Consistency
-
-↓
-
-Availability
-
-↓
-
-Engineering Quality
-
-Reliable systems remain secure during failure.
-
----
-
-# Stage 13 — Documentation Review
-
-Review
-
-Architecture Documents
-
-↓
-
-Security Standards
-
-↓
-
-Operational Procedures
-
-↓
-
-Incident Response
-
-↓
-
-Governance
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Future Planning
-
-Documentation preserves security knowledge.
-
----
-
-# Stage 14 — Compliance Assessment
-
-Evaluate
-
-Internal Policies
-
-↓
-
-Industry Standards
-
-↓
-
-Business Requirements
-
-↓
-
-Operational Requirements
-
-↓
-
-Audit Requirements
-
-↓
-
-Legal Obligations
-
-↓
-
-Risk Policies
-
-↓
-
-Technical Standards
-
-Compliance should support—not replace—engineering security.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Availability
-
-↓
-
-Developer Experience
-
-↓
-
-Maintainability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every engineering decision introduces security trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Infrastructure
-
-↓
-
-Operations
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Security reviews require evidence—not assumptions.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Executive Summary
-
-↓
-
-Risk Assessment
-
-↓
-
-Security Findings
-
-↓
-
-Prioritized Recommendations
-
-↓
-
-Operational Health
-
-↓
-
-Engineering Quality
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports should drive engineering improvement.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Configuration
-
-↓
-
-Security Controls
-
-↓
-
-Monitoring
-
-↓
-
-Incident Response
-
-↓
-
-Operational Procedures
-
-↓
-
-Documentation
-
-↓
-
-Recovery
-
-↓
-
-Operational Stability
-
-Security readiness should be demonstrated before deployment.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Security Standards
-
-↓
-
-Review Process
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Culture
-
-Security reviews require continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Operations
-
-↓
-
-Governance
-
-↓
-
-Engineering Excellence
-
-↓
-
-Security Maturity
-
-↓
-
-Continuous Learning
-
-↓
-
-Software Longevity
-
-Exceptional security reviews continuously strengthen engineering quality while preserving maintainability, scalability, and operational simplicity.
-
----
-
-# Security Review Quality Attributes
-
-Evaluate
-
-Security Assurance
-
-Risk Visibility
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Governance
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Have all critical assets been identified?
-
-↓
-
-Have trust boundaries been evaluated?
-
-↓
-
-Do security controls protect every critical asset?
-
-↓
-
-Can the system detect and respond to security incidents?
-
-↓
-
-Can identified risks be prioritized objectively?
-
-↓
-
-Will future engineers understand the security decisions?
-
-↓
-
-Would experienced Security Engineers, Principal Engineers, Security Architects, Platform Engineers, Engineering Leadership, and Executive Security Reviewers confidently approve this system for production?
-
----
-
-# Severity Levels
-
-Critical
-
-Remote compromise
-
-Credential exposure
-
-Administrative compromise
-
-Sensitive data disclosure
-
-Complete infrastructure compromise
-
-Major
-
-Authentication weaknesses
-
-Authorization failures
-
-Infrastructure misconfiguration
-
-Missing security controls
-
-High-risk architectural weaknesses
-
-Medium
-
-Implementation weaknesses
-
-Documentation gaps
-
-Monitoring improvements
-
-Operational improvements
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Security Review Checklist
-
-✓ System analyzed
-
-✓ Assets identified
-
-✓ Threats assessed
-
-✓ Architecture reviewed
-
-✓ Security controls evaluated
-
-✓ Implementation reviewed
-
-✓ Operations reviewed
-
-✓ Security measured
-
-✓ Weaknesses identified
-
-✓ Risks evaluated
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation reviewed
-
-✓ Compliance assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Reviewing only application code
-
-Ignoring architecture
-
-Ignoring infrastructure
-
-Trusting automated scanners alone
-
-Reviewing only known vulnerabilities
-
-Ignoring operational security
-
-Ignoring business risks
-
-Treating compliance as security
-
-Reviewing security only before release
-
-Ignoring technical debt
-
-Optimizing development speed over security
-
-Treating security review as a one-time activity
-
----
-
-# Definition of Done
-
-A security review is considered complete when
-
-- System architecture, assets, trust boundaries, implementation, infrastructure, operational practices, governance processes, monitoring capabilities, and security controls have been systematically evaluated using secure engineering principles and evidence-based methodologies.
-- Every critical security risk has been identified, analyzed, prioritized, documented, validated, and assigned appropriate mitigation strategies while preventing architectural weaknesses, implementation flaws, operational failures, governance gaps, compliance deficiencies, infrastructure risks, and long-term accumulation of unmanaged security debt throughout the software lifecycle.
-- The security review process supports scalable distributed systems, cloud infrastructure, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, evolving security standards, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate architectural integrity, implementation quality, operational readiness, documentation completeness, maintainability, scalability, production readiness, auditability, interoperability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains security architecture, trust boundaries, identified risks, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, remediation priorities, and future security improvements.
-- Security review decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving cloud platforms, distributed architectures, infrastructure technologies, software ecosystems, and future engineering environments.
-- The resulting system demonstrates engineering discipline, strong security assurance, resilient architecture, predictable operational behavior, operational excellence, maintainability, scalability, continuous observability, effective governance, and sustainable software security throughout its lifetime.
-
-Exceptional security reviews are not measured by the number of vulnerabilities discovered.
-
-They are measured by how consistently engineering teams understand system risk, validate security assumptions, strengthen architecture, improve operational resilience, reduce long-term security debt, and continuously deliver secure, maintainable, and trustworthy software throughout the lifetime of the system.
+# Checklist
+
+- [ ] Verify: The diff was triaged for trust-boundary changes before line-by-line reading
+- [ ] Verify: Every new data access is scoped by owner or tenant
+- [ ] Verify: No input is interpolated into SQL, a shell command, HTML or a template
+- [ ] Verify: Error paths fail closed and leak no schema or stack trace
+- [ ] Verify: No credential, token or personal data was added to a log line
+- [ ] Verify: New or expensive endpoints have an explicit rate-limiting answer
+- [ ] Verify: Deleted lines were read, not just added ones
+- [ ] Verify: CI, `Dockerfile` and IaC changes were reviewed as privileged code
+- [ ] Verify: Dependency, secret and SAST scans run and gate on high or critical
+- [ ] Verify: Any suppression has an owner and an expiry
+- [ ] Verify: The review states what was verified, with severity graded honestly

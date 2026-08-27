@@ -5,1139 +5,164 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: https
+category: Security
+description: TLS configuration that holds up — protocol and cipher selection, certificate automation, HSTS, and terminating TLS without losing it internally.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# https.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, HTTPS security methodologies, transport security frameworks, certificate lifecycle strategies, secure communication practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready systems that protect data during transmission.
+Rules for transport security. Encryption of stored data is `Security/encryption`;
+the response headers that accompany TLS are `Security/headers`.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Cloud Platforms
-- Microservices
-- Mobile Applications
-- Distributed Systems
-- Production Software
-
-HTTPS is not simply enabling TLS certificates.
-
-HTTPS is the engineering discipline of establishing authenticated, encrypted, and integrity-protected communication channels that preserve confidentiality, authenticity, and trust between communicating systems throughout the entire software lifecycle.
-
-HTTPS answers one question:
-
-**Can every network communication remain confidential, authentic, and resistant to tampering while in transit?**
+**HTTPS is not optional for any endpoint.** Not for static pages, not for health
+checks, not for internal services. Plaintext anywhere permits downgrade,
+injection of content, and theft of any credential that traverses it.
 
 ---
 
-# Core Philosophy
+# Protocol versions
 
-Identify Network Communication
+| Version | Setting |
+| --- | --- |
+| **TLS 1.3** | Enable. Preferred — fewer round trips, no legacy ciphers, forward secrecy always |
+| **TLS 1.2** | Enable for compatibility, restricted to AEAD suites |
+| TLS 1.1 / 1.0 | **Disable.** Deprecated; CBC and RC4 weaknesses |
+| SSL 3.0 / 2.0 | **Disable.** POODLE and worse |
 
-↓
+```nginx
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;          # correct for TLS 1.3
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305;
 
-Establish Trust
+ssl_session_timeout 1d;
+ssl_session_cache shared:SSL:10m;
+ssl_session_tickets off;                # tickets can undermine forward secrecy
 
-↓
+ssl_stapling on;                        # OCSP stapling
+ssl_stapling_verify on;
+```
 
-Authenticate Endpoints
+Require **ECDHE** key exchange so every session has forward secrecy — recording
+traffic today must not become readable if the private key leaks later. Static RSA
+key exchange does not provide this and is absent from TLS 1.3 for that reason.
 
-↓
-
-Encrypt Communication
-
-↓
-
-Verify Integrity
-
-↓
-
-Monitor Connections
-
-↓
-
-Detect Weaknesses
-
-↓
-
-Continuously Improve
-
-Data in transit should never be trusted unless the communication channel itself is trusted.
+**Never** enable compression (CRIME) or renegotiation initiated by the client.
 
 ---
 
-# Primary Objective
+# Certificates
 
-Every HTTPS implementation should maximize
-
-Transport Confidentiality
-
-+
-
-Integrity
-
-+
-
-Authenticity
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every network connection should establish trust before exchanging sensitive information.
+- Automate issuance and renewal with ACME (`certbot`, `lego`, `caddy`, or your
+  platform's manager). **Manual renewal is how outages happen** — the certificate
+  expires on a weekend and nobody is paged until users are.
+- Alert at **30 days** before expiry, independently of the renewal automation. The
+  alert exists to catch the automation failing.
+- Prefer **ECDSA P-256** — smaller and faster than RSA-2048 — and serve an RSA
+  chain alongside only if you must support very old clients.
+- Serve the **full chain**, not just the leaf. A missing intermediate works in
+  browsers that cache it and fails in `curl`, mobile apps and server-to-server
+  calls — an intermittent failure that is painful to diagnose.
+- Keep private keys at `0600`, owned by the service user, never in the repository.
+- Add a **CAA record** so only your chosen authority may issue for the domain.
 
 ---
 
-# Engineering Principles
+# HSTS
 
-Always prioritize
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+```
 
-End-to-End Encryption
-
-↓
-
-Strong Authentication
-
-↓
-
-Certificate Validation
-
-↓
-
-Modern TLS
-
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Secure communication begins before application data is exchanged.
+- Send it **only over HTTPS**. Browsers ignore it on plaintext responses.
+- Start with a short `max-age`, confirm nothing breaks, then raise to a year.
+- `preload` is **effectively irreversible on a useful timescale**. Every present
+  and future subdomain must serve HTTPS before you submit. → `Security/headers`
 
 ---
 
-# HTTPS Engineering Lifecycle
+# Redirects and mixed content
 
-Identify Communication Paths
-
-↓
-
-Define Trust Boundaries
-
-↓
-
-Deploy Certificates
-
-↓
-
-Secure Transport
-
-↓
-
-Monitor Connections
-
-↓
-
-Review Configuration
-
-↓
-
-Detect Weaknesses
-
-↓
-
-Continuously Improve
-
-Every network connection should establish cryptographic trust before transmitting application data.
+- Redirect HTTP to HTTPS with **`301`**, and redirect to the same path. Sending
+  every plaintext request to `/` loses the user's destination.
+- The redirect is a **fallback, not the control** — the first plaintext request is
+  already interceptable. HSTS is what removes it for return visitors.
+- Serve every subresource over HTTPS. One `http://` script tag blocks on mixed
+  content; one `http://` image degrades the lock icon and leaks the URL.
+- Set cookies `Secure` so they are never transmitted in plaintext.
 
 ---
 
-# Stage 1 — Communication Analysis
+# Internal traffic
 
-Identify
+Terminating TLS at a load balancer and speaking plaintext behind it is only
+acceptable when that internal network is genuinely trusted — and in a shared
+cloud VPC it usually is not.
 
-User Traffic
+- Prefer **mutual TLS** between services, or a service mesh that provides it.
+- Verify certificates on internal calls too. Disabling verification "because it is
+  internal" is how a compromised pod reads everything.
+- **Never** set `NODE_TLS_REJECT_UNAUTHORIZED=0` or `rejectUnauthorized: false`.
+  That disables verification globally and turns TLS into obfuscation.
 
-↓
-
-API Communication
-
-↓
-
-Service-to-Service Communication
-
-↓
-
-Administrative Access
-
-↓
-
-Internal Services
-
-↓
-
-External Integrations
-
-↓
-
-Mobile Clients
-
-↓
-
-Third-Party Services
-
-Every communication path should be identified before securing it.
+```js
+// If a private CA is the reason for the temptation, trust the CA — do not
+// disable verification.
+const agent = new https.Agent({ ca: fs.readFileSync("/etc/ssl/internal-ca.pem") });
+```
 
 ---
 
-# Stage 2 — Threat Analysis
+# Verifying
 
-Identify
+```bash
+# Protocol, cipher, chain and expiry from the live endpoint
+openssl s_client -connect app.example.com:443 -servername app.example.com < /dev/null
 
-Network Eavesdropping
+# Confirm weak protocols are actually refused
+openssl s_client -tls1_1 -connect app.example.com:443 < /dev/null   # expect failure
+```
 
-↓
-
-Man-in-the-Middle Attacks
-
-↓
-
-Certificate Spoofing
-
-↓
-
-Session Hijacking
-
-↓
-
-Protocol Downgrade
-
-↓
-
-DNS Manipulation
-
-↓
-
-Traffic Interception
-
-↓
-
-Emerging Threats
-
-Understanding transport threats strengthens communication security.
+Test the **deployed origin**, not the configuration file. Then run an external
+scan (SSL Labs, `testssl.sh`) and re-run it after any proxy or platform change.
 
 ---
 
-# Stage 3 — Communication Flow Analysis
+# Anti-patterns
 
-Analyze
-
-Client
-
-↓
-
-DNS Resolution
-
-↓
-
-Connection Establishment
-
-↓
-
-TLS Handshake
-
-↓
-
-Certificate Validation
-
-↓
-
-Encrypted Communication
-
-↓
-
-Response Delivery
-
-↓
-
-Audit Logging
-
-Trust should be established before application communication begins.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| TLS 1.0 / 1.1 still enabled | Deprecated; CBC and RC4 weaknesses | TLS 1.2 + 1.3 only |
+| Manual certificate renewal | Expiry outage at the worst moment | ACME automation plus expiry alert |
+| Serving only the leaf certificate | Fails for `curl` and mobile clients | Serve the full chain |
+| `rejectUnauthorized: false` | Disables verification entirely | Trust the private CA |
+| Plaintext between internal services | A compromised pod reads everything | mTLS or a service mesh |
+| HSTS sent over HTTP | Ignored by browsers | HTTPS responses only |
+| `preload` before auditing subdomains | Effectively irreversible | Verify every subdomain |
+| Redirecting all HTTP to `/` | Loses the requested path | `301` to the same path |
+| Mixed-content subresources | Blocked or leaking | All subresources over HTTPS |
+| Static RSA key exchange | No forward secrecy | Require ECDHE |
 
 ---
 
-# Stage 4 — Trust Architecture
-
-Design
-
-Certificate Authority
-
-↓
-
-Certificate Lifecycle
-
-↓
-
-TLS Configuration
-
-↓
-
-Trust Boundaries
-
-↓
-
-Identity Verification
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Future Expansion
-
-Transport architecture should establish explicit trust relationships.
-
----
-
-# Stage 5 — Protection Strategy
-
-Define
-
-HTTPS Everywhere
-
-↓
-
-Strong TLS Configuration
-
-↓
-
-Certificate Validation
-
-↓
-
-Automatic Renewal
-
-↓
-
-Secure Redirects
-
-↓
-
-Perfect Forward Secrecy
-
-↓
-
-Modern Cipher Suites
-
-↓
-
-Operational Controls
-
-Transport protection should eliminate insecure communication paths.
-
----
-
-# Stage 6 — Certificate Protection
-
-Protect
-
-Private Keys
-
-↓
-
-Certificates
-
-↓
-
-Certificate Authorities
-
-↓
-
-Trust Stores
-
-↓
-
-TLS Configuration
-
-↓
-
-Renewal Processes
-
-↓
-
-Revocation Procedures
-
-↓
-
-Operational Security
-
-Certificate security directly affects communication trust.
-
----
-
-# Stage 7 — Connection Validation
-
-Validate
-
-Certificate Chain
-
-↓
-
-Hostname
-
-↓
-
-Certificate Validity
-
-↓
-
-TLS Negotiation
-
-↓
-
-Trust Relationship
-
-↓
-
-Business Rules
-
-↓
-
-Connection Security
-
-↓
-
-Engineering Quality
-
-Every secure connection should validate trust before exchanging data.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-HTTPS Coverage
-
-↓
-
-TLS Failures
-
-↓
-
-Certificate Expiration
-
-↓
-
-Handshake Success
-
-↓
-
-Protocol Usage
-
-↓
-
-Audit Events
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Transport security should remain measurable.
-
----
-
-# Stage 9 — Weakness Detection
-
-Identify
-
-Expired Certificates
-
-↓
-
-Weak TLS Configuration
-
-↓
-
-Certificate Mismatch
-
-↓
-
-Downgrade Attempts
-
-↓
-
-Invalid Trust Chains
-
-↓
-
-Unexpected Traffic
-
-↓
-
-Protocol Anomalies
-
-↓
-
-Operational Threats
-
-Detection should identify transport weaknesses before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Transport Security
-
-↓
-
-Trust Boundaries
-
-↓
-
-Certificate Lifecycle
-
-↓
-
-TLS Configuration
-
-↓
-
-Connection Management
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Transport architecture should remain understandable and resilient.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Services
-
-↓
-
-Distributed Infrastructure
-
-↓
-
-Cloud Platforms
-
-↓
-
-Global Traffic
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-HTTPS should scale without weakening trust.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Certificate Availability
-
-↓
-
-Connection Reliability
-
-↓
-
-TLS Stability
-
-↓
-
-Operational Consistency
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Engineering Quality
-
-Reliable transport security preserves user trust.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Transport Architecture
-
-↓
-
-Certificate Lifecycle
-
-↓
-
-Trust Model
-
-↓
-
-TLS Standards
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves communication security consistency.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Certificate Risks
-
-↓
-
-TLS Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Business Risks
-
-↓
-
-Future Risks
-
-↓
-
-Technical Debt
-
-Transport risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Availability
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every transport security decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-HTTPS Configuration
-
-↓
-
-Certificate Management
-
-↓
-
-Transport Security
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-HTTPS requires continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Transport Security Summary
-
-↓
-
-Certificate Metrics
-
-↓
-
-TLS Metrics
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen transport security governance.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Certificates
-
-↓
-
-TLS Configuration
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Renewal Procedures
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-HTTPS should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Transport Standards
-
-↓
-
-Certificate Reviews
-
-↓
-
-TLS Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Transport security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Transport Protection
-
-↓
-
-Certificate Management
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Automation
-
-↓
-
-Software Longevity
-
-Exceptional HTTPS implementation continuously strengthens secure communication while preserving operational simplicity and engineering excellence.
-
----
-
-# HTTPS Quality Attributes
-
-Evaluate
-
-Transport Confidentiality
-
-Integrity
-
-Authenticity
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Are all communication channels protected with HTTPS?
-
-↓
-
-Can any sensitive data travel over unencrypted connections?
-
-↓
-
-Are certificates managed securely throughout their lifecycle?
-
-↓
-
-Can certificate failures be detected before production impact?
-
-↓
-
-Are trust relationships clearly defined and validated?
-
-↓
-
-Will future engineers understand the transport security architecture?
-
-↓
-
-Would experienced Security Engineers, Infrastructure Engineers, Principal Engineers, Network Engineers, and Engineering Leadership confidently approve this HTTPS strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Plain HTTP for sensitive traffic
-
-Private key compromise
-
-Certificate authority compromise
-
-Transport confidentiality failure
-
-Major
-
-Expired certificates
-
-Weak TLS configuration
-
-Certificate validation failures
-
-Insecure redirects
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# HTTPS Checklist
-
-✓ Communication paths identified
-
-✓ Threats analyzed
-
-✓ Communication flow reviewed
-
-✓ Trust architecture designed
-
-✓ Protection strategy selected
-
-✓ Certificates protected
-
-✓ Connections validated
-
-✓ Security measured
-
-✓ Weaknesses monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Serving sensitive data over HTTP
-
-Ignoring certificate expiration
-
-Weak TLS configurations
-
-Using deprecated protocol versions
-
-Weak cipher suites
-
-Disabling certificate validation
-
-Sharing private keys
-
-Missing certificate rotation
-
-Ignoring secure redirects
-
-Treating HTTPS as optional
-
-Trusting self-signed certificates in production
-
-Optimizing convenience over transport security
-
----
-
-# Definition of Done
-
-An HTTPS strategy is considered complete when
-
-- Communication channels, certificate infrastructure, transport security architecture, trust boundaries, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every network connection establishes authenticated, encrypted, and integrity-protected communication while preventing traffic interception, man-in-the-middle attacks, protocol downgrade attacks, certificate misuse, unauthorized disclosure, and transport compromise throughout the software lifecycle.
-- The transport security architecture supports scalable distributed systems, cloud platforms, maintainable engineering practices, continuous monitoring, automated certificate lifecycle management, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate HTTPS coverage, TLS configuration, certificate lifecycle management, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, interoperability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains transport architecture, trust relationships, certificate lifecycle management, TLS standards, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, recovery strategies, and future transport security improvements.
-- HTTPS decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving cloud platforms, networking technologies, distributed systems, communication protocols, and future software engineering environments.
-- The resulting system demonstrates engineering discipline, strong transport confidentiality, resilient communication integrity, predictable trust establishment, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional HTTPS implementation is not measured by whether TLS is enabled.
-
-It is measured by how consistently software establishes authenticated and encrypted communication, protects trust relationships, preserves data confidentiality and integrity during transmission, withstands evolving network threats, and continuously delivers secure, maintainable, and resilient transport security throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: Only TLS 1.2 and 1.3 are enabled; older protocols refused and verified refused
+- [ ] Verify: Cipher suites are AEAD with ECDHE key exchange
+- [ ] Verify: TLS compression and client-initiated renegotiation are disabled
+- [ ] Verify: Certificates renew automatically, with an independent 30-day expiry alert
+- [ ] Verify: The full chain is served and verified with `openssl s_client`
+- [ ] Verify: Private keys are `0600` and never committed
+- [ ] Verify: A CAA record restricts which authority may issue
+- [ ] Verify: HSTS is sent over HTTPS only, with `includeSubDomains`
+- [ ] Verify: `preload` used only after auditing every subdomain
+- [ ] Verify: HTTP redirects `301` to the same path over HTTPS
+- [ ] Verify: No mixed content; all cookies are `Secure`
+- [ ] Verify: Internal service traffic uses mTLS or verified TLS, never disabled verification

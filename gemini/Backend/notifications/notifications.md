@@ -5,1036 +5,229 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: notifications
+category: Backend
+description: A notification system across email, push, SMS and in-app — one event model, user preferences, deduplication, digests, and delivery you can debug.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# notifications.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines how Gemini should design, implement, review, optimize, and maintain Notification systems.
+Rules for notifying users across channels. The engineering problem is not sending
+to any one channel — it is having **one event produce the right message on the
+right channels for each user**, without duplicates and without becoming noise.
 
-Notifications are not simply messages sent to users.
-
-Notifications are event-driven communication systems that deliver timely, relevant, personalized, and actionable information across multiple channels while respecting user preferences, business priorities, and system reliability.
-
-The objective is to build notification systems that are scalable, reliable, observable, user-centric, and capable of delivering the right message through the right channel at the right time.
-
-Notifications should inform users.
-
-Never overwhelm them.
+Channel-specific delivery is `Backend/email`. This package is the layer above.
 
 ---
 
-# Core Philosophy
+# One event, many channels
 
-Business Event
+Producers emit an **event**. They do not decide the channel, the copy, or whether
+the user wants it.
 
-↓
+```ts
+await notify({
+  type: "order.shipped",              // the event, not "send an email"
+  recipientId: order.userId,
+  tenantId: order.tenantId,
+  data: { orderId: order.id, carrier, trackingUrl },
+  idempotencyKey: `order.shipped:${order.id}`,
+  occurredAt: new Date(),
+});
+```
 
-Determine Audience
+The notification service then resolves, in order:
 
-↓
+1. **Preferences** — does this user want `order.shipped`, on which channels?
+2. **Templates** — copy per event type per channel, per locale.
+3. **Deduplication** — has this `idempotencyKey` already been delivered?
+4. **Batching** — immediate, or held for a digest?
+5. **Delivery** — enqueue per channel, with per-channel retry.
 
-Select Channel
-
-↓
-
-Generate Notification
-
-↓
-
-Deliver Message
-
-↓
-
-Track Status
-
-↓
-
-Learn & Improve
-
-↓
-
-Approve
-
-Every notification should provide value to the recipient.
+Calling `sendEmail()` from a business service couples the domain to a channel and
+guarantees that the next channel means editing every call site.
 
 ---
 
-# Primary Objective
+# Preferences, and the ones you cannot override
 
-Every notification system should answer one question.
+A preference matrix of event type × channel, with sane defaults:
 
-"Can users receive timely, relevant, secure, and actionable notifications without unnecessary noise or system complexity?"
+| | In-app | Push | Email | SMS |
+| --- | --- | --- | --- | --- |
+| `order.shipped` | on | on | on | off |
+| `comment.mention` | on | on | digest | off |
+| `security.new_login` | on | on | **forced** | off |
+| `billing.payment_failed` | on | off | **forced** | off |
 
-If the answer is uncertain,
+Two categories can never be disabled: **security** notices and **legal/billing**
+notices. Everything else is the user's choice, and the default must be
+conservative — a noisy default trains users to mute the whole channel, including
+the ones that matter.
 
-the notification architecture requires improvement.
-
----
-
-# Notification Principles
-
-Every implementation should maximize
-
-Relevance
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Personalization
-
-↓
-
-Security
-
-↓
-
-Observability
-
-↓
-
-User Experience
-
-↓
-
-Developer Experience
-
-Notifications should improve the product experience.
-
-Not interrupt it.
+- Honour quiet hours in the **user's** timezone, not the server's.
+- Every non-forced notification carries an unsubscribe path that works in one
+  click and is honoured immediately. `List-Unsubscribe` for email is required by
+  major providers at volume.
+- Store preference changes with a timestamp — "I never agreed to this" is a
+  compliance question. → `Security/audit-log`
 
 ---
 
-# Notification Workflow
+# Deduplication and batching
 
-Business Event
+Duplicate notifications are the fastest route to a muted channel.
 
-↓
+- Deduplicate on `idempotencyKey` within a window. Retries, replays and
+  at-least-once queues all cause repeats. → `Backend/queues`
+- **Collapse** related events: fifteen comments on one thread is one notification
+  saying "15 new comments", not fifteen pushes.
+- **Digest** low-urgency types: hold and send hourly or daily, at a time chosen
+  in the user's timezone.
+- Suppress a notification about an action the user just performed themselves.
+- Rate-limit per user per channel as a hard backstop, regardless of event volume.
 
-Identify Recipients
+Concretely: a `collapseKey` groups events that supersede one another
+(`thread:${threadId}`), a `digestWindow` holds them (`PT1H`, `P1D`), and a
+`maxPerHour` per `(recipientId, channel)` caps the total. FCM's `collapse_key`
+and APNs' `apns-collapse-id` do the equivalent at the device, replacing an
+undelivered notification rather than stacking another one on the lock screen.
 
-↓
+Urgency decides the path:
 
-Validate Preferences
-
-↓
-
-Select Channel
-
-↓
-
-Generate Content
-
-↓
-
-Queue Notification
-
-↓
-
-Deliver Message
-
-↓
-
-Track Result
-
-↓
-
-Approve
+| Urgency | Channel | Timing |
+| --- | --- | --- |
+| Critical (security, payment failed) | Push + email | Immediate, ignores digest |
+| Actionable (mention, assignment) | Push + in-app | Immediate, collapsible |
+| Informational (weekly summary) | Email | Digest |
 
 ---
 
-# Stage 1 — Notification Classification
+# Channel realities
 
-Identify notification types.
+| Channel | Constraint |
+| --- | --- |
+| Push | Tokens expire and are revoked; a `NotRegistered` response means delete the token, not retry |
+| Push | Payload limits (~4 KB APNs); send an id and fetch detail in-app |
+| SMS | Costly, regulated, and consent rules differ by country; use only for OTP and critical alerts |
+| SMS | Always include the sender's identity; never include a link a phishing victim could follow blindly |
+| In-app | Needs read state, pagination and a bounded retention policy |
+| Email | Deliverability, suppression lists → `Backend/email` |
+| Web push | Requires an explicit permission prompt; ask in context, never on first load |
 
-Examples
+```ts
+// Per-channel adapters behind one interface. A permanent rejection deletes the
+// destination; a transient one retries. Conflating them is how dead tokens
+// accumulate and how real failures get silently dropped.
+const PERMANENT = new Set(["NotRegistered", "InvalidRegistration",
+                           "Unregistered", "BadDeviceToken", "hard_bounce"]);
 
-Authentication
+async function deliver(channel: Channel, msg: Message) {
+  try {
+    return await adapters[channel].send(msg);
+  } catch (err) {
+    if (PERMANENT.has(err.code)) { await suppress(msg.recipientId, channel, err.code); return; }
+    throw err;                                  // transient — the queue retries
+  }
+}
+```
 
-↓
-
-Security Alerts
-
-↓
-
-Order Updates
-
-↓
-
-Payment Notifications
-
-↓
-
-Social Activity
-
-↓
-
-Reminders
-
-↓
-
-System Events
-
-↓
-
-Marketing Campaigns
-
-↓
-
-Announcements
-
-↓
-
-Operational Alerts
-
-Different notification categories require different delivery strategies.
+Push token hygiene matters: an accumulating list of dead tokens slows every send
+and skews delivery metrics. Delete on the first permanent rejection.
 
 ---
 
-# Stage 2 — Event Identification
+# Observability and debugging
 
-Notifications should originate from
+"Did the customer get the email?" must be answerable in one query.
 
-Business events
+Record per notification: event type, recipient, channel, template version,
+decision (sent / suppressed / deduplicated / digested), provider message id,
+delivery status, and open or click where available.
 
-↓
+| Alert | Meaning |
+| --- | --- |
+| Delivery failure rate per channel | A provider or credential problem |
+| Suppression rate rising | Preferences or bugs are silencing real notifications |
+| Unsubscribe rate rising | The notification is unwanted; copy or frequency is wrong |
+| Queue age per channel | Notifications arriving too late to be useful |
 
-User actions
+```sql
+-- One row per notification decision. This table is the answer to
+-- "did the customer get it?", and it must be written even when nothing is sent.
+CREATE TABLE notification_deliveries (
+  id               uuid PRIMARY KEY,
+  event_type       text        NOT NULL,
+  recipient_id     uuid        NOT NULL,
+  channel          text        NOT NULL,   -- email | push | sms | in_app
+  decision         text        NOT NULL,   -- sent | suppressed | deduplicated | digested
+  reason           text,                   -- 'preference_off', 'quiet_hours', 'hard_bounce'
+  idempotency_key  text        NOT NULL,
+  provider_msg_id  text,
+  status           text,                   -- queued | delivered | bounced | failed
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX ON notification_deliveries (idempotency_key, channel);
+CREATE INDEX ON notification_deliveries (recipient_id, created_at DESC);
+```
 
-↓
+The unique index on `(idempotency_key, channel)` is the deduplication mechanism
+itself, not just a record of it — an `ON CONFLICT DO NOTHING` insert that affects
+zero rows means the notification was already delivered.
 
-Scheduled tasks
-
-↓
-
-Background jobs
-
-↓
-
-Administrative actions
-
-↓
-
-System monitoring
-
-↓
-
-External integrations
-
-Notifications should be event-driven.
-
-Not manually triggered throughout the application.
-
----
-
-# Stage 3 — Audience Identification
-
-Determine recipients.
-
-Examples
-
-Single user
-
-↓
-
-Organization
-
-↓
-
-Team
-
-↓
-
-Role
-
-↓
-
-Subscribers
-
-↓
-
-Administrators
-
-↓
-
-External partners
-
-Every notification should target the correct audience.
+Provide an internal view showing every notification for a user with the reason it
+was or was not sent. Without it, every "I didn't get it" report becomes a
+database archaeology session.
 
 ---
 
-# Stage 4 — Channel Selection
+# Anti-patterns
 
-Support multiple channels.
-
-Examples
-
-In-App
-
-↓
-
-Email
-
-↓
-
-SMS
-
-↓
-
-Push Notifications
-
-↓
-
-Web Push
-
-↓
-
-Slack
-
-↓
-
-Microsoft Teams
-
-↓
-
-Webhook
-
-↓
-
-Voice Call (when required)
-
-Choose the channel that best fits the urgency and context.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Business code calling `sendEmail()` | Couples domain to channel; new channels touch every call site | Emit an event |
+| Channel chosen by the producer | Ignores user preference | Resolved by the notification service |
+| No preference model | All-or-nothing; users mute everything | Event type × channel matrix |
+| Security notices suppressible | User cannot detect account compromise | Forced categories |
+| Noisy defaults | Users mute the channel entirely | Conservative defaults |
+| Server timezone for quiet hours | 3am notifications | User's timezone |
+| No deduplication | Retries and replays notify repeatedly | Idempotency key with a window |
+| One notification per event | Fifteen pushes for one thread | Collapse and digest |
+| Notifying the actor of their own action | Obvious noise | Suppress self-caused events |
+| No per-user rate limit | A loop notifies hundreds of times | Hard backstop |
+| Retrying dead push tokens | Wasted sends; skewed metrics | Delete on permanent rejection |
+| Full payload in a push | Exceeds size limits; leaks on a lock screen | Send an id, fetch in-app |
+| SMS for non-critical messages | Expensive and regulated | OTP and critical only |
+| Unbounded in-app history | Table grows forever | Retention policy |
+| No delivery record | "Did they get it?" is unanswerable | Log every decision and outcome |
+| Unsubscribe that does not work immediately | Compliance exposure | Honour on the next send |
 
 ---
 
-# Stage 5 — User Preferences
-
-Respect
-
-Notification settings
-
-↓
-
-Quiet hours
-
-↓
-
-Language
-
-↓
-
-Time zone
-
-↓
-
-Preferred channels
-
-↓
-
-Frequency limits
-
-↓
-
-Opt-in status
-
-Users should control how they receive notifications.
-
----
-
-# Stage 6 — Content Generation
-
-Generate
-
-Title
-
-↓
-
-Summary
-
-↓
-
-Message
-
-↓
-
-Action
-
-↓
-
-Deep Link
-
-↓
-
-Metadata
-
-↓
-
-Localization
-
-Content should be concise, actionable, and easy to understand.
-
----
-
-# Stage 7 — Personalization
-
-Support
-
-User name
-
-↓
-
-Organization
-
-↓
-
-Recent activity
-
-↓
-
-Preferences
-
-↓
-
-Locale
-
-↓
-
-Dynamic variables
-
-Personalization should increase relevance without exposing sensitive information.
-
----
-
-# Stage 8 — Priority
-
-Classify notifications.
-
-Critical
-
-↓
-
-High
-
-↓
-
-Normal
-
-↓
-
-Low
-
-↓
-
-Informational
-
-Critical notifications should bypass unnecessary delays.
-
----
-
-# Stage 9 — Delivery Strategy
-
-Support
-
-Immediate delivery
-
-↓
-
-Scheduled delivery
-
-↓
-
-Delayed delivery
-
-↓
-
-Digest notifications
-
-↓
-
-Retry delivery
-
-↓
-
-Fallback channels
-
-Delivery strategy should match business importance.
-
----
-
-# Stage 10 — Queue Integration
-
-Deliver notifications through
-
-Background jobs
-
-↓
-
-Queues
-
-↓
-
-Workers
-
-↓
-
-Retry policies
-
-↓
-
-Priority queues
-
-Notification delivery should never block application requests.
-
----
-
-# Stage 11 — Failure Handling
-
-Handle
-
-Temporary provider failures
-
-↓
-
-Invalid recipients
-
-↓
-
-Device offline
-
-↓
-
-Rate limiting
-
-↓
-
-Provider outages
-
-↓
-
-Expired tokens
-
-Every delivery failure should be observable and recoverable.
-
----
-
-# Stage 12 — Retry Strategy
-
-Retry only recoverable failures.
-
-Implement
-
-Exponential backoff
-
-↓
-
-Retry limits
-
-↓
-
-Dead Letter Queue
-
-↓
-
-Fallback provider
-
-↓
-
-Manual replay
-
-Permanent failures should not retry indefinitely.
-
----
-
-# Stage 13 — Security
-
-Review
-
-Recipient verification
-
-↓
-
-Secure links
-
-↓
-
-Sensitive content
-
-↓
-
-Encrypted transport
-
-↓
-
-Authentication tokens
-
-↓
-
-Permission validation
-
-Notifications should never expose confidential information.
-
----
-
-# Stage 14 — Rate Limiting
-
-Prevent
-
-Notification spam
-
-↓
-
-Duplicate delivery
-
-↓
-
-Alert storms
-
-↓
-
-Abuse
-
-↓
-
-Provider throttling
-
-↓
-
-Excessive retries
-
-Users should receive meaningful communication.
-
-Not constant interruptions.
-
----
-
-# Stage 15 — Observability
-
-Monitor
-
-Delivery rate
-
-↓
-
-Latency
-
-↓
-
-Queue depth
-
-↓
-
-Read rate
-
-↓
-
-Open rate
-
-↓
-
-Click rate
-
-↓
-
-Failure rate
-
-↓
-
-Provider health
-
-Every notification should be traceable.
-
----
-
-# Stage 16 — Logging
-
-Log
-
-Notification ID
-
-↓
-
-Recipient ID
-
-↓
-
-Channel
-
-↓
-
-Template
-
-↓
-
-Provider
-
-↓
-
-Delivery status
-
-↓
-
-Retry count
-
-↓
-
-Failure reason
-
-Never log
-
-Passwords
-
-Tokens
-
-Secrets
-
-Sensitive personal information
-
----
-
-# Stage 17 — Scalability
-
-Support
-
-Millions of notifications
-
-↓
-
-Multiple providers
-
-↓
-
-Horizontal workers
-
-↓
-
-Regional delivery
-
-↓
-
-Provider failover
-
-↓
-
-Event-driven scaling
-
-Notification infrastructure should scale independently.
-
----
-
-# Stage 18 — Testing
-
-Verify
-
-Successful delivery
-
-↓
-
-Multiple channels
-
-↓
-
-Preference enforcement
-
-↓
-
-Localization
-
-↓
-
-Retry behavior
-
-↓
-
-Fallback channels
-
-↓
-
-Provider failure
-
-↓
-
-High-volume traffic
-
-Notification systems require production-scale testing.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Notification types
-
-↓
-
-Trigger events
-
-↓
-
-Delivery channels
-
-↓
-
-Templates
-
-↓
-
-Preferences
-
-↓
-
-Retry policy
-
-↓
-
-Rate limits
-
-↓
-
-Recovery procedures
-
-Documentation should support developers, operators, and product teams.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Delivery performance
-
-↓
-
-User engagement
-
-↓
-
-Channel effectiveness
-
-↓
-
-Infrastructure cost
-
-↓
-
-Provider reliability
-
-↓
-
-User feedback
-
-↓
-
-Notification fatigue
-
-Notification systems should continuously evolve.
-
----
-
-# Notification Quality Attributes
-
-Evaluate
-
-Reliability
-
-Scalability
-
-Performance
-
-Security
-
-Relevance
-
-Observability
-
-Maintainability
-
-Developer Experience
-
----
-
-# Notification Questions
-
-Before approval ask
-
-Can users receive only relevant notifications?
-
-↓
-
-Can delivery recover from provider failures?
-
-↓
-
-Can notification preferences always be respected?
-
-↓
-
-Can the system scale during traffic spikes?
-
-↓
-
-Can every notification be traced?
-
-↓
-
-Can sensitive information remain protected?
-
-↓
-
-Would another engineering team confidently operate this notification system?
-
----
-
-# Severity Levels
-
-Critical
-
-Lost security notifications
-
-Duplicate critical notifications
-
-Sensitive information leakage
-
-Provider outage without recovery
-
-Unauthorized notification delivery
-
-Major
-
-Poor personalization
-
-Missing retry strategy
-
-Preference violations
-
-Weak monitoring
-
-Provider-specific coupling
-
-Medium
-
-Performance optimization
-
-Template improvements
-
-Channel optimization
-
-Minor
-
-Formatting
-
-Localization improvements
-
-Operational enhancements
-
-Future optimization
-
----
-
-# Notification Checklist
-
-✓ Notification categories identified
-
-✓ Events defined
-
-✓ Audience validated
-
-✓ Multiple delivery channels supported
-
-✓ User preferences enforced
-
-✓ Personalization implemented
-
-✓ Priorities configured
-
-✓ Queue integration completed
-
-✓ Retry strategy implemented
-
-✓ Rate limiting enabled
-
-✓ Logging configured
-
-✓ Monitoring enabled
-
-✓ Security reviewed
-
-✓ Testing completed
-
-✓ Documentation complete
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Sending notifications synchronously
-
-Ignoring user preferences
-
-Hardcoded notification templates
-
-Duplicate notifications
-
-Notification spam
-
-Infinite retries
-
-Logging sensitive data
-
-Business logic inside notification templates
-
-Provider-specific logic throughout the application
-
-Ignoring localization
-
-Ignoring delivery failures
-
-Treating all notifications equally
-
-Using a single communication channel for every notification
-
----
-
-# Definition of Done
-
-Notification system review is complete when
-
-- Notification categories, audiences, and delivery channels are clearly defined.
-- Notifications are generated from business events rather than tightly coupled application logic.
-- User preferences, quiet hours, localization, and communication settings are consistently respected.
-- Delivery occurs asynchronously through queues and workers without affecting application responsiveness.
-- Retry strategies, fallback channels, and provider failover ensure reliable delivery.
-- Rate limiting prevents notification fatigue while preserving critical communication.
-- Monitoring and logging provide complete visibility into delivery performance and operational health.
-- Sensitive information is protected through secure delivery, recipient validation, and least-privilege access.
-- Documentation explains notification flows, templates, providers, preferences, retries, and operational procedures.
-- The notification platform scales reliably across millions of users, multiple providers, and high-volume business events.
-
-Exceptional notification systems communicate with purpose.
-
-Users receive relevant information at the appropriate time, critical alerts are delivered reliably, routine updates respect personal preferences, operators maintain complete visibility into delivery health, and the platform remains dependable regardless of traffic, provider failures, or product growth.
+# Checklist
+
+- [ ] Verify: Producers emit events; the notification service decides channels
+- [ ] Verify: Preferences are modelled as event type × channel with conservative defaults
+- [ ] Verify: Security and billing notices cannot be disabled
+- [ ] Verify: Quiet hours use the user's timezone
+- [ ] Verify: Unsubscribe is one click and honoured immediately
+- [ ] Verify: Preference changes are recorded with timestamps
+- [ ] Verify: Notifications are deduplicated on an idempotency key
+- [ ] Verify: Related events collapse into a single notification
+- [ ] Verify: Low-urgency types are digested; critical types bypass digesting
+- [ ] Verify: Self-caused notifications are suppressed
+- [ ] Verify: A per-user, per-channel rate limit exists as a backstop
+- [ ] Verify: Push tokens are deleted on permanent rejection
+- [ ] Verify: Push payloads carry identifiers, not full content
+- [ ] Verify: SMS is reserved for OTP and critical alerts, with consent rules checked
+- [ ] Verify: In-app notifications have read state and a retention policy
+- [ ] Verify: Every notification records channel, decision, provider id and outcome
+- [ ] Verify: Delivery failure, suppression and unsubscribe rates are alerted on
+- [ ] Verify: An internal per-user view explains why each notification was or was not sent

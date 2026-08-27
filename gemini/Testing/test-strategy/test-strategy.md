@@ -5,574 +5,200 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: test-strategy
+category: Testing
+description: Deciding what to test and at which level — the shape of a suite, what to do with legacy code, and the signals that a strategy is failing.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# test-strategy.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, testing strategy design, quality planning, risk-based validation, automation planning, release confidence, governance, and long-term engineering guidance for creating comprehensive testing strategies that consistently deliver reliable, maintainable, and production-ready software.
+Rules for choosing what to test, at which level, and when to stop.
 
-It applies to
-
-- Web Applications
-- Mobile Applications
-- APIs
-- Backend Services
-- Frontend Applications
-- Enterprise Software
-- SaaS Platforms
-- AI Applications
-- Distributed Systems
-- Cloud Platforms
-
-A Test Strategy is not a document listing test cases.
-
-A Test Strategy is the engineering blueprint that defines how software quality will be achieved, measured, protected, and continuously improved throughout the software lifecycle.
-
-A Test Strategy answers one question:
-
-**How will engineering teams consistently deliver production-ready software with measurable confidence?**
+The purpose of a test suite is **confidence to change the code**. Any test that
+does not increase that confidence — or that must be edited every time the code is
+refactored without a behaviour change — is a liability on the balance sheet, not
+an asset.
 
 ---
 
-# Core Philosophy
+# The shape of the suite
 
-Understand Business Goals
+| Level | Share | Runtime | Catches |
+| --- | --- | --- | --- |
+| **Unit** | ~70% | milliseconds | Logic, edge cases, error paths |
+| **Integration** | ~20% | seconds | Queries, migrations, HTTP contract, wiring |
+| **E2E** | ~10% | minutes | Critical journeys, real browser behaviour |
 
-↓
+Two failure modes:
 
-Understand Product Risks
+- **Ice-cream cone** — mostly E2E. Slow, flaky, expensive to maintain; failures
+  point at a page rather than a line. Usually appears when unit tests were hard to
+  write, which is itself a design signal.
+- **Hourglass** — many unit and E2E, no integration. Wiring bugs reach production
+  because nothing tests the seam.
 
-↓
+Match the shape to the risk, not to a rule. A payments service justifies more
+integration tests than a marketing site.
 
-Define Quality Objectives
-
-↓
-
-Select Testing Approaches
-
-↓
-
-Build Confidence
-
-↓
-
-Reduce Risk
-
-↓
-
-Enable Reliable Releases
-
-↓
-
-Continuously Improve
-
-A good testing strategy enables rapid software delivery without sacrificing quality.
+```
+        /\        E2E — few, critical journeys
+       /  \
+      /----\      Integration — queries, contracts, wiring
+     /      \
+    /--------\    Unit — logic, edges, errors
+```
 
 ---
 
-# Primary Objective
+# Choosing a level
 
-Every Test Strategy should maximize
+Ask what could break, then choose the cheapest test that would catch it.
 
-Business Confidence
+Concretely: a discount calculation is `unit`; "does `findFirst` filter by
+`organisationId`" is `integration`; "can a user complete checkout" is `e2e`. If
+you can express the risk as a pure function of inputs, it is a unit test — reach
+for `describe`/`it` and `expect`, not a browser.
 
-+
+| Risk | Level |
+| --- | --- |
+| A calculation is wrong | Unit |
+| A query returns another tenant's rows | Integration |
+| A migration fails on populated data | Integration |
+| Checkout breaks after a deploy | E2E |
+| A dependency upgrade changes behaviour | Integration + contract |
+| A layout regresses | `Testing/visual` |
+| The system falls over at load | `Testing/load` |
 
-Engineering Confidence
-
-+
-
-Risk Reduction
-
-+
-
-Release Reliability
-
-+
-
-Maintainability
-
-+
-
-Automation
-
-+
-
-Scalability
-
-+
-
-Long-Term Sustainability
-
-The objective is creating a repeatable engineering system that consistently delivers software quality.
+**Never** write an E2E test for something a unit test can catch. It costs 1,000×
+the runtime for the same information.
 
 ---
 
-# Engineering Principles
+# What not to test
 
-Always prioritize
+Every test has a maintenance cost. Skip:
 
-Business Risk
+- **Framework and library behaviour.** Trust that `Array.map`, `JSON.parse` and
+  `express.Router` work. Testing `zod` validates, or that `prisma.findMany`
+  returns rows, tests someone else's suite.
+- **Trivial getters and setters** with no logic.
+- **Generated code**, unless you wrote the generator.
+- **Exact log strings**, private methods, internal call counts.
+- **Third-party internals** — test your adapter, not their SDK.
 
-↓
-
-Customer Experience
-
-↓
-
-Critical Workflows
-
-↓
-
-Early Feedback
-
-↓
-
-Automation
-
-↓
-
-Reliable Validation
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Testing strategy should optimize engineering effectiveness rather than maximize the number of executed tests.
+The question to ask: *if this test fails, will it be because of a real bug, or
+because someone renamed something?*
 
 ---
 
-# Test Strategy Lifecycle
+# Legacy code
 
-Understand Business
+Do not attempt to retrofit coverage everywhere at once. It will not finish.
 
-↓
-
-Identify Risks
-
-↓
-
-Define Quality Goals
-
-↓
-
-Design Testing Approach
-
-↓
-
-Execute Validation
-
-↓
-
-Measure Confidence
-
-↓
-
-Improve Strategy
-
-↓
-
-Continuously Evolve
-
-Every testing decision should improve release confidence.
+1. **Characterise before changing.** Write a test that asserts current behaviour,
+   even where that behaviour is wrong. It is a safety net for the refactor.
+2. **Cover the seam you are about to touch**, not the whole module.
+3. **Add a test with every bug fix.** The regression test is the deliverable that
+   outlives the fix.
+4. **Ratchet coverage on changed lines**, not on the whole repository. A global
+   threshold on a legacy codebase blocks every pull request until someone lowers
+   it to zero and stops caring.
 
 ---
 
-# Stage 1 — Business Understanding
+# Enforcing the shape
 
-Identify
+```yaml
+# Run the cheap tiers on every push; gate merges on the critical journey only.
+jobs:
+  unit:         { run: "npm run test:unit -- --coverage" }
+  integration:  { run: "npm run test:integration" }
+  e2e-critical: { run: "npx playwright test --grep @critical" }
+  e2e-full:     { if: "github.event_name == 'schedule'" }
+```
 
-Business Objectives
+```json
+// Ratchet on changed lines, not the whole repository — a global threshold on a
+// legacy codebase gets lowered to zero and then ignored.
+{
+  "coverageThreshold": {
+    "global": { "branches": 0, "lines": 0 },
+    "./src/billing/": { "branches": 80, "lines": 90 }
+  }
+}
+```
 
-↓
+Tools worth naming: `vitest` / `jest` for unit, `supertest` and `testcontainers`
+for integration, `playwright` for E2E, `stryker` for mutation testing, and
+`c8` / `istanbul` for coverage reporting.
 
-Critical Features
+# Signals the strategy is failing
 
-↓
+Treat these as evidence, not as a reason to write more tests:
 
-Customer Expectations
+| Signal | Likely cause |
+| --- | --- |
+| Tests break on every refactor | Testing implementation, not behaviour |
+| Nobody runs the suite locally | Too slow — usually the wrong shape |
+| Bugs reach production despite green CI | Wrong level or missing integration layer |
+| Tests are retried until they pass | Non-determinism → `Testing/unit` |
+| Coverage is high, escapes are frequent | Assertions are weak; try mutation testing |
+| Writing a test requires extensive mocking | The unit has too many collaborators |
 
-↓
-
-Compliance Requirements
-
-↓
-
-Operational Goals
-
-↓
-
-Growth Plans
-
-↓
-
-Quality Expectations
-
-↓
-
-Future Evolution
-
-Quality objectives should originate from business priorities.
-
----
-
-# Stage 2 — Risk Identification
-
-Identify
-
-Business Risks
-
-↓
-
-Technical Risks
-
-↓
-
-Security Risks
-
-↓
-
-Performance Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Architecture Risks
-
-↓
-
-Deployment Risks
-
-↓
-
-Future Risks
-
-Testing effort should always align with business risk.
+That last one is the most valuable: **hard-to-test code is usually badly designed
+code.** The instinct to reach for a heavier mocking framework is the wrong
+response; extracting the dependency is the right one.
 
 ---
 
-# Stage 3 — Quality Objectives
+# Practical rules
 
-Define
-
-Reliability
-
-↓
-
-Availability
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Usability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Stability
-
-Quality goals should be measurable and actionable.
+- **Every bug fix ships with a failing-then-passing test.** No exceptions — this
+  is the single highest-value rule in the document.
+- Keep the unit suite under **a minute** so it runs on save — `vitest --watch`
+  or `jest --watch` should be usable while writing code, not a CI-only step.
+- Run unit and integration on **every pull request**; E2E critical-path on every
+  merge; the full E2E suite less often.
+- Make failures **legible**: a good name and a clear assertion diff mean a
+  reviewer does not need to read the test to know what broke.
+- Delete tests that no longer earn their keep. A deleted redundant test is a net
+  gain.
 
 ---
 
-# Stage 4 — Testing Scope
+# Anti-patterns
 
-Determine
-
-Features
-
-↓
-
-Components
-
-↓
-
-Services
-
-↓
-
-Integrations
-
-↓
-
-Infrastructure
-
-↓
-
-Data
-
-↓
-
-Business Workflows
-
-↓
-
-Customer Journeys
-
-Testing scope should maximize business confidence while avoiding unnecessary effort.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Coverage percentage as a goal | Assertion-free tests reach 100% | Mutation testing; cover changed lines |
+| E2E for logic a unit test could cover | 1,000× the cost, more flake | Push down the pyramid |
+| No integration layer | Wiring bugs reach production | Test the seams |
+| Retrofitting coverage everywhere | Never finishes; blocks delivery | Characterise the seam you touch |
+| Global coverage gate on legacy code | Threshold gets lowered to zero | Ratchet on changed lines |
+| Heavy mocking to make a test possible | Hides a design problem | Extract the dependency |
+| Bug fixed without a regression test | The same bug returns | Test with every fix |
+| Slow suite nobody runs | Feedback arrives after merge | Keep unit under a minute |
+| Keeping every test forever | Maintenance cost compounds | Delete redundant tests |
 
 ---
 
-# Stage 5 — Testing Levels
-
-Define
-
-Unit Testing
-
-↓
-
-Integration Testing
-
-↓
-
-API Testing
-
-↓
-
-End-to-End Testing
-
-↓
-
-Performance Testing
-
-↓
-
-Security Testing
-
-↓
-
-Accessibility Testing
-
-↓
-
-Regression Testing
-
-Every testing level should contribute unique engineering value.
-
----
-
-# Stage 6 — Automation Strategy
-
-Determine
-
-Automation Priorities
-
-↓
-
-Regression Automation
-
-↓
-
-Critical Workflow Automation
-
-↓
-
-CI/CD Integration
-
-↓
-
-Smoke Testing
-
-↓
-
-Monitoring
-
-↓
-
-Quality Gates
-
-↓
-
-Release Validation
-
-Automation should maximize confidence while minimizing engineering cost.
-
----
-
-# Stage 7 — Test Environment Strategy
-
-Define
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Staging
-
-↓
-
-Production-like Validation
-
-↓
-
-Infrastructure
-
-↓
-
-Data Management
-
-↓
-
-Monitoring
-
-↓
-
-Observability
-
-Reliable environments produce reliable engineering decisions.
-
----
-
-# Stage 8 — Release Strategy
-
-Define
-
-Entry Criteria
-
-↓
-
-Exit Criteria
-
-↓
-
-Release Gates
-
-↓
-
-Rollback Plans
-
-↓
-
-Deployment Validation
-
-↓
-
-Monitoring
-
-↓
-
-Incident Readiness
-
-↓
-
-Operational Confidence
-
-Release quality should be predictable rather than assumed.
-
----
-
-# Stage 9 — Measurement Strategy
-
-Measure
-
-Coverage
-
-↓
-
-Risk Coverage
-
-↓
-
-Automation Rate
-
-↓
-
-Failure Trends
-
-↓
-
-Production Incidents
-
-↓
-
-Defect Escape Rate
-
-↓
-
-Execution Stability
-
-↓
-
-Engineering Confidence
-
-Metrics should support engineering decisions rather than reporting activities.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design testing strategy that maximizes
-
-Repeatability
-
-↓
-
-Consistency
-
-↓
-
-Reliable Automation
-
-↓
-
-Stable Execution
-
-↓
-
-Fast Feedback
-
-↓
-
-Risk Visibility
-
-↓
-
-Engineering Confidence
-
-↓
-
-Continuous Improvement
-
-Reliable strategies continuously increase software quality while reducing engineering uncertainty.
+# Checklist
+
+- [ ] Verify: The suite shape matches the risk, not a fixed ratio
+- [ ] Verify: Each test sits at the cheapest level that would catch its failure
+- [ ] Verify: No E2E test covers logic a unit test could
+- [ ] Verify: An integration layer exists and covers queries, migrations and HTTP contract
+- [ ] Verify: Framework behaviour, trivial accessors and third-party internals are untested
+- [ ] Verify: Every bug fix includes a test that failed before the fix
+- [ ] Verify: Coverage is measured on changed lines, never as a global target
+- [ ] Verify: Unit suite runs in under a minute
+- [ ] Verify: Unit and integration run on every pull request
+- [ ] Verify: Failure output identifies the problem without reading the test
+- [ ] Verify: Hard-to-test code is treated as a design signal, not a mocking problem

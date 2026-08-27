@@ -5,1139 +5,209 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: xss
+category: Security
+description: Preventing cross-site scripting through contextual output encoding, a strict Content-Security-Policy, and safe DOM and framework APIs.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# xss.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, Cross-Site Scripting (XSS) prevention methodologies, browser security frameworks, output protection strategies, secure rendering practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready applications that resist XSS attacks.
+Rules for stopping attacker-controlled data from executing as script in a user's
+browser. Covers stored, reflected and DOM-based XSS.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs serving web clients
-- Administrative Dashboards
-- Content Management Systems
-- Browser-Based Applications
-- Developer Platforms
-- Production Software
-
-XSS prevention is not escaping a few special characters.
-
-XSS prevention is the engineering discipline of ensuring that every piece of untrusted data remains data throughout its lifecycle and is never interpreted by browsers as executable content.
-
-XSS answers one question:
-
-**Can untrusted input ever become executable code inside the browser?**
+The rule underneath everything: **encode for the context the data lands in.**
+There is no single "escape" function, because HTML, attributes, JavaScript, URLs
+and CSS have different metacharacters.
 
 ---
 
-# Core Philosophy
+# Output encoding by context
 
-Identify Untrusted Data
+The same value needs different treatment depending on where it is inserted.
 
-↓
+| Context | Example | Encode |
+| --- | --- | --- |
+| HTML body | `<p>HERE</p>` | `&` `<` `>` → entities |
+| Attribute value | `<div title="HERE">` | Above plus `"` and `'`; always quote |
+| URL parameter | `<a href="/s?q=HERE">` | `encodeURIComponent` |
+| JavaScript string | `<script>var x="HERE"</script>` | **Do not.** Pass via `JSON.parse` from a data attribute |
+| CSS value | `style="width:HERE"` | **Do not.** Use an allow-list of known values |
 
-Validate Input
+**Never** insert untrusted data into a `<script>` block, an inline event handler
+(`onclick=`), a `javascript:` URL, or inside `<style>`. These are execution
+contexts where no encoding is reliable. Pass data through a
+`<script type="application/json">` block or a `data-` attribute and read it with
+`JSON.parse`.
 
-↓
-
-Protect Data Flow
-
-↓
-
-Encode Output
-
-↓
-
-Restrict Execution
-
-↓
-
-Monitor Security
-
-↓
-
-Detect Abuse
-
-↓
-
-Continuously Improve
-
-User-controlled data should never become executable browser instructions.
+```html
+<!-- Safe: the value is data, parsed explicitly, never evaluated -->
+<div id="cfg" data-user='{"name":"…"}'></div>
+<script>
+  const cfg = JSON.parse(document.getElementById("cfg").dataset.user);
+</script>
+```
 
 ---
 
-# Primary Objective
+# DOM APIs
 
-Every XSS defense should maximize
+The API you choose decides whether a string can become markup.
 
-Data Integrity
+```js
+// DANGEROUS — parses HTML, executes injected handlers
+el.innerHTML = userInput;
+el.outerHTML = userInput;
+el.insertAdjacentHTML("beforeend", userInput);
+document.write(userInput);
 
-+
+// SAFE — the value is always text, never parsed
+el.textContent = userInput;
+el.setAttribute("title", userInput);
+el.append(document.createTextNode(userInput));
+```
 
-Browser Security
+`textContent` is the default. Reach for `innerHTML` only when rendering markup is
+the actual requirement, and then only after sanitising.
 
-+
+**Never** pass untrusted input to `eval`, `new Function`, `setTimeout`/
+`setInterval` as a string, or `element.setAttribute("on*", …)`. Each is a direct
+path from string to execution.
 
-User Trust
+**Never** assign untrusted input to `href` or `src` without scheme validation — a
+`javascript:` URL executes on click:
 
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every rendered page should remain under complete application control.
+```js
+const url = new URL(input, location.origin);
+if (!["http:", "https:"].includes(url.protocol)) throw new Error("blocked scheme");
+a.href = url.href;
+```
 
 ---
 
-# Engineering Principles
+# Sanitising when HTML is required
 
-Always prioritize
+When users must submit rich text, sanitise with a maintained, allow-list-based
+library. Do not write your own.
 
-Treat Input as Untrusted
+```js
+import DOMPurify from "dompurify";
 
-↓
+el.innerHTML = DOMPurify.sanitize(userHtml, {
+  ALLOWED_TAGS: ["b", "i", "em", "strong", "a", "p", "ul", "ol", "li", "code"],
+  ALLOWED_ATTR: ["href", "title"],
+});
+```
 
-Separate Data from Code
+Sanitise **on output, in the browser, immediately before insertion** — or on both
+input and output. Sanitising only on input is fragile: the stored value survives
+a library upgrade, a changed rendering path, or a second consumer that never
+sanitises.
 
-↓
-
-Context-Aware Encoding
-
-↓
-
-Safe Rendering
-
-↓
-
-Defense in Depth
-
-↓
-
-Least Trust
-
-↓
-
-Continuous Validation
-
-↓
-
-Continuous Improvement
-
-Browsers should never guess whether content is data or executable code.
+**Never** deny-list tags (`strip <script>`). Bypasses are endless: `<img onerror>`,
+`<svg onload>`, `<iframe srcdoc>`, malformed nesting, mutation XSS. Allow-list only.
 
 ---
 
-# XSS Engineering Lifecycle
+# Framework escape hatches
 
-Identify Input Sources
+Modern frameworks encode by default. Every XSS in a React or Vue app is
+therefore in a named escape hatch — audit these specifically:
 
-↓
+| Framework | Dangerous API |
+| --- | --- |
+| React | `dangerouslySetInnerHTML` |
+| Vue | `v-html` |
+| Angular | `bypassSecurityTrustHtml`, `[innerHTML]` |
+| Svelte | `{@html …}` |
+| Solid | `innerHTML` prop |
 
-Analyze Data Flow
+The React name is deliberate. Treat every occurrence as requiring a sanitiser and
+a comment explaining why raw HTML is necessary.
 
-↓
-
-Protect Rendering
-
-↓
-
-Encode Output
-
-↓
-
-Restrict Execution
-
-↓
-
-Monitor Behavior
-
-↓
-
-Validate Security
-
-↓
-
-Continuously Improve
-
-Every rendering path should preserve the distinction between data and executable content.
+Angular's `DomSanitizer` bypass methods disable the framework's protection
+entirely — `bypassSecurityTrustHtml` on user input is equivalent to `innerHTML`.
 
 ---
 
-# Stage 1 — Input Analysis
+# Content-Security-Policy
 
-Identify
+CSP is the layer that limits damage when encoding fails. It is not a substitute
+for encoding.
 
-User Input
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' 'nonce-{RANDOM}' 'strict-dynamic';
+  object-src 'none';
+  base-uri 'none';
+  frame-ancestors 'none';
+  require-trusted-types-for 'script'
+```
 
-↓
+- **`'nonce-…'` with `'strict-dynamic'`** is the modern strict policy. The nonce
+  must be CSPRNG-generated **per response** and never reused.
+- **`object-src 'none'`** kills plugin-based execution.
+- **`base-uri 'none'`** stops `<base>` injection redirecting relative script URLs.
+- **`frame-ancestors 'none'`** prevents clickjacking; it supersedes
+  `X-Frame-Options`.
+- **`require-trusted-types-for 'script'`** makes DOM-XSS sinks throw unless the
+  value passed a Trusted Types policy — the strongest available control against
+  DOM-based XSS.
 
-Search Parameters
+**Never** ship `script-src 'unsafe-inline'` or `'unsafe-eval'`. Together they
+disable most of what CSP is for. **Never** use a host allow-list alone — hosted
+JSONP endpoints and outdated libraries on a permitted CDN defeat it.
 
-↓
-
-Forms
-
-↓
-
-Cookies
-
-↓
-
-Headers
-
-↓
-
-Uploaded Content
-
-↓
-
-Third-Party Data
-
-↓
-
-Stored Content
-
-Every external value should be considered untrusted.
+Deploy with `Content-Security-Policy-Report-Only` and a `report-to` endpoint
+first, fix the violations, then enforce.
 
 ---
 
-# Stage 2 — Threat Analysis
+# Cookies and related headers
 
-Identify
-
-Stored XSS
-
-↓
-
-Reflected XSS
-
-↓
-
-DOM-Based XSS
-
-↓
-
-Third-Party Scripts
-
-↓
-
-Browser Extensions
-
-↓
-
-Supply Chain Risks
-
-↓
-
-Client-Side Injection
-
-↓
-
-Emerging Threats
-
-Understanding attack vectors strengthens browser security.
+- Session cookies carry `HttpOnly` so that XSS cannot read them. This does not
+  prevent XSS; it limits the payoff.
+- `X-Content-Type-Options: nosniff` stops the browser reinterpreting a response
+  as HTML. A user-uploaded file served without it can become a stored XSS.
+- Serve user uploads from a **separate origin**, so injected content cannot reach
+  your cookies or DOM.
+- Set an explicit `Content-Type` with `charset=utf-8`. Charset confusion has
+  historically enabled encoding bypasses.
 
 ---
 
-# Stage 3 — Data Flow Analysis
+# Anti-patterns
 
-Analyze
-
-Input Sources
-
-↓
-
-Validation
-
-↓
-
-Storage
-
-↓
-
-Processing
-
-↓
-
-API Responses
-
-↓
-
-Templates
-
-↓
-
-Browser Rendering
-
-↓
-
-Execution Context
-
-Understanding data movement prevents accidental code execution.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `el.innerHTML = input` | Parses and executes markup | `el.textContent` |
+| Stripping `<script>` tags | `<img onerror>`, `<svg onload>`, mutation XSS | Allow-list sanitiser |
+| One `escapeHtml()` for every context | Attribute, URL and JS contexts differ | Encode per context |
+| Sanitising only on input | Survives library and render-path changes | Sanitise on output |
+| `script-src 'unsafe-inline'` | Disables the protection CSP exists for | Per-response nonce |
+| `href = input` unchecked | `javascript:` executes on click | Validate the scheme |
+| `dangerouslySetInnerHTML` with raw input | Bypasses framework encoding | Sanitise, or don't |
+| Uploads served from the app origin | Stored XSS with full cookie access | Separate origin, `nosniff` |
 
 ---
 
-# Stage 4 — Rendering Architecture
-
-Design
-
-Template Engine
-
-↓
-
-Rendering Pipeline
-
-↓
-
-Content Isolation
-
-↓
-
-Browser Contexts
-
-↓
-
-Content Security Policy
-
-↓
-
-Trusted Components
-
-↓
-
-Monitoring
-
-↓
-
-Future Expansion
-
-Rendering architecture determines browser safety.
-
----
-
-# Stage 5 — Protection Strategy
-
-Define
-
-Input Validation
-
-↓
-
-Output Encoding
-
-↓
-
-Safe Templates
-
-↓
-
-Content Security Policy
-
-↓
-
-Trusted Rendering
-
-↓
-
-DOM Protection
-
-↓
-
-Third-Party Isolation
-
-↓
-
-Operational Limits
-
-Protection should prevent execution rather than detect compromise.
-
----
-
-# Stage 6 — Output Protection
-
-Protect
-
-HTML Output
-
-↓
-
-Attributes
-
-↓
-
-JavaScript Context
-
-↓
-
-CSS Context
-
-↓
-
-URLs
-
-↓
-
-Templates
-
-↓
-
-Dynamic Content
-
-↓
-
-Browser Rendering
-
-Output context determines encoding requirements.
-
----
-
-# Stage 7 — Execution Validation
-
-Validate
-
-Rendering Context
-
-↓
-
-Encoded Output
-
-↓
-
-Browser Behavior
-
-↓
-
-Template Safety
-
-↓
-
-Content Security Policy
-
-↓
-
-Business Rules
-
-↓
-
-Dynamic Updates
-
-↓
-
-Engineering Quality
-
-Every rendering operation should remain non-executable unless explicitly intended.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Rendering Errors
-
-↓
-
-Blocked Scripts
-
-↓
-
-Content Security Policy Violations
-
-↓
-
-Unsafe Rendering
-
-↓
-
-Browser Warnings
-
-↓
-
-Template Safety
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Browser security should remain measurable.
-
----
-
-# Stage 9 — Attack Detection
-
-Identify
-
-Script Injection
-
-↓
-
-DOM Manipulation
-
-↓
-
-Unexpected Execution
-
-↓
-
-Unsafe HTML
-
-↓
-
-Template Injection
-
-↓
-
-Third-Party Abuse
-
-↓
-
-Browser Anomalies
-
-↓
-
-Operational Threats
-
-Detection should identify execution attempts before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Rendering Pipeline
-
-↓
-
-Trust Boundaries
-
-↓
-
-Browser Contexts
-
-↓
-
-Dynamic Content
-
-↓
-
-Content Isolation
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Rendering architecture should remain predictable and secure.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Content
-
-↓
-
-Distributed Applications
-
-↓
-
-Multiple Browsers
-
-↓
-
-Third-Party Integrations
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-XSS protection should scale with application complexity.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Rendering Consistency
-
-↓
-
-Browser Compatibility
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Handling
-
-↓
-
-Monitoring
-
-↓
-
-Recovery
-
-↓
-
-Security Controls
-
-↓
-
-Engineering Quality
-
-Reliable rendering preserves browser integrity.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Rendering Strategy
-
-↓
-
-Encoding Rules
-
-↓
-
-Content Security Policy
-
-↓
-
-Trust Boundaries
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves rendering consistency.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Rendering Risks
-
-↓
-
-Template Risks
-
-↓
-
-Browser Risks
-
-↓
-
-Supply Chain Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Business Risks
-
-↓
-
-Technical Debt
-
-Browser threats continuously evolve.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every rendering decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Rendering Pipeline
-
-↓
-
-Output Encoding
-
-↓
-
-Browser Security
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-XSS defenses require continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Security Summary
-
-↓
-
-Threat Analysis
-
-↓
-
-Rendering Metrics
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports improve engineering maturity.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Configuration
-
-↓
-
-Browser Policies
-
-↓
-
-Content Security Policy
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-XSS protection should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Rendering Standards
-
-↓
-
-Security Reviews
-
-↓
-
-Template Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Browser security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Rendering Safety
-
-↓
-
-Browser Protection
-
-↓
-
-Content Isolation
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional XSS protection continuously strengthens browser security while preserving maintainability, usability, and engineering simplicity.
-
----
-
-# XSS Quality Attributes
-
-Evaluate
-
-Browser Security
-
-Rendering Integrity
-
-Data Integrity
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Observability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Is every external input treated as untrusted?
-
-↓
-
-Can any user-controlled value become executable browser code?
-
-↓
-
-Is output protected according to its rendering context?
-
-↓
-
-Can browser execution be restricted further?
-
-↓
-
-Does the rendering architecture minimize execution opportunities?
-
-↓
-
-Will future engineers understand these rendering decisions?
-
-↓
-
-Would experienced Security Engineers, Staff Engineers, Principal Engineers, Browser Security Specialists, and Engineering Leadership confidently approve this XSS protection strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Remote script execution
-
-Stored XSS
-
-Administrative compromise
-
-Complete account takeover
-
-Major
-
-Reflected XSS
-
-DOM-based XSS
-
-Unsafe rendering
-
-Content Security Policy weaknesses
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# XSS Checklist
-
-✓ Input sources identified
-
-✓ Threats analyzed
-
-✓ Data flow reviewed
-
-✓ Rendering architecture designed
-
-✓ Protection strategy selected
-
-✓ Output protected
-
-✓ Rendering validated
-
-✓ Security measured
-
-✓ Attacks monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Trusting user input
-
-Rendering raw HTML
-
-Mixing code with data
-
-Disabling browser protections
-
-Ignoring Content Security Policy
-
-Unsafe template rendering
-
-Building HTML dynamically from user input
-
-Trusting third-party content
-
-Client-side sanitization only
-
-Assuming internal users are trusted
-
-Treating encoding as optional
-
-Optimizing convenience over browser security
-
----
-
-# Definition of Done
-
-An XSS protection strategy is considered complete when
-
-- Input sources, rendering pipelines, browser trust boundaries, output encoding rules, content isolation mechanisms, Content Security Policy enforcement, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every untrusted value remains data throughout its lifecycle while preventing script execution, browser context confusion, template injection, DOM manipulation, stored XSS, reflected XSS, and client-side code execution across all rendering contexts.
-- The rendering architecture supports scalable applications, multiple browser environments, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate rendering safety, output protection, browser compatibility, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains rendering architecture, browser trust boundaries, encoding strategies, content isolation mechanisms, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, and future browser security improvements.
-- XSS protection decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving browser platforms, frontend frameworks, cloud infrastructure, distributed architectures, and future web security technologies.
-- The resulting application demonstrates engineering discipline, strong browser security, predictable rendering behavior, resilient architecture, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional XSS protection is not measured by the number of escaping functions implemented.
-
-It is measured by how consistently software prevents untrusted data from becoming executable code, preserves browser integrity, minimizes client-side attack surfaces, withstands evolving web security threats, and continuously delivers secure, maintainable, and resilient rendering throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: Output is encoded for its specific context, not a single generic escape
+- [ ] Verify: No untrusted data inside `<script>`, `<style>`, `on*` handlers or `javascript:`
+- [ ] Verify: `textContent` used by default; `innerHTML` only with a sanitiser
+- [ ] Verify: Rich text passes an allow-list sanitiser at output time
+- [ ] Verify: Every framework escape hatch is audited and justified in a comment
+- [ ] Verify: `href` and `src` values are scheme-validated
+- [ ] Verify: CSP set with a per-response nonce and `strict-dynamic`
+- [ ] Verify: No `'unsafe-inline'` or `'unsafe-eval'` in `script-src`
+- [ ] Verify: `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` present
+- [ ] Verify: Session cookies are `HttpOnly`; responses carry `nosniff`
+- [ ] Verify: User uploads are served from a separate origin

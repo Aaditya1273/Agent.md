@@ -5,1139 +5,198 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: headers
+category: Security
+description: HTTP security headers that actually matter — CSP, HSTS, frame protection, and the deprecated ones still being copied from old blog posts.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# headers.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, HTTP security header methodologies, browser protection frameworks, response hardening strategies, client-side security practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready systems that defend against browser-based attacks.
-
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Cloud Platforms
-- Administrative Dashboards
-- Browser-Based Applications
-- Developer Platforms
-- Production Software
-
-HTTP security headers are not a collection of optional response fields.
-
-HTTP security headers are the engineering discipline of explicitly communicating browser security policies that define how clients should interpret, isolate, load, execute, and protect application resources throughout every request and response.
-
-HTTP security headers answer one question:
-
-**Does every browser receive explicit security instructions before processing application content?**
+Rules for the response headers that constrain browser behaviour. Headers are
+cheap and deployable independently of application changes — but they are
+mitigations, not fixes. A strong CSP limits the damage of an XSS; it does not
+remove it.
 
 ---
 
-# Core Philosophy
+# The set worth sending
 
-Understand Browser Behavior
+```
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{RANDOM}' 'strict-dynamic'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+```
 
-↓
+| Header | Prevents | Notes |
+| --- | --- | --- |
+| `Content-Security-Policy` | XSS execution, injection of scripts | The highest-value header; see `Security/xss` |
+| `Strict-Transport-Security` | Protocol downgrade, cookie interception | HTTPS only; see below |
+| `X-Content-Type-Options` | MIME sniffing turning an upload into HTML | Always `nosniff` |
+| `Referrer-Policy` | Leaking paths and tokens via `Referer` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | Unwanted device and API access | Deny by default, allow explicitly |
+| `Cross-Origin-Opener-Policy` | Cross-window scripting; enables isolation | `same-origin` |
+| `Cross-Origin-Resource-Policy` | Cross-origin embedding of your resources | `same-origin` |
 
-Define Security Policies
+## HSTS
 
-↓
+`max-age=31536000` (one year) with `includeSubDomains`.
 
-Harden Responses
+**Never** add `preload` casually. Submission to the browser preload list is
+**effectively irreversible on a useful timescale** — every subdomain must serve
+HTTPS forever. Verify every subdomain first, including internal and legacy hosts.
 
-↓
+Send HSTS **only over HTTPS**. A browser ignores it on a plaintext response, and
+sending it there suggests a misconfiguration.
 
-Reduce Browser Trust
+## frame-ancestors over X-Frame-Options
 
-↓
-
-Protect Client Resources
-
-↓
-
-Monitor Violations
-
-↓
-
-Detect Weaknesses
-
-↓
-
-Continuously Improve
-
-Browsers should receive explicit security policies rather than relying on default behavior.
-
----
-
-# Primary Objective
-
-Every HTTP security header strategy should maximize
-
-Browser Security
-
-+
-
-Response Integrity
-
-+
-
-Client Trust
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every HTTP response should communicate clear and enforceable browser security policies.
+`frame-ancestors 'none'` in CSP supersedes `X-Frame-Options: DENY`. Keep
+`X-Frame-Options` only for very old browsers; it takes no list of origins and
+its `ALLOW-FROM` value is not supported anywhere current.
 
 ---
 
-# Engineering Principles
+# Deprecated — remove these
 
-Always prioritize
+| Header | Status |
+| --- | --- |
+| `X-XSS-Protection` | **Remove.** The auditor is gone from every current browser. `1; mode=block` historically introduced its own vulnerabilities. Set `0` only if a legacy proxy adds it. |
+| `Expect-CT` | **Remove.** Certificate Transparency is now enforced by default. |
+| `Public-Key-Pins` (HPKP) | **Never use.** Removed from browsers; a mistake bricked sites for the pin lifetime. |
+| `X-Frame-Options: ALLOW-FROM` | Unsupported. Use `frame-ancestors`. |
 
-Explicit Browser Policies
-
-↓
-
-Least Browser Trust
-
-↓
-
-Defense in Depth
-
-↓
-
-Secure Defaults
-
-↓
-
-Consistent Responses
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Browsers should never infer security policies through application behavior.
+Copying a header block from an old article is how these persist. Check each
+against current browser support before shipping it.
 
 ---
 
-# HTTP Security Header Lifecycle
+## Why CSP is the one that matters
 
-Identify Browser Interactions
+Of the headers above, `Content-Security-Policy` is the only one that changes what
+an attacker can achieve rather than merely what a browser reveals. The others
+close narrow gaps; CSP constrains script execution itself, which is why it is
+worth the deployment effort the rest do not require.
 
-↓
+That effort is real. A strict policy will break inline scripts, inline styles and
+third-party widgets that were working, which is why the report-only phase below
+is not optional advice — it is how the policy gets deployed at all.
 
-Analyze Threats
+# Setting them
 
-↓
+Set headers at one layer — the application, or the edge — not both. Duplicated
+and conflicting headers behave inconsistently across browsers and proxies.
 
-Define Security Policies
+```js
+import helmet from "helmet";
 
-↓
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'strict-dynamic'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+}));
+```
 
-Apply Response Headers
+The nonce must be **generated per response** with a CSPRNG and never reused:
 
-↓
+```js
+app.use((req, res, next) => {
+  res.locals.nonce = crypto.randomBytes(16).toString("base64");
+  next();
+});
+```
 
-Validate Browser Behavior
-
-↓
-
-Monitor Violations
-
-↓
-
-Review Configuration
-
-↓
-
-Continuously Improve
-
-Every browser interaction should begin with explicit security instructions.
-
----
-
-# Stage 1 — Response Analysis
-
-Identify
-
-HTML Responses
-
-↓
-
-API Responses
-
-↓
-
-Downloads
-
-↓
-
-Administrative Interfaces
-
-↓
-
-Authentication Pages
-
-↓
-
-Static Assets
-
-↓
-
-Embedded Resources
-
-↓
-
-Third-Party Integrations
-
-Every browser-facing response should be evaluated.
+**Never** hard-code a nonce or derive it from anything predictable. A static
+nonce is equivalent to `'unsafe-inline'`.
 
 ---
 
-# Stage 2 — Threat Analysis
+# Cookies
 
-Identify
+Cookie attributes are security headers by another name:
 
-Cross-Site Scripting
+```
+Set-Cookie: sid=…; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=1209600
+```
 
-↓
-
-Clickjacking
-
-↓
-
-Content Sniffing
-
-↓
-
-Mixed Content
-
-↓
-
-Information Disclosure
-
-↓
-
-Cross-Origin Abuse
-
-↓
-
-Browser Misconfiguration
-
-↓
-
-Emerging Threats
-
-Understanding browser threats determines security policy requirements.
+Prefix a session cookie with `__Host-` where you can: the browser then enforces
+`Secure`, `Path=/` and the absence of `Domain`, which prevents a subdomain from
+setting a cookie your application will trust.
 
 ---
 
-# Stage 3 — Browser Behavior Analysis
+# Caching sensitive responses
 
-Analyze
+```
+Cache-Control: no-store
+```
 
-Request
-
-↓
-
-Response
-
-↓
-
-Header Processing
-
-↓
-
-Content Loading
-
-↓
-
-Resource Execution
-
-↓
-
-Origin Validation
-
-↓
-
-Rendering
-
-↓
-
-User Interaction
-
-Browser behavior should remain predictable and policy-driven.
+Authenticated responses must not be cached by browsers or shared proxies.
+`no-store` is the correct directive; `no-cache` still permits storage with
+revalidation.
 
 ---
 
-# Stage 4 — Security Policy Architecture
+# Verifying
 
-Design
+Test the deployed origin, not the configuration file — a proxy may add, strip or
+override headers:
 
-Response Policies
+```bash
+curl -sI https://app.example.com | grep -iE 'content-security|strict-transport|x-content-type|referrer|permissions'
+```
 
-↓
-
-Browser Trust Boundaries
-
-↓
-
-Content Isolation
-
-↓
-
-Origin Policies
-
-↓
-
-Resource Loading Rules
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Future Expansion
-
-Security policies should remain centralized and consistent.
+Then check the report from a scanner such as Mozilla Observatory or
+securityheaders.com, and deploy CSP in `Report-Only` with a `report-to` endpoint
+before enforcing.
 
 ---
 
-# Stage 5 — Protection Strategy
+# Anti-patterns
 
-Define
-
-Content Security Policy
-
-↓
-
-Strict Transport Security
-
-↓
-
-Frame Protection
-
-↓
-
-Content Type Protection
-
-↓
-
-Permissions Policies
-
-↓
-
-Referrer Policies
-
-↓
-
-Cross-Origin Policies
-
-↓
-
-Operational Controls
-
-Protection should reduce browser attack surfaces through multiple defensive layers.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `script-src 'unsafe-inline'` | Disables most of CSP's value | Per-response nonce |
+| Static or reused nonce | Equivalent to `unsafe-inline` | CSPRNG per response |
+| `X-XSS-Protection: 1; mode=block` | Auditor removed; introduced its own bugs | Remove it |
+| HSTS `preload` without auditing subdomains | Effectively irreversible | Verify every subdomain first |
+| HSTS sent over HTTP | Ignored by browsers | HTTPS responses only |
+| Headers set at both app and edge | Duplicates behave inconsistently | Choose one layer |
+| Copying a 2016 header block | Ships deprecated headers | Check current support |
+| `no-cache` on authenticated pages | Still permits storage | `no-store` |
+| CSP enforced without a report phase | Breaks the site on deploy | `Report-Only` first |
 
 ---
 
-# Stage 6 — Response Protection
-
-Protect
-
-Application Responses
-
-↓
-
-Authentication Pages
-
-↓
-
-Administrative Interfaces
-
-↓
-
-Sensitive Resources
-
-↓
-
-API Responses
-
-↓
-
-Downloaded Files
-
-↓
-
-Browser Context
-
-↓
-
-Operational Security
-
-Every browser response should communicate appropriate security expectations.
-
----
-
-# Stage 7 — Policy Validation
-
-Validate
-
-Header Presence
-
-↓
-
-Policy Consistency
-
-↓
-
-Browser Compatibility
-
-↓
-
-Business Rules
-
-↓
-
-Resource Protection
-
-↓
-
-Origin Policies
-
-↓
-
-Security Expectations
-
-↓
-
-Engineering Quality
-
-Every response should be validated against defined browser security policies.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Header Coverage
-
-↓
-
-Policy Violations
-
-↓
-
-Browser Compatibility
-
-↓
-
-Configuration Errors
-
-↓
-
-Unexpected Behavior
-
-↓
-
-Audit Events
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Browser security should remain measurable.
-
----
-
-# Stage 9 — Weakness Detection
-
-Identify
-
-Missing Headers
-
-↓
-
-Weak Policies
-
-↓
-
-Configuration Drift
-
-↓
-
-Browser Anomalies
-
-↓
-
-Unexpected Resource Loading
-
-↓
-
-Policy Violations
-
-↓
-
-Origin Abuse
-
-↓
-
-Operational Threats
-
-Detection should identify policy weaknesses before exploitation.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Response Architecture
-
-↓
-
-Browser Trust Model
-
-↓
-
-Policy Consistency
-
-↓
-
-Resource Isolation
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Operational Simplicity
-
-↓
-
-Future Evolution
-
-Browser protection architecture should remain understandable and resilient.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Applications
-
-↓
-
-Distributed Services
-
-↓
-
-Cloud Infrastructure
-
-↓
-
-Global Delivery
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Browser security policies should scale consistently across infrastructure.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Policy Consistency
-
-↓
-
-Browser Reliability
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Response Integrity
-
-↓
-
-Engineering Quality
-
-Reliable security policies preserve predictable browser behavior.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Security Policies
-
-↓
-
-Browser Trust Model
-
-↓
-
-Response Standards
-
-↓
-
-Policy Decisions
-
-↓
-
-Engineering Rationale
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves consistent browser protection.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Browser Risks
-
-↓
-
-Policy Risks
-
-↓
-
-Configuration Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Technical Debt
-
-Browser security risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Compatibility
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every browser security policy introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Security Policies
-
-↓
-
-Response Protection
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-HTTP security headers require continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Security Summary
-
-↓
-
-Policy Metrics
-
-↓
-
-Threat Analysis
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen browser security governance.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Policies
-
-↓
-
-Header Configuration
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-↓
-
-Deployment Consistency
-
-HTTP security headers should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Browser Standards
-
-↓
-
-Policy Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Browser security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Browser Protection
-
-↓
-
-Response Security
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Policy Evolution
-
-↓
-
-Software Longevity
-
-Exceptional HTTP security header strategies continuously strengthen browser protection while preserving maintainability, scalability, and operational simplicity.
-
----
-
-# HTTP Security Header Quality Attributes
-
-Evaluate
-
-Browser Security
-
-Response Integrity
-
-Policy Consistency
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every browser-facing response include appropriate security headers?
-
-↓
-
-Are browser trust boundaries explicitly defined?
-
-↓
-
-Can browser behavior remain secure even when application logic fails?
-
-↓
-
-Are browser security policies monitored continuously?
-
-↓
-
-Can policy violations be detected before compromise?
-
-↓
-
-Will future engineers understand the browser protection strategy?
-
-↓
-
-Would experienced Security Engineers, Browser Security Engineers, Principal Engineers, Platform Engineers, and Engineering Leadership confidently approve this HTTP security header strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Missing browser protection
-
-Weak Content Security Policy
-
-Transport security disabled
-
-Complete browser trust failure
-
-Major
-
-Missing security headers
-
-Weak response policies
-
-Clickjacking exposure
-
-Content sniffing exposure
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# HTTP Security Header Checklist
-
-✓ Browser responses identified
-
-✓ Threats analyzed
-
-✓ Browser behavior reviewed
-
-✓ Security architecture designed
-
-✓ Protection strategy selected
-
-✓ Responses protected
-
-✓ Policies validated
-
-✓ Security measured
-
-✓ Weaknesses monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Missing browser security headers
-
-Inconsistent response policies
-
-Weak Content Security Policy
-
-Ignoring browser compatibility
-
-Relying on browser defaults
-
-Disabling security policies for convenience
-
-Applying different policies without justification
-
-Ignoring policy violations
-
-Treating security headers as optional
-
-Protecting only authentication pages
-
-Assuming HTTPS alone protects browsers
-
-Optimizing convenience over browser security
-
----
-
-# Definition of Done
-
-An HTTP security header strategy is considered complete when
-
-- Browser-facing responses, security policies, trust boundaries, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every response communicates explicit browser security policies while preventing content injection, clickjacking, content sniffing, cross-origin abuse, mixed content exposure, browser trust failures, policy inconsistencies, and client-side security weaknesses throughout the software lifecycle.
-- The browser protection architecture supports scalable distributed systems, cloud platforms, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, evolving browser standards, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate response consistency, browser compatibility, policy enforcement, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, interoperability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains browser security policies, trust boundaries, response standards, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, policy evolution, and future browser security improvements.
-- HTTP security header decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving browser platforms, cloud infrastructure, distributed architectures, web standards, and future software engineering environments.
-- The resulting system demonstrates engineering discipline, strong browser protection, resilient response integrity, predictable client behavior, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional HTTP security headers are not measured by how many headers are present.
-
-They are measured by how consistently software communicates explicit browser security policies, minimizes client-side attack surfaces, preserves secure browser behavior, withstands evolving web threats, and continuously delivers secure, maintainable, and resilient browser protection throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: CSP set with a per-response CSPRNG nonce and `strict-dynamic`
+- [ ] Verify: No `'unsafe-inline'` or `'unsafe-eval'` in `script-src`
+- [ ] Verify: `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` present
+- [ ] Verify: HSTS `max-age` ≥ 1 year with `includeSubDomains`, HTTPS only
+- [ ] Verify: `preload` used only after auditing every subdomain
+- [ ] Verify: `X-Content-Type-Options: nosniff` on every response
+- [ ] Verify: `Referrer-Policy` set to `strict-origin-when-cross-origin` or stricter
+- [ ] Verify: `Permissions-Policy` denies unused device APIs
+- [ ] Verify: `X-XSS-Protection`, `Expect-CT` and HPKP are absent
+- [ ] Verify: Session cookies use `HttpOnly`, `Secure`, `SameSite` and `__Host-` where possible
+- [ ] Verify: Authenticated responses send `Cache-Control: no-store`
+- [ ] Verify: Headers are set at exactly one layer and verified against the live origin

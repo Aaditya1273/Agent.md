@@ -5,1137 +5,184 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: optimization
+category: Performance
+description: A method for making software faster — measure, profile, find the bottleneck, change the complexity not the constant, and prove the improvement.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# optimization.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, performance optimization methodologies, optimization workflows, continuous improvement strategies, engineering decision frameworks, and long-term best practices for building efficient, reliable, scalable, maintainable, and production-ready software systems.
+The method that applies to every performance problem, regardless of layer. The
+specific techniques live in the other Performance packages; this is how to decide
+which one you need.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- APIs
-- Distributed Systems
-- Cloud Applications
-- Mobile Applications
-- Developer Platforms
-- Production Software
-
-Optimization is not making software faster at any cost.
-
-Optimization is the engineering discipline of systematically eliminating unnecessary work, reducing resource consumption, improving responsiveness, increasing scalability, and maximizing long-term engineering quality while preserving correctness, maintainability, reliability, and architectural simplicity.
-
-Every optimization should create measurable value.
+The failure this prevents: spending a week on a 40 KB bundle saving while the p99
+is dominated by a 3-second unindexed query.
 
 ---
 
-# Core Philosophy
+# The loop
 
-Understand System Behavior
+```
+1. Define the target      "checkout p95 under 800ms, from 2.4s"
+2. Measure the baseline   in production, at p95/p99, not p50
+3. Profile               find where the time actually goes
+4. Change ONE thing      the biggest contributor
+5. Measure again         same conditions, same percentile
+6. Keep or revert        no measured gain → revert
+```
 
-↓
+Never skip step 3. Intuition about where time goes is unreliable even for people
+who do this daily, because the bottleneck is usually somewhere nobody was
+thinking about: connection pool wait, DNS, a serialisation step, a lock.
 
-Measure Performance
-
-↓
-
-Identify Bottlenecks
-
-↓
-
-Understand Root Causes
-
-↓
-
-Optimize Meaningful Work
-
-↓
-
-Validate Improvements
-
-↓
-
-Measure Again
-
-↓
-
-Continuously Improve
-
-Optimization should always be driven by evidence rather than assumptions.
+Never do step 4 twice at once. Two simultaneous changes give you one number and no
+attribution.
 
 ---
 
-# Primary Objective
+# Measure at the right percentile, in the right place
 
-Every optimization strategy should maximize
+| Statistic | Hides |
+| --- | --- |
+| Mean | Everything. A p50 of 40 ms with a p99 of 9 s averages out fine |
+| p50 | The 1% of users who cannot use the product |
+| **p95 / p99** | Little — this is what to target |
+| p99.9 | Useful for fan-out services, where one request touches many backends |
 
-Performance
+- **Field data over lab data.** A local run on a fast machine with a warm cache
+  and 200 rows does not resemble production.
+- Segment by device class, connection, region and tenant. An aggregate p95 hides a
+  region or a large customer having a completely different experience.
+- Set a **budget**, not a vague goal: `checkout_p95 < 800ms` is testable and can
+  be enforced in CI. "Make it faster" cannot.
 
-+
-
-Efficiency
-
-+
-
-Reliability
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Resource Utilization
-
-+
-
-Engineering Simplicity
-
-+
-
-Long-Term Sustainability
-
-Optimization should improve the complete system rather than isolated metrics.
+In fan-out systems, remember that a p99 in a dependency becomes a p50 for a
+request that calls it a hundred times.
 
 ---
 
-# Engineering Principles
+# Profile before optimising
 
-Always prioritize
+| Layer | Tool |
+| --- | --- |
+| Database | `EXPLAIN (ANALYZE, BUFFERS)`, `pg_stat_statements`, `pg_stat_activity` → `Performance/queries` |
+| Backend CPU | Sampling profiler, flame graph (`0x`, `pprof`, `py-spy`, `async-profiler`) |
+| Backend latency | Distributed tracing → `Backend/monitoring` |
+| Frontend | DevTools Performance panel, React Profiler, `web-vitals` → `Performance/rendering` |
+| Network | Waterfall, `Server-Timing` headers → `Performance/network` |
+| Memory | Heap snapshot, allocation timeline, `--inspect` → `Performance/memory` |
+| Event loop | `perf_hooks.monitorEventLoopDelay` → `Backend/node` |
+| Queues | `queue_oldest_message_seconds` → `Backend/queues` |
 
-Correctness
+A flame graph answers "where is CPU time" in seconds. A trace answers "where is
+wall-clock time" — and for most web services the answer is **waiting**, not
+computing: waiting on a query, a lock, a connection, or a dependency.
 
-↓
+If CPU is flat while latency is high, you are queueing somewhere. Look at pool
+utilisation and lock waits before touching any code.
 
-Evidence-Based Decisions
+```bash
+# Where is the time? Three commands that answer it faster than reading code.
+psql -c "SELECT calls, round(total_exec_time) ms, query
+         FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10;"
 
-↓
+npx 0x -- node dist/server.js        # flame graph of CPU time
+curl -w '@curl-format.txt' -o /dev/null -s "$URL"   # DNS/TCP/TLS/TTFB breakdown
+```
 
-Meaningful Optimization
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Optimization should solve measurable problems—not theoretical ones.
+```
+# Server-Timing makes the breakdown visible in browser devtools for every request
+Server-Timing: db;dur=412;desc="14 queries", render;dur=38, cache;desc="miss"
+```
 
 ---
 
-# Performance Optimization Lifecycle
+# Change complexity, not constants
 
-Understand System
+Ranked by typical payoff:
 
-↓
+| Change | Effect |
+| --- | --- |
+| **Do it not at all** — remove the work | Unbeatable |
+| **Do it once** — cache, memoise, batch | Often 10–100× |
+| **Do it in parallel** — concurrent independent calls | Up to the slowest |
+| **Do it later** — background job, defer, lazy-load | Removes it from the critical path |
+| **Do it faster** — better algorithm or index | 10–1000× when complexity changes |
+| **Do it on better hardware** | 2–3×, and pays rent forever |
 
-Measure Performance
+Micro-optimisation belongs last and usually never. Replacing an O(n²) scan with a
+hash lookup beats every constant-factor tweak combined, and an N+1 fixed by a join
+beats making a hundred fast queries slightly faster.
+→ `Database/query-optimization`
 
-↓
+Common single-fix wins, in the order they usually appear:
 
-Analyze Bottlenecks
-
-↓
-
-Prioritize Improvements
-
-↓
-
-Optimize Resources
-
-↓
-
-Validate Results
-
-↓
-
-Monitor Production
-
-↓
-
-Continuously Improve
-
-Every optimization should begin and end with measurement.
+1. N+1 queries — one request issuing hundreds.
+2. A missing index — a sequential scan on a large table.
+3. Serial awaits on independent work.
+4. Unbounded result sets — no `LIMIT`, no pagination.
+5. Work in a request that belongs in a job.
 
 ---
 
-# Stage 1 — System Analysis
+# Prove it, then keep it
 
-Understand
+- Re-measure under the **same** conditions. A "50% improvement" measured at a
+  different time of day is noise.
+- No measured improvement means **revert**. Complexity added for an unproven gain
+  is a permanent cost.
+- Add a regression guard: a `size-limit` budget, a query-count assertion, a `k6`
+  threshold in CI. Performance gains erode silently otherwise.
+  → `Testing/performance`
+- Record what you changed and what it bought, in the pull request. The next person
+  needs to know what has already been tried.
 
-Business Objectives
-
-↓
-
-User Journeys
-
-↓
-
-Application Architecture
-
-↓
-
-Critical Features
-
-↓
-
-Operational Constraints
-
-↓
-
-Infrastructure
-
-↓
-
-Current Performance
-
-↓
-
-Future Growth
-
-Optimization begins with understanding the system.
+Optimisation trades away simplicity. Keep the readable version until it is
+demonstrably too slow, and comment the fast version with what it replaced and why.
 
 ---
 
-# Stage 2 — Performance Measurement
+# Anti-patterns
 
-Measure
-
-Response Time
-
-↓
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Network Activity
-
-↓
-
-Storage Access
-
-↓
-
-Rendering Performance
-
-↓
-
-Resource Utilization
-
-↓
-
-Operational Stability
-
-Objective measurements establish optimization priorities.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Optimising without measuring | Effort on the wrong thing | Profile first |
+| Optimising the mean | The tail is the user experience | Target p95/p99 |
+| Local benchmarks only | Wrong data, wrong hardware, warm cache | Production field data |
+| Aggregate metrics only | Hides a region, device class or tenant | Segment |
+| Several changes at once | No attribution | One at a time |
+| Micro-optimisation first | Constant factors on the wrong code | Change complexity |
+| Caching before indexing | Hides the problem until the cache misses | Fix the query |
+| Assuming CPU is the bottleneck | Most web latency is waiting | Trace wall-clock time |
+| Ignoring pool and lock waits | Looks like a slow query; is not | Check saturation first |
+| No re-measurement | The change may have done nothing | Same conditions, same percentile |
+| Keeping unproven optimisations | Permanent complexity, no benefit | Revert |
+| No regression guard | Gains erode silently | Budgets and assertions in CI |
+| Vague goals | Cannot tell when you are done | Numeric budget per journey |
+| Scaling hardware to hide a bug | Pays rent forever | Fix the cause |
 
 ---
 
-# Stage 3 — Bottleneck Identification
-
-Identify
-
-CPU Bottlenecks
-
-↓
-
-Memory Bottlenecks
-
-↓
-
-Network Bottlenecks
-
-↓
-
-Database Bottlenecks
-
-↓
-
-Rendering Bottlenecks
-
-↓
-
-Storage Bottlenecks
-
-↓
-
-Concurrency Issues
-
-↓
-
-Architectural Constraints
-
-Optimization should target the largest measurable bottlenecks.
-
----
-
-# Stage 4 — Root Cause Analysis
-
-Analyze
-
-Workload Distribution
-
-↓
-
-Execution Flow
-
-↓
-
-Dependency Relationships
-
-↓
-
-Resource Ownership
-
-↓
-
-Repeated Operations
-
-↓
-
-Blocking Operations
-
-↓
-
-Waste
-
-↓
-
-Engineering Constraints
-
-Symptoms should never be optimized before understanding causes.
-
----
-
-# Stage 5 — Optimization Strategy
-
-Define
-
-Execution Strategy
-
-↓
-
-Resource Strategy
-
-↓
-
-Caching Strategy
-
-↓
-
-Loading Strategy
-
-↓
-
-Data Strategy
-
-↓
-
-Scheduling Strategy
-
-↓
-
-Recovery Strategy
-
-↓
-
-Operational Limits
-
-Optimization requires deliberate engineering decisions.
-
----
-
-# Stage 6 — Resource Optimization
-
-Optimize
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Network Usage
-
-↓
-
-Storage Access
-
-↓
-
-Rendering Work
-
-↓
-
-Database Operations
-
-↓
-
-Concurrency
-
-↓
-
-Infrastructure Utilization
-
-Optimization should eliminate unnecessary work across the entire system.
-
----
-
-# Stage 7 — Correctness Validation
-
-Validate
-
-Business Logic
-
-↓
-
-Application Behavior
-
-↓
-
-User Experience
-
-↓
-
-Reliability
-
-↓
-
-Accessibility
-
-↓
-
-Consistency
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Performance improvements must never reduce correctness.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Latency
-
-↓
-
-Throughput
-
-↓
-
-Resource Consumption
-
-↓
-
-Availability
-
-↓
-
-Reliability
-
-↓
-
-Scalability
-
-↓
-
-Operational Stability
-
-↓
-
-User Experience
-
-Every optimization requires measurable validation.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Repeated Computation
-
-↓
-
-Duplicate Resources
-
-↓
-
-Unnecessary Communication
-
-↓
-
-Resource Waste
-
-↓
-
-Slow Operations
-
-↓
-
-Blocking Execution
-
-↓
-
-Architectural Complexity
-
-↓
-
-Operational Inefficiencies
-
-Optimization should continuously remove engineering waste.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Component Boundaries
-
-↓
-
-Dependency Direction
-
-↓
-
-Resource Ownership
-
-↓
-
-Execution Flow
-
-↓
-
-Data Flow
-
-↓
-
-Communication
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Architecture determines long-term optimization potential.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Data
-
-↓
-
-Growing Features
-
-↓
-
-Distributed Systems
-
-↓
-
-Concurrent Operations
-
-↓
-
-Infrastructure Growth
-
-↓
-
-Operational Stability
-
-↓
-
-Future Expansion
-
-Optimization should continue working as software evolves.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Correctness
-
-↓
-
-Recovery
-
-↓
-
-Availability
-
-↓
-
-Consistency
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Handling
-
-↓
-
-Predictable Behavior
-
-↓
-
-Engineering Quality
-
-Reliable optimization preserves production stability.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Optimization Strategy
-
-↓
-
-Engineering Decisions
-
-↓
-
-Architecture
-
-↓
-
-Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Validation Results
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves optimization knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Performance Regression
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Architecture Drift
-
-↓
-
-Reliability Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Maintenance Risks
-
-↓
-
-Scalability Risks
-
-↓
-
-Technical Debt
-
-Optimization risks should remain continuously visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Complexity
-
-↓
-
-Reliability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Future Evolution
-
-Every optimization introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Performance
-
-↓
-
-Correctness
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-Optimization improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Optimization Summary
-
-↓
-
-Performance Metrics
-
-↓
-
-Resource Analysis
-
-↓
-
-Optimization Results
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Opportunities
-
-↓
-
-Lessons Learned
-
-Reports preserve engineering knowledge.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Workloads
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Observability
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Maintainability
-
-Optimization should remain dependable under production conditions.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Optimization Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Discipline
-
-Optimization quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Performance
-
-↓
-
-Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional software continuously improves by eliminating unnecessary work while preserving correctness, simplicity, and long-term engineering quality.
-
----
-
-# Performance Optimization Quality Attributes
-
-Evaluate
-
-Performance
-
-Efficiency
-
-Reliability
-
-Scalability
-
-Maintainability
-
-Resource Utilization
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Has optimization been driven by objective measurements?
-
-↓
-
-Does the optimization solve a measurable bottleneck?
-
-↓
-
-Can unnecessary work be eliminated instead of accelerated?
-
-↓
-
-Does the architecture remain maintainable?
-
-↓
-
-Will future engineers understand these optimization decisions?
-
-↓
-
-Does optimization improve the complete system rather than isolated metrics?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this optimization strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Application instability
-
-System failure
-
-Performance collapse
-
-Resource exhaustion
-
-Major
-
-Performance degradation
-
-High resource consumption
-
-Architecture bottlenecks
-
-Operational instability
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Performance Optimization Checklist
-
-✓ System analyzed
-
-✓ Performance measured
-
-✓ Bottlenecks identified
-
-✓ Root causes analyzed
-
-✓ Optimization strategy defined
-
-✓ Resources optimized
-
-✓ Correctness validated
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Optimizing without measurement
-
-Premature optimization
-
-Optimizing benchmarks instead of production workloads
-
-Increasing complexity for insignificant gains
-
-Ignoring maintainability
-
-Ignoring correctness
-
-Treating optimization as a one-time activity
-
-Architecture driven by micro-optimizations
-
-Ignoring scalability
-
-Optimizing isolated components while degrading the overall system
-
-Removing readability for minimal performance improvements
-
-Assuming optimization is complete
-
----
-
-# Definition of Done
-
-A performance optimization strategy is considered complete when
-
-- System performance has been systematically analyzed and optimized to eliminate unnecessary computation, memory consumption, network communication, storage access, rendering work, database operations, and infrastructure utilization while preserving correctness, reliability, maintainability, scalability, operational stability, and architectural integrity.
-- Performance improvements are supported by objective measurements, reproducible validation, and evidence-based engineering decisions rather than assumptions, benchmarks in isolation, or premature optimization techniques.
-- Optimization architecture supports predictable performance, efficient resource utilization, scalable software evolution, maintainable engineering practices, reliable production behavior, operational excellence, and sustainable long-term system growth without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate optimization effectiveness, architectural consistency, correctness, reliability, scalability, documentation quality, maintainability, production readiness, and long-term sustainability before deployment.
-- Documentation clearly explains optimization strategy, engineering rationale, resource analysis, trade-offs, validation evidence, governance expectations, operational constraints, known limitations, and future optimization opportunities.
-- Optimization decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than technology-specific implementation techniques.
-- The resulting software demonstrates engineering discipline, efficient resource utilization, predictable performance, architectural clarity, operational excellence, maintainability, scalable infrastructure, reliable execution, and long-term software sustainability.
-
-Exceptional optimization is not measured by the fastest benchmark or the lowest resource utilization.
-
-It is measured by how intelligently software eliminates unnecessary work, preserves engineering simplicity, scales predictably with increasing demand, maintains correctness under production workloads, and continuously delivers sustainable value throughout the lifetime of the system.
+# Checklist
+
+- [ ] Verify: A numeric performance target exists per critical journey
+- [ ] Verify: The baseline is measured in production at p95/p99
+- [ ] Verify: Metrics are segmented by device, connection, region and tenant
+- [ ] Verify: The bottleneck is identified by profiling or tracing, not by intuition
+- [ ] Verify: Saturation (pools, locks, queues) is ruled out before optimising code
+- [ ] Verify: One change is made at a time
+- [ ] Verify: Complexity-level changes are preferred over constant-factor tuning
+- [ ] Verify: N+1 queries, missing indexes and serial awaits are checked first
+- [ ] Verify: The change is re-measured under identical conditions
+- [ ] Verify: Changes without a measured gain are reverted
+- [ ] Verify: A regression guard is added in CI for each fixed problem
+- [ ] Verify: The change and its measured effect are recorded in the pull request
+- [ ] Verify: Non-obvious optimised code carries a comment explaining what it replaced

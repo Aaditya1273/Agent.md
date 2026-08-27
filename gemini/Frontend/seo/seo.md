@@ -5,1145 +5,206 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: seo
+category: Frontend
+description: Technical SEO for web applications — rendering strategy, canonical URLs, structured data, sitemaps, and the Core Web Vitals that affect ranking.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# seo.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, discoverability strategies, indexing guidelines, content organization, and long-term best practices for building production-grade search engine optimized applications.
+Rules for making a web application discoverable. Scope is **technical** SEO — what
+engineering controls. Content strategy and keyword research are not covered.
 
-It applies to
+The order of impact, which is not the order teams usually work in:
 
-- Next.js Applications
-- React Applications
-- SaaS Platforms
-- Enterprise Websites
-- AI Applications
-- E-Commerce Platforms
-- Documentation Systems
-- Marketing Websites
-- Production Web Applications
-
-SEO is not adding keywords.
-
-SEO is the engineering discipline of building applications that search engines can efficiently discover, understand, index, evaluate, and present to users while delivering high-quality experiences.
-
-Search engines discover content.
-
-Engineering makes that discovery reliable.
+1. Can crawlers reach and render the content at all?
+2. Is each page's canonical identity unambiguous?
+3. Is it fast on mobile?
+4. Is it marked up so results can be rich?
 
 ---
 
-# Core Philosophy
+# Rendering: content must exist without JavaScript
 
-Understand User Intent
+A client-rendered page ships an empty `<div id="root">`. Google will usually render
+it eventually; other crawlers, social preview bots and AI crawlers often will not,
+and rendering is deferred and unreliable.
 
-↓
+| Strategy | Use for |
+| --- | --- |
+| Static generation | Marketing, docs, blog — anything not per-user |
+| Server rendering | Catalogues, listings, anything dynamic but public |
+| Incremental regeneration | Large catalogues that change occasionally |
+| Client rendering | Authenticated application screens — not indexed anyway |
 
-Design Information Architecture
+Verify with `curl` rather than devtools, which shows the hydrated DOM:
 
-↓
+```bash
+curl -sL https://example.com/products/widget | grep -c "<h1"
+```
 
-Create High-Quality Content
-
-↓
-
-Ensure Crawlability
-
-↓
-
-Optimize Performance
-
-↓
-
-Improve Discoverability
-
-↓
-
-Review Quality
-
-↓
-
-Continuously Improve
-
-Applications should first serve users.
-
-Search engines should naturally understand them.
+If the content is not in that output, assume it may not be indexed.
+→ `Frontend/server-components`
 
 ---
 
-# Primary Objective
+# One canonical URL per page
 
-Every SEO architecture should maximize
+Duplicate URLs split ranking signals between copies and can cause the wrong one to
+be indexed.
 
-Discoverability
+```html
+<link rel="canonical" href="https://example.com/products/widget" />
+```
 
-+
+Sources of accidental duplication, all common:
 
-Indexability
+- `http` and `https`; `www` and apex — pick one and `301` the rest.
+- Trailing slash inconsistency (`/about` and `/about/`).
+- Tracking parameters (`?utm_source=…`) creating infinite variants.
+- Uppercase and lowercase paths on a case-sensitive server.
+- Pagination and filtered views of the same collection.
 
-+
+Rules:
 
-Performance
-
-+
-
-Accessibility
-
-+
-
-Content Quality
-
-+
-
-Maintainability
-
-+
-
-User Experience
-
-+
-
-Long-Term Sustainability
-
-Applications should be understandable by both humans and search engines.
+- A self-referencing canonical on every indexable page, absolute, matching exactly
+  the URL you want indexed.
+- Filtered and sorted views (`?status=paid&sort=-createdAt`) canonicalise to the
+  unfiltered collection, or are `noindex`.
+- Never change a URL without a `301`. → `Frontend/routing`
+- `hreflang` for localised variants, and every variant must point back at all the
+  others including itself.
 
 ---
 
-# Engineering Principles
+# Metadata that actually renders
 
-Always prioritize
+```html
+<title>Widget — Acme</title>                        <!-- ≤ 60 chars, unique per page -->
+<meta name="description" content="…" />             <!-- ≤ 155 chars, unique -->
+<meta property="og:title" content="Widget" />
+<meta property="og:image" content="https://example.com/og/widget.png" />  <!-- absolute -->
+<meta name="twitter:card" content="summary_large_image" />
+```
 
-User Intent
-
-↓
-
-Information Architecture
-
-↓
-
-Content Quality
-
-↓
-
-Technical Correctness
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Consistency
-
-↓
-
-Continuous Improvement
-
-Search visibility begins with good engineering.
+- Generate metadata **server-side**. A `<title>` set in `useEffect` is not seen by
+  most crawlers or by social preview bots at all.
+- Unique per page. Duplicated titles and descriptions across a catalogue are one
+  of the most common technical SEO faults.
+- Open Graph images must be **absolute URLs** — relative ones silently fail in
+  every social preview.
+- `robots` meta only where you mean it. A stray `noindex` shipped to production
+  will remove a site from search results, and it is a genuinely recurring
+  incident. → `Frontend/metadata`
 
 ---
 
-# SEO Lifecycle
+# Structured data
 
-Understand Requirements
+```json
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Widget",
+  "offers": { "@type": "Offer", "price": "24.99", "priceCurrency": "EUR",
+              "availability": "https://schema.org/InStock" }
+}
+```
 
-↓
+JSON-LD in a `<script type="application/ld+json">`, generated from the same data
+the page renders. Types worth implementing: `Product`, `Article`, `FAQPage`,
+`BreadcrumbList`, `Organization`, `Event`.
 
-Research User Intent
-
-↓
-
-Design Site Architecture
-
-↓
-
-Organize Content
-
-↓
-
-Optimize Technical SEO
-
-↓
-
-Validate Indexability
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-SEO architecture should be planned before implementation.
+**Never** mark up data the page does not display. It is a policy violation and
+attracts a manual penalty. Validate with the Rich Results Test before shipping.
 
 ---
 
-# Stage 1 — Search Intent Analysis
+# Crawlability
 
-Understand
+```
+# robots.txt
+User-agent: *
+Disallow: /api/
+Disallow: /admin/
+Sitemap: https://example.com/sitemap.xml
+```
 
-Business Goals
-
-↓
-
-Target Audience
-
-↓
-
-User Questions
-
-↓
-
-Search Intent
-
-↓
-
-Content Objectives
-
-↓
-
-Competitive Landscape
-
-↓
-
-Success Metrics
-
-↓
-
-Future Growth
-
-Search visibility begins with understanding user needs.
+- `robots.txt` blocks **crawling**, not indexing. A blocked URL can still be
+  indexed from external links — and because it cannot be crawled, the `noindex`
+  tag on it is never seen. To keep a page out of the index, allow crawling and use
+  `noindex`.
+- Generate the sitemap from the route table, include `lastmod`, and split above
+  50,000 URLs.
+- Never block CSS or JavaScript in `robots.txt` — crawlers need them to render.
+- Fix crawl waste: infinite calendars, faceted-filter URL explosion, and session
+  ids in URLs consume crawl budget that should go to real pages.
+- Return real status codes: `404` for missing, `410` for permanently gone, `301`
+  for moved. A "not found" page returning `200` is a soft 404 and gets indexed.
 
 ---
 
-# Stage 2 — Information Architecture
+# Speed and mobile
 
-Design
+Core Web Vitals are a ranking signal, measured from **field data at p75**, not
+from a Lighthouse run.
 
-Site Hierarchy
+| Metric | Target |
+| --- | --- |
+| LCP | < 2.5s |
+| INP | < 200ms |
+| CLS | < 0.1 |
 
-↓
-
-Navigation
-
-↓
-
-Categories
-
-↓
-
-Content Relationships
-
-↓
-
-Internal Linking
-
-↓
-
-URL Structure
-
-↓
-
-Content Discovery
-
-↓
-
-Future Expansion
-
-Information architecture determines discoverability.
+Indexing is mobile-first: the mobile rendering is what is evaluated. A desktop
+page that is fast and a mobile page that is not means the slow one counts.
+→ `Frontend/performance`
 
 ---
 
-# Stage 3 — URL Architecture
+# Anti-patterns
 
-Design
-
-Readable URLs
-
-↓
-
-Stable Paths
-
-↓
-
-Meaningful Slugs
-
-↓
-
-Hierarchical Structure
-
-↓
-
-Canonical Resources
-
-↓
-
-Predictable Routing
-
-↓
-
-Permanent References
-
-↓
-
-Consistency
-
-URLs become long-term public interfaces.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Client-rendering public content | Crawlers may never see it | Server-render or generate |
+| Metadata set in `useEffect` | Not seen by crawlers or preview bots | Server-side metadata |
+| Duplicate titles and descriptions | Signals split; pages compete | Unique per page |
+| Missing canonical tags | Duplicate URLs split ranking | Self-referencing canonical |
+| Both `www` and apex serving | Two copies of every page | `301` to one host |
+| Tracking parameters indexed | Infinite URL variants | Canonicalise; block in parameters |
+| URL changed without a redirect | Ranking and bookmarks lost | `301` |
+| Relative Open Graph image | Social previews silently break | Absolute URL |
+| `noindex` shipped accidentally | Site removed from search | Guard in CI; verify in production |
+| `robots.txt` used to deindex | Blocks crawling, so `noindex` is never seen | Allow crawl, use `noindex` |
+| Blocking CSS/JS in `robots.txt` | Crawlers cannot render the page | Allow them |
+| Soft 404s returning `200` | Empty pages get indexed | Real status codes |
+| Structured data for hidden content | Policy violation; manual penalty | Mark up only what is visible |
+| Sitemap hand-maintained | Drifts from the real route table | Generate it |
+| Faceted filters generating infinite URLs | Crawl budget wasted | Canonicalise or `noindex` |
+| Optimising only desktop | Indexing is mobile-first | Measure mobile field data |
 
 ---
 
-# Stage 4 — Content Architecture
-
-Organize
-
-Landing Pages
-
-↓
-
-Feature Pages
-
-↓
-
-Documentation
-
-↓
-
-Knowledge Base
-
-↓
-
-Blog Content
-
-↓
-
-Category Pages
-
-↓
-
-Supporting Content
-
-↓
-
-Future Expansion
-
-Content should answer real user questions.
-
----
-
-# Stage 5 — Crawlability
-
-Ensure
-
-Accessible Pages
-
-↓
-
-Logical Navigation
-
-↓
-
-Internal Links
-
-↓
-
-Indexable Content
-
-↓
-
-Crawl Efficiency
-
-↓
-
-Robots Configuration
-
-↓
-
-Sitemaps
-
-↓
-
-Consistency
-
-Search engines should reach important content easily.
-
----
-
-# Stage 6 — Metadata Strategy
-
-Define
-
-Titles
-
-↓
-
-Descriptions
-
-↓
-
-Canonical References
-
-↓
-
-Open Graph
-
-↓
-
-Structured Metadata
-
-↓
-
-Social Metadata
-
-↓
-
-Localization
-
-↓
-
-Consistency
-
-Metadata should accurately describe content.
-
----
-
-# Stage 7 — Structured Data
-
-Implement
-
-Organization Information
-
-↓
-
-Products
-
-↓
-
-Articles
-
-↓
-
-Documentation
-
-↓
-
-FAQs
-
-↓
-
-Events
-
-↓
-
-Breadcrumbs
-
-↓
-
-Relationships
-
-Structured data improves machine understanding.
-
----
-
-# Stage 8 — Internal Linking
-
-Connect
-
-Related Pages
-
-↓
-
-Supporting Resources
-
-↓
-
-Navigation
-
-↓
-
-Documentation
-
-↓
-
-Feature Relationships
-
-↓
-
-Knowledge Paths
-
-↓
-
-User Journeys
-
-↓
-
-Discoverability
-
-Links should strengthen both navigation and search understanding.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Loading Speed
-
-↓
-
-Rendering
-
-↓
-
-Images
-
-↓
-
-Fonts
-
-↓
-
-JavaScript
-
-↓
-
-Caching
-
-↓
-
-Core Web Vitals
-
-↓
-
-User Experience
-
-Performance directly influences discoverability.
-
----
-
-# Stage 10 — Accessibility
-
-Ensure
-
-Semantic HTML
-
-↓
-
-Headings
-
-↓
-
-Navigation
-
-↓
-
-Alternative Text
-
-↓
-
-Keyboard Support
-
-↓
-
-Readable Structure
-
-↓
-
-Inclusive Design
-
-↓
-
-Consistency
-
-Accessibility strengthens search understanding.
-
----
-
-# Stage 11 — Content Quality
-
-Maintain
-
-Accuracy
-
-↓
-
-Originality
-
-↓
-
-Authority
-
-↓
-
-Freshness
-
-↓
-
-Completeness
-
-↓
-
-Readability
-
-↓
-
-Consistency
-
-↓
-
-Long-Term Value
-
-Quality content outlives algorithm changes.
-
----
-
-# Stage 12 — Internationalization
-
-Support
-
-Multiple Languages
-
-↓
-
-Regional Content
-
-↓
-
-Localized URLs
-
-↓
-
-Language Detection
-
-↓
-
-Cultural Adaptation
-
-↓
-
-Canonical Relationships
-
-↓
-
-Consistency
-
-↓
-
-Scalability
-
-Global architecture should remain understandable.
-
----
-
-# Stage 13 — Code Organization
-
-Maintain
-
-Metadata Modules
-
-↓
-
-SEO Utilities
-
-↓
-
-Structured Data
-
-↓
-
-Content Components
-
-↓
-
-Shared Templates
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-↓
-
-Maintainability
-
-Organization should reinforce discoverability.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-SEO Strategy
-
-↓
-
-Information Architecture
-
-↓
-
-Metadata Standards
-
-↓
-
-Structured Data
-
-↓
-
-Content Guidelines
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves search architecture.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Information Architecture
-
-↓
-
-Content Quality
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Metadata
-
-↓
-
-Discoverability
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-SEO reviews should evaluate the complete system.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Duplicate Content
-
-↓
-
-Broken Links
-
-↓
-
-Poor Crawlability
-
-↓
-
-Weak Performance
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Operational Risk
-
-↓
-
-Maintenance Cost
-
-Poor SEO architecture compounds over time.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Content
-
-↓
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-Discoverability
-
-↓
-
-Developer Experience
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Search optimization is an ongoing engineering discipline.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Indexability
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Metadata
-
-↓
-
-Structured Data
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-↓
-
-User Experience
-
-Reliable discoverability requires production discipline.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Content Standards
-
-↓
-
-Metadata Standards
-
-↓
-
-Review Process
-
-↓
-
-Architecture Ownership
-
-↓
-
-Documentation
-
-↓
-
-Engineering Discipline
-
-↓
-
-Version Management
-
-↓
-
-Continuous Evolution
-
-SEO architecture requires governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Content Architecture
-
-↓
-
-Discoverability
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-System Consistency
-
-↓
-
-Software Longevity
-
-Exceptional SEO systems improve naturally as applications evolve.
-
----
-
-# SEO Quality Attributes
-
-Evaluate
-
-Discoverability
-
-Indexability
-
-Performance
-
-Accessibility
-
-Maintainability
-
-Scalability
-
-User Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does the information architecture reflect user intent?
-
-↓
-
-Can every important page be discovered easily?
-
-↓
-
-Are URLs stable and meaningful?
-
-↓
-
-Is content authoritative and complete?
-
-↓
-
-Does performance support search visibility?
-
-↓
-
-Will future engineers understand the SEO architecture?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this search architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Pages cannot be indexed
-
-Broken crawlability
-
-Duplicate canonical resources
-
-Critical performance failures
-
-Major
-
-Weak information architecture
-
-Broken metadata
-
-Poor internal linking
-
-Content duplication
-
-Medium
-
-Documentation gaps
-
-Weak organization
-
-Naming inconsistencies
-
-Minor
-
-Formatting
-
-Metadata consistency
-
-Comments
-
-Repository consistency
-
----
-
-# SEO Checklist
-
-✓ Search intent analyzed
-
-✓ Information architecture designed
-
-✓ URL structure established
-
-✓ Content architecture organized
-
-✓ Crawlability validated
-
-✓ Metadata implemented
-
-✓ Structured data reviewed
-
-✓ Internal linking optimized
-
-✓ Performance validated
-
-✓ Accessibility ensured
-
-✓ Content quality reviewed
-
-✓ Internationalization considered
-
-✓ Code organized
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Keyword stuffing
-
-Duplicate content
-
-Broken internal links
-
-Unstable URLs
-
-Thin content
-
-Hidden content
-
-Ignoring accessibility
-
-Ignoring performance
-
-Overusing JavaScript for essential content
-
-Weak navigation
-
-Missing canonical references
-
-SEO decisions without user value
-
-Treating SEO as a marketing activity instead of engineering
-
----
-
-# Definition of Done
-
-An SEO architecture is considered production-ready when
-
-- Every page represents a clearly defined user intent through meaningful content, stable URLs, semantic structure, accurate metadata, and logical placement within the application's information architecture.
-- Crawlability, indexability, structured data, internal linking, rendering strategy, performance optimization, accessibility, and content organization operate together as a cohesive system that enables search engines to reliably discover, understand, and evaluate the application.
-- Information architecture supports intuitive navigation for users while exposing clear hierarchical relationships between features, documentation, products, categories, and supporting resources through consistent URLs and internal linking.
-- Technical implementation preserves search visibility through deterministic rendering, optimized performance, semantic HTML, canonical resource identification, structured metadata, and resilient content delivery across devices and regions.
-- Engineering reviews validate discoverability, technical correctness, information architecture, accessibility compliance, performance characteristics, documentation quality, scalability, maintainability, and operational readiness before production deployment.
-- Documentation preserves search architecture through clearly defined metadata standards, content organization principles, URL conventions, structured data strategies, known constraints, architectural trade-offs, and future evolution plans.
-- The resulting architecture demonstrates engineering discipline, architectural clarity, predictable discoverability, operational reliability, maintainability, scalability, user experience excellence, and long-term software sustainability.
-
-Exceptional SEO is not achieved by optimizing for search engine algorithms.
-
-It is achieved by engineering applications whose architecture, content, performance, accessibility, and information organization naturally enable both users and search systems to understand, trust, discover, and navigate them with confidence for years to come.
+# Checklist
+
+- [ ] Verify: Public content is present in the server response, verified with `curl`
+- [ ] Verify: Every indexable page has a unique, server-rendered title and description
+- [ ] Verify: A self-referencing absolute canonical is on every indexable page
+- [ ] Verify: One host and one trailing-slash convention, with `301`s enforcing them
+- [ ] Verify: Filtered and sorted views canonicalise or are `noindex`
+- [ ] Verify: URL changes are always accompanied by permanent redirects
+- [ ] Verify: Open Graph and Twitter tags use absolute image URLs
+- [ ] Verify: No accidental `noindex` reaches production; production is verified
+- [ ] Verify: Structured data is JSON-LD, matches visible content, and validates
+- [ ] Verify: `robots.txt` allows CSS and JavaScript and links the sitemap
+- [ ] Verify: The sitemap is generated from routes, with `lastmod` and size splitting
+- [ ] Verify: Missing pages return `404`/`410`, not `200`
+- [ ] Verify: Crawl waste from filters, calendars and parameters is controlled
+- [ ] Verify: `hreflang` is reciprocal and self-referencing for localised pages
+- [ ] Verify: Core Web Vitals meet targets at p75 on mobile field data

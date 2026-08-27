@@ -5,1168 +5,194 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: cloudflare
+category: DevOps
+description: Cloudflare as CDN, WAF and edge platform — DNS and proxying, cache rules that actually cache, origin protection, Workers limits, and rate limiting.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# cloudflare.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, securing, optimizing, and operating applications using Cloudflare's global edge platform.
+Rules for putting Cloudflare in front of an application, and for running code at
+its edge. Three jobs, in descending order of value:
 
-It applies to
-
-- Web Applications
-- APIs
-- SaaS Platforms
-- AI Applications
-- Enterprise Systems
-- Edge Applications
-- Static Websites
-- Global Services
-- Multi-Region Infrastructure
-
-Cloudflare is not merely a CDN.
-
-Cloudflare is a global edge platform that provides networking, security, performance optimization, traffic management, edge computing, and application protection at internet scale.
-
-Every request should become
-
-Faster
-
-Safer
-
-More Reliable
-
-Closer to users.
+1. **Caching** — serve static assets from the edge and never touch the origin.
+2. **Protection** — absorb volumetric attacks and block abuse before it costs you.
+3. **Compute** — Workers for logic that belongs at the edge, not for everything.
 
 ---
 
-# Core Philosophy
+# Proxying and origin protection
 
-Protect Traffic
+A proxied (orange-cloud) record hides the origin IP. A grey-cloud record publishes
+it, and an attacker who knows it bypasses every protection you configured.
 
-↓
-
-Optimize Requests
-
-↓
-
-Distribute Globally
-
-↓
-
-Execute at the Edge
-
-↓
-
-Observe Continuously
-
-↓
-
-Recover Automatically
-
-↓
-
-Optimize Continuously
-
-↓
-
-Scale Globally
-
-Infrastructure should move closer to users.
-
-Complexity should move away from developers.
+- Proxy every public hostname. Audit for grey-cloud records — a legacy `direct.`
+  or `origin.` record is the standard way the origin IP leaks.
+- **Lock the origin down** so it only accepts Cloudflare traffic. Otherwise the WAF
+  and rate limits are optional from an attacker's point of view:
+  - Allow only Cloudflare IP ranges at the firewall, **or**
+  - Use Cloudflare Tunnel (`cloudflared`) so the origin has no inbound ports at
+    all — the stronger option, and it removes IP-range maintenance.
+- Authenticated Origin Pulls (mTLS) so the origin can verify the request came from
+  your Cloudflare account, not just from Cloudflare.
+- SSL mode **Full (strict)**. `Flexible` means Cloudflare talks plaintext HTTP to
+  your origin while showing users a padlock — it is unencrypted transport with a
+  misleading indicator.
 
 ---
 
-# Primary Objective
+# Caching: the defaults cache almost nothing
 
-Every Cloudflare architecture should maximize
+By default Cloudflare caches a list of static file extensions and **nothing with a
+query string or a cookie**. Most applications therefore see a low hit ratio and
+conclude the CDN is not helping.
 
-Availability
+```
+# Cache rule: hashed assets, cached hard, everywhere
+When  URI Path matches ^/(assets|_next/static)/
+Then  Cache eligibility: Eligible
+      Edge TTL: 1 year   Browser TTL: 1 year
+```
 
-+
+Set the origin headers to match:
 
-Performance
+```
+Cache-Control: public, max-age=31536000, immutable      # content-hashed assets
+Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400   # HTML
+Cache-Control: private, no-store                        # authenticated responses
+```
 
-+
+Rules that matter:
 
-Security
+- `s-maxage` controls the CDN; `max-age` controls the browser. HTML usually wants
+  a short shared TTL and no browser cache, so a deploy is visible immediately.
+- **Never cache an authenticated response.** One user's page served to another is
+  the highest-impact CDN bug there is, and it is entirely a `Cache-Control`
+  mistake. → `API/api-security`
+- `Vary` on any header that changes the response, but avoid `Vary: Cookie` — it
+  fragments the cache per user and effectively disables it.
+- **Purge by tag or URL on deploy**, never purge everything: a full purge sends
+  every request to the origin at once.
+- Tiered Cache reduces origin load; Cache Reserve helps for large, rarely-changing
+  objects.
 
-+
-
-Scalability
-
-+
-
-Reliability
-
-+
-
-Observability
-
-+
-
-Automation
-
-+
-
-Operational Excellence
-
-The edge should improve every request.
-
-Not simply proxy it.
-
----
-
-# Engineering Principles
-
-Always prioritize
-
-Global Performance
-
-↓
-
-Zero Trust Security
-
-↓
-
-Automation
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Least Privilege
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Edge infrastructure should reduce latency.
-
-Not increase operational complexity.
+Measure the hit ratio. Below ~80% on static assets means the rules are wrong, not
+that caching does not apply.
 
 ---
 
-# Cloudflare Lifecycle
+# WAF, bots and rate limiting
 
-Analyze Application
-
-↓
-
-Configure DNS
-
-↓
-
-Protect Traffic
-
-↓
-
-Optimize Delivery
-
-↓
-
-Deploy Edge Logic
-
-↓
-
-Observe
-
-↓
-
-Optimize
-
-↓
-
-Continuously Improve
+- Enable the managed WAF rulesets, then **watch the logs before enforcing**.
+  Shipping a ruleset straight to block will break a legitimate integration whose
+  payload looks like an attack.
+- Rate limit at the edge for volumetric abuse — a request blocked here costs you
+  nothing. Keep application-level limits too, for per-account quotas the edge
+  cannot see. → `API/rate-limiting`
+- Bot Fight Mode and challenges interact badly with API clients and webhooks:
+  exempt `/api/*` and known partner paths, or expect a support ticket.
+- **Never** rely on a Cloudflare-added header for authorization decisions unless
+  the origin is locked to Cloudflare — otherwise a direct request forges it. This
+  applies to `CF-Connecting-IP`, `CF-IPCountry` and Access JWTs.
+- Take the client IP from `CF-Connecting-IP`, not the leftmost `X-Forwarded-For`,
+  which is client-controlled.
+- Cloudflare Access for internal tools: identity-aware proxy in front of the
+  origin, so there is no public admin panel at all.
 
 ---
 
-# Stage 1 — Application Analysis
+# Workers: know the constraints
 
-Understand
+| Constraint | Value | Consequence |
+| --- | --- | --- |
+| CPU time | ~10–30 ms typical, configurable | Not for heavy computation |
+| Memory | 128 MB | No large in-memory work |
+| Runtime | V8 isolates, **not** Node | Node built-ins need `nodejs_compat` |
+| Subrequests | Bounded per request | Fan-out is limited |
+| KV consistency | Eventually consistent, ~60s | Not for read-after-write |
 
-Business Requirements
+- Workers suit routing, header rewriting, auth checks, A/B assignment, and
+  personalisation at the edge. They do not suit image processing or anything
+  CPU-heavy.
+- Storage: **KV** for read-heavy, eventually-consistent data; **Durable Objects**
+  for strongly-consistent coordination; **D1** for relational; **R2** for objects,
+  with no egress fees.
+- Secrets via `wrangler secret put`, never in `wrangler.toml` — which is committed.
+- Version and roll back deployments (`wrangler versions`), and use gradual
+  deployments for risky changes. → `DevOps/rollback`
+```toml
+# wrangler.toml — bindings, not secrets. Secrets go in `wrangler secret put`.
+name = "edge-router"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
 
-↓
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "…"
 
-Traffic Patterns
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
 
-↓
+[observability]
+enabled = true
+```
 
-User Geography
-
-↓
-
-Latency Targets
-
-↓
-
-Availability Goals
-
-↓
-
-Security Requirements
-
-↓
-
-Compliance
-
-↓
-
-Growth Expectations
-
-Infrastructure should follow application needs.
-
----
-
-# Stage 2 — DNS Architecture
-
-Configure
-
-DNS Records
-
-↓
-
-Zones
-
-↓
-
-Subdomains
-
-↓
-
-TTL Strategy
-
-↓
-
-Proxy Configuration
-
-↓
-
-Domain Verification
-
-↓
-
-High Availability
-
-↓
-
-Resilience
-
-Reliable applications begin with reliable DNS.
+- No global mutable state across requests: isolates are recycled unpredictably, so
+  a module-scope cache is neither reliable nor per-user-safe.
 
 ---
 
-# Stage 3 — Traffic Routing
+# Anti-patterns
 
-Design
-
-Global Routing
-
-↓
-
-Anycast Network
-
-↓
-
-Load Balancing
-
-↓
-
-Origin Selection
-
-↓
-
-Regional Routing
-
-↓
-
-Failover
-
-↓
-
-Health Checks
-
-↓
-
-Availability
-
-Traffic should automatically choose the healthiest path.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Grey-cloud DNS records | Origin IP published; protections bypassed | Proxy everything; audit records |
+| Origin open to the internet | The WAF becomes optional | IP allowlist or Cloudflare Tunnel |
+| SSL mode `Flexible` | Plaintext to origin behind a padlock | Full (strict) |
+| Assuming defaults cache HTML | Low hit ratio; origin carries the load | Explicit cache rules |
+| Caching authenticated responses | One user's data served to another | `private, no-store` |
+| `Vary: Cookie` | Cache fragmented per user | Vary only on what matters |
+| Purging everything on deploy | Origin stampede | Purge by tag or URL |
+| WAF rules enforced without observation | Breaks legitimate integrations | Log-only first |
+| Bot protection on API paths | Partner integrations and webhooks fail | Exempt them |
+| Trusting `CF-*` headers with an open origin | Forgeable by a direct request | Lock the origin first |
+| Leftmost `X-Forwarded-For` as client IP | Client-controlled; limits bypassable | `CF-Connecting-IP` |
+| Heavy computation in a Worker | CPU limit exceeded | Origin or a queue |
+| KV used for read-after-write | Eventually consistent | Durable Objects |
+| Secrets in `wrangler.toml` | Committed to version control | `wrangler secret` |
+| Module-scope state in a Worker | Isolates recycle; state is not yours | Stateless handlers |
+| No cache-hit-ratio monitoring | The CDN silently does nothing | Track and alert |
 
 ---
 
-# Stage 4 — Edge Caching
-
-Optimize
-
-Static Assets
-
-↓
-
-API Responses
-
-↓
-
-HTML Caching
-
-↓
-
-Image Caching
-
-↓
-
-Cache Rules
-
-↓
-
-Purge Strategy
-
-↓
-
-Compression
-
-↓
-
-Bandwidth Efficiency
-
-Cache aggressively.
-
-Invalidate intelligently.
-
----
-
-# Stage 5 — Edge Computing
-
-Deploy
-
-Edge Functions
-
-↓
-
-Request Processing
-
-↓
-
-Response Modification
-
-↓
-
-Authentication
-
-↓
-
-Personalization
-
-↓
-
-Routing Logic
-
-↓
-
-Business Rules
-
-↓
-
-Global Execution
-
-Compute should move closer to users.
-
----
-
-# Stage 6 — Security
-
-Protect
-
-DDoS Mitigation
-
-↓
-
-Web Application Firewall
-
-↓
-
-Bot Protection
-
-↓
-
-Rate Limiting
-
-↓
-
-TLS
-
-↓
-
-Zero Trust Access
-
-↓
-
-Origin Protection
-
-↓
-
-Compliance
-
-Every request should be evaluated before reaching the application.
-
----
-
-# Stage 7 — Configuration Management
-
-Manage
-
-Environment Variables
-
-↓
-
-DNS Configuration
-
-↓
-
-Certificates
-
-↓
-
-Rules
-
-↓
-
-Policies
-
-↓
-
-Redirects
-
-↓
-
-Headers
-
-↓
-
-Version Control
-
-Configuration should remain reproducible.
-
----
-
-# Stage 8 — Performance
-
-Optimize
-
-Latency
-
-↓
-
-Core Web Vitals
-
-↓
-
-Compression
-
-↓
-
-Image Optimization
-
-↓
-
-Caching
-
-↓
-
-Protocol Optimization
-
-↓
-
-Connection Reuse
-
-↓
-
-Edge Performance
-
-Performance should improve globally.
-
-Not only locally.
-
----
-
-# Stage 9 — Networking
-
-Configure
-
-TLS
-
-↓
-
-HTTP Versions
-
-↓
-
-IPv4
-
-↓
-
-IPv6
-
-↓
-
-Origin Connectivity
-
-↓
-
-Private Networks
-
-↓
-
-Secure Tunnels
-
-↓
-
-Reliability
-
-Networking should remain resilient under failure.
-
----
-
-# Stage 10 — Monitoring
-
-Observe
-
-Traffic
-
-↓
-
-Latency
-
-↓
-
-Threats
-
-↓
-
-Errors
-
-↓
-
-Availability
-
-↓
-
-Caching
-
-↓
-
-Requests
-
-↓
-
-Infrastructure Health
-
-Every edge request should be measurable.
-
----
-
-# Stage 11 — Reliability
-
-Ensure
-
-Automatic Failover
-
-↓
-
-Health Validation
-
-↓
-
-Traffic Recovery
-
-↓
-
-Regional Resilience
-
-↓
-
-Origin Redundancy
-
-↓
-
-Cache Availability
-
-↓
-
-Operational Stability
-
-↓
-
-Business Continuity
-
-Global infrastructure should tolerate failures gracefully.
-
----
-
-# Stage 12 — Scalability
-
-Prepare for
-
-Traffic Growth
-
-↓
-
-Global Expansion
-
-↓
-
-API Growth
-
-↓
-
-Edge Scaling
-
-↓
-
-Regional Distribution
-
-↓
-
-Infrastructure Evolution
-
-↓
-
-Enterprise Adoption
-
-↓
-
-Future Demand
-
-Scaling should happen automatically.
-
----
-
-# Stage 13 — Developer Experience
-
-Improve
-
-Deployment Speed
-
-↓
-
-Configuration Simplicity
-
-↓
-
-Automation
-
-↓
-
-Testing
-
-↓
-
-Preview Environments
-
-↓
-
-Operational Visibility
-
-↓
-
-Debugging
-
-↓
-
-Engineering Velocity
-
-Infrastructure should accelerate development.
-
----
-
-# Stage 14 — Automation
-
-Automate
-
-Configuration
-
-↓
-
-Deployments
-
-↓
-
-Security Policies
-
-↓
-
-Cache Purging
-
-↓
-
-Certificate Renewal
-
-↓
-
-Monitoring
-
-↓
-
-Alerts
-
-↓
-
-Operational Workflows
-
-Automation reduces operational risk.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Architecture
-
-↓
-
-DNS Strategy
-
-↓
-
-Security Policies
-
-↓
-
-Caching Rules
-
-↓
-
-Traffic Routing
-
-↓
-
-Recovery Plans
-
-↓
-
-Operational Decisions
-
-↓
-
-Future Evolution
-
-Documentation preserves infrastructure knowledge.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Configuration History
-
-↓
-
-DNS Changes
-
-↓
-
-Policy Evolution
-
-↓
-
-Deployment Records
-
-↓
-
-Infrastructure Changes
-
-↓
-
-Review History
-
-↓
-
-Rollback Plans
-
-↓
-
-Compatibility
-
-Every infrastructure change should remain traceable.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Automation
-
-↓
-
-Developer Experience
-
-↓
-
-Business Alignment
-
-Edge infrastructure deserves engineering review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-DNS Failure
-
-↓
-
-Origin Failure
-
-↓
-
-Cache Failure
-
-↓
-
-Security Threats
-
-↓
-
-Traffic Surges
-
-↓
-
-Configuration Drift
-
-↓
-
-Operational Risks
-
-↓
-
-Business Impact
-
-The edge should absorb failures.
-
-Not create them.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Caching
-
-↓
-
-Routing
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Automation
-
-↓
-
-Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Engineering Maturity
-
-Healthy edge platforms evolve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Availability
-
-↓
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Security
-
-↓
-
-Automation
-
-↓
-
-Observability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional edge platforms become invisible.
-
----
-
-# Cloudflare Quality Attributes
-
-Evaluate
-
-Availability
-
-Performance
-
-Security
-
-Reliability
-
-Scalability
-
-Automation
-
-Observability
-
-Maintainability
-
----
-
-# Cloudflare Questions
-
-Before production ask
-
-Can every request be served from the nearest edge location?
-
-↓
-
-Can traffic survive regional failures?
-
-↓
-
-Is origin infrastructure protected?
-
-↓
-
-Can attacks be mitigated automatically?
-
-↓
-
-Are cache policies optimized?
-
-↓
-
-Is every request observable?
-
-↓
-
-Would experienced platform engineers confidently approve this Cloudflare architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Global outage
-
-DNS failure
-
-Origin exposure
-
-TLS compromise
-
-Large-scale DDoS impact
-
-Major
-
-Routing failures
-
-Cache inconsistencies
-
-Regional latency
-
-Security policy failures
-
-Configuration drift
-
-Medium
-
-Performance optimization
-
-Caching improvements
-
-Monitoring enhancements
-
-Documentation gaps
-
-Minor
-
-Naming consistency
-
-Rule organization
-
-Metadata
-
-Formatting
-
----
-
-# Cloudflare Checklist
-
-✓ Business requirements understood
-
-✓ DNS architecture designed
-
-✓ Traffic routing configured
-
-✓ Edge caching optimized
-
-✓ Edge computing validated
-
-✓ Security implemented
-
-✓ Configuration externalized
-
-✓ Performance optimized
-
-✓ Networking configured
-
-✓ Monitoring enabled
-
-✓ Reliability validated
-
-✓ Scalability reviewed
-
-✓ Developer workflow optimized
-
-✓ Automation implemented
-
-✓ Documentation completed
-
-✓ Version history maintained
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Exposing origin servers directly
-
-Ignoring DNS redundancy
-
-Disabling caching unnecessarily
-
-Creating overly complex routing rules
-
-Hardcoding infrastructure configuration
-
-Ignoring rate limiting
-
-Ignoring DDoS protection
-
-Serving large static assets from origins
-
-Skipping TLS best practices
-
-Ignoring regional latency
-
-Using the edge without monitoring
-
-Optimizing caching before measuring traffic
-
-Treating Cloudflare as only a CDN
-
----
-
-# Definition of Done
-
-A Cloudflare platform is considered production-ready when
-
-- Every application request is securely routed through a globally distributed edge network that consistently improves availability, latency, resilience, and user experience.
-- DNS architecture provides reliable domain resolution, resilient routing, automated failover, secure proxying, and predictable infrastructure behavior across all supported environments.
-- Traffic management intelligently balances requests through global routing, health validation, origin protection, regional failover, and high-availability networking strategies.
-- Edge caching minimizes latency and origin load through well-defined cache policies, intelligent invalidation strategies, optimized asset delivery, compression, and efficient bandwidth utilization.
-- Edge compute capabilities execute business logic, authentication, personalization, request transformation, and routing decisions as close to users as practical while maintaining operational simplicity.
-- Security continuously protects applications through DDoS mitigation, Web Application Firewall policies, Zero Trust principles, TLS management, rate limiting, bot mitigation, origin protection, and automated policy enforcement.
-- Monitoring provides complete visibility into traffic behavior, latency, cache efficiency, security events, infrastructure health, routing performance, edge execution, and operational risks.
-- Documentation preserves architecture decisions, DNS configuration, routing strategies, caching policies, operational procedures, recovery workflows, security standards, and future platform evolution.
-- Engineering reviews continuously validate availability, performance, scalability, reliability, maintainability, automation quality, observability, security posture, and operational excellence.
-- The Cloudflare platform consistently demonstrates global reliability, intelligent traffic management, secure edge computing, resilient networking, engineering discipline, maintainability, and long-term infrastructure sustainability.
-
-Exceptional Cloudflare architectures become invisible to both engineers and users.
-
-Traffic automatically flows through the healthiest global paths, latency remains consistently low regardless of geography, attacks are mitigated before reaching application infrastructure, edge services execute transparently, origin systems remain protected and efficient, and the platform quietly delivers fast, secure, and reliable experiences because every architectural decision was designed around resilience, automation, and global-scale engineering excellence.
+# Checklist
+
+- [ ] Verify: Every public hostname is proxied; no grey-cloud records remain
+- [ ] Verify: The origin accepts traffic only from Cloudflare, or has no inbound ports
+- [ ] Verify: Authenticated Origin Pulls are enabled
+- [ ] Verify: SSL mode is Full (strict) end to end
+- [ ] Verify: Cache rules explicitly cover static assets and HTML
+- [ ] Verify: Origin `Cache-Control` distinguishes `max-age` from `s-maxage`
+- [ ] Verify: Authenticated responses are never cacheable
+- [ ] Verify: `Vary` is minimal and never varies on cookies
+- [ ] Verify: Deploys purge by tag or URL, not globally
+- [ ] Verify: Cache hit ratio is monitored and alerted on
+- [ ] Verify: WAF rulesets ran in log-only mode before enforcement
+- [ ] Verify: Edge rate limiting complements, not replaces, application limits
+- [ ] Verify: Bot protection exempts API and webhook paths
+- [ ] Verify: Client IP is read from `CF-Connecting-IP`
+- [ ] Verify: No authorization decision trusts a `CF-*` header on an unlocked origin
+- [ ] Verify: Internal tools sit behind Cloudflare Access
+- [ ] Verify: Worker CPU, memory and subrequest limits are understood and respected
+- [ ] Verify: Worker storage choice matches the consistency requirement
+- [ ] Verify: Worker secrets are set with `wrangler secret`, not committed
+- [ ] Verify: Worker deployments are versioned and rollable

@@ -5,1137 +5,178 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: lazy-loading
+category: Performance
+description: Deferring work until it is needed — components, images, data and third-party scripts — without creating waterfalls or hurting the metrics you meant to improve.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# lazy-loading.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, lazy loading methodologies, resource loading strategies, execution prioritization, dependency optimization, and long-term best practices for reducing unnecessary resource consumption while improving responsiveness, scalability, maintainability, and user experience.
+Rules for deferring work. Lazy loading trades a smaller initial payload for a
+later request. That is a good trade when the deferred thing is genuinely not
+needed yet, and a bad one when the user is now waiting for it.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- Dashboards
-- Progressive Web Applications
-- Mobile Web
-- Documentation Platforms
-- Interactive Applications
-- Component Libraries
-
-Lazy loading is not delaying everything.
-
-Lazy loading is the engineering discipline of loading resources only when they become necessary, ensuring that computation, network usage, memory consumption, and execution time remain proportional to actual user demand.
-
-Efficient software performs meaningful work only when meaningful work is required.
+The distinction that decides every case: **is this needed for the first screen?**
+If yes, deferring it makes the page slower while appearing to optimise it.
 
 ---
 
-# Core Philosophy
+# What to defer, and what never to
 
-Understand User Journey
+| Defer | Never defer |
+| --- | --- |
+| Below-the-fold images | The LCP image |
+| Modal, drawer and tab content | The initially visible tab |
+| Heavy editors, charts, maps, players | The application shell and router |
+| Admin and feature-flagged code | Above-the-fold content |
+| Analytics and chat widgets | Critical CSS |
+| Non-active locale data | Fonts used in the first paint |
 
-↓
+The LCP image is the recurring mistake. A blanket "lazy-load all images" change
+adds `loading="lazy"` to the hero, which delays the very metric it defines:
 
-Identify Required Resources
+```html
+<img src="hero.avif" width="1200" height="630" alt="…" fetchpriority="high" />
+<img src="card.avif" width="400" height="300" alt="…" loading="lazy" />
+```
 
-↓
-
-Prioritize Critical Work
-
-↓
-
-Delay Non-Critical Work
-
-↓
-
-Load On Demand
-
-↓
-
-Validate Responsiveness
-
-↓
-
-Measure Results
-
-↓
-
-Continuously Improve
-
-Resources should become available when they provide value—not before.
+→ `Performance/images`
 
 ---
 
-# Primary Objective
+# Use the platform where it exists
 
-Every lazy loading strategy should maximize
+```html
+<img loading="lazy" decoding="async" width="400" height="300" />
+<iframe loading="lazy" title="…"></iframe>
+```
 
-Responsiveness
+Native lazy loading needs no JavaScript, no observer, and no library. It only
+works when **dimensions are set** — without them the browser cannot decide what is
+below the fold, and layout shifts anyway.
 
-+
+For anything else, `IntersectionObserver` rather than scroll handlers:
 
-Efficiency
+```ts
+const io = new IntersectionObserver(
+  (entries) => entries.forEach((e) => e.isIntersecting && load(e.target)),
+  { rootMargin: "200px" }        // start before it is visible
+);
+```
 
-+
+`rootMargin` is what makes deferred content feel instant: begin loading 200px
+before it enters the viewport, so it has arrived by the time the user reaches it.
+A zero margin means the user watches it load.
 
-Scalability
-
-+
-
-Resource Utilization
-
-+
-
-Maintainability
-
-+
-
-Reliability
-
-+
-
-User Experience
-
-+
-
-Long-Term Sustainability
-
-Lazy loading should improve perceived and actual performance without compromising correctness.
+Scroll handlers fire constantly and force layout reads; `IntersectionObserver` is
+both cheaper and more accurate.
 
 ---
 
-# Engineering Principles
+# Components
 
-Always prioritize
+```tsx
+const Editor = lazy(() => import("./Editor"));
 
-Critical User Experience
+<Suspense fallback={<EditorSkeleton />}>
+  {showEditor && <Editor />}
+</Suspense>
+```
 
-↓
-
-Demand-Driven Loading
-
-↓
-
-Minimal Initial Work
-
-↓
-
-Predictable Behavior
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Reliability
-
-↓
-
-Continuous Improvement
-
-Loading strategies should always remain intentional and measurable.
+- Every lazy boundary needs a `<Suspense>` fallback **and** an error boundary. A
+  chunk request fails on a flaky network, and without a boundary the page blanks.
+  Offer a retry.
+- Fallbacks must match the content's dimensions, or lazy loading trades a slow
+  page for a shifting one.
+- Do not split small components: a 3 KB chunk costs a round trip to save 3 KB,
+  which is a net loss on a high-latency connection.
+- Do not nest lazy boundaries that are always needed together — that is a
+  waterfall replacing one download. → `Frontend/code-splitting`
 
 ---
 
-# Lazy Loading Engineering Lifecycle
+# Prefetch on intent
 
-Understand User Journey
+Deferring is only free if the thing arrives before the user needs it. Start it on
+a signal of intent, not on the click:
 
-↓
+```tsx
+<button onMouseEnter={() => import("./Editor")}
+        onFocus={() => import("./Editor")}
+        onClick={openEditor}>Edit</button>
+```
 
-Identify Resources
-
-↓
-
-Prioritize Critical Resources
-
-↓
-
-Define Loading Strategy
-
-↓
-
-Load On Demand
-
-↓
-
-Validate User Experience
-
-↓
-
-Measure Efficiency
-
-↓
-
-Continuously Improve
-
-Every resource should justify when it becomes available.
+- Hover and focus precede a click by a few hundred milliseconds — usually enough.
+- Viewport entry (`IntersectionObserver`) for links and route chunks.
+- Predictable next steps in a flow: prefetch checkout from the cart.
+- **Do not prefetch everything.** It competes with what is needed now and costs
+  money on a metered connection. Respect `navigator.connection.saveData` and
+  `prefers-reduced-data`.
 
 ---
 
-# Stage 1 — User Journey Analysis
+# Data and third parties
 
-Understand
-
-User Goals
-
-↓
-
-Navigation Flow
-
-↓
-
-Interaction Frequency
-
-↓
-
-Primary Features
-
-↓
-
-Secondary Features
-
-↓
-
-Rare Features
-
-↓
-
-Business Priorities
-
-↓
-
-Operational Constraints
-
-Loading strategy begins with understanding users.
+- Paginate and load more on demand rather than fetching everything up front, but
+  keep the first page in the initial response so the screen is not empty.
+  → `API/pagination`
+- Load data **with** the navigation (route loader, server component) rather than
+  after the component mounts — mount-then-fetch is a waterfall.
+  → `Frontend/routing`
+- Third-party widgets — chat, maps, video, social embeds — are usually the largest
+  scripts on a page. Defer them behind a facade: render a lightweight placeholder
+  and load the real widget on interaction. A YouTube embed replaced by a
+  thumbnail-plus-play-button saves hundreds of kilobytes for every user who never
+  presses play.
+- Consent-gate anything that sets cookies or tracks, and never load it before
+  consent. → `Frontend/performance`
 
 ---
 
-# Stage 2 — Resource Identification
+# Anti-patterns
 
-Identify
-
-Application Code
-
-↓
-
-Components
-
-↓
-
-Images
-
-↓
-
-Fonts
-
-↓
-
-Media
-
-↓
-
-Configuration
-
-↓
-
-External Services
-
-↓
-
-Dependencies
-
-Every resource has a loading cost.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Lazy-loading the LCP image | Delays the metric it defines | `fetchpriority="high"` |
+| Blanket "lazy-load everything" | Catches above-the-fold content | Defer below the fold only |
+| Native lazy loading without dimensions | Browser cannot judge; layout shifts | Set `width`/`height` |
+| Scroll handlers for visibility | Fires constantly; forces layout | `IntersectionObserver` |
+| `rootMargin: 0` | User watches content load | Start ~200px early |
+| No prefetch on intent | User waits after clicking | Hover, focus, viewport |
+| Prefetching everything | Competes with critical resources; costs data | Prefetch deliberately |
+| Ignoring `saveData` | Wastes a metered connection | Respect the hint |
+| `lazy()` without `<Suspense>` | Runtime error | Always pair them |
+| No error boundary on a lazy chunk | A failed request blanks the page | Boundary with retry |
+| Mis-sized fallbacks | Layout shift on resolve | Match content dimensions |
+| Splitting tiny components | A round trip to save 3 KB | Only split real weight |
+| Nested sequential lazy boundaries | Waterfall replaces one download | Load in parallel |
+| Fetching after mount | Navigate, render, then fetch | Route loaders |
+| Third-party widgets loaded eagerly | Hundreds of KB for a feature few use | Facade, load on interaction |
+| Tracking loaded before consent | Compliance exposure | Consent gate |
 
 ---
 
-# Stage 3 — Critical Resource Analysis
-
-Classify
-
-Critical Resources
-
-↓
-
-High Priority Resources
-
-↓
-
-Interactive Resources
-
-↓
-
-Deferred Resources
-
-↓
-
-Optional Resources
-
-↓
-
-Background Resources
-
-↓
-
-Rarely Used Resources
-
-↓
-
-Future Resources
-
-Only essential resources should participate in initial execution.
-
----
-
-# Stage 4 — Dependency Evaluation
-
-Analyze
-
-Execution Dependencies
-
-↓
-
-Component Dependencies
-
-↓
-
-Network Dependencies
-
-↓
-
-Shared Resources
-
-↓
-
-State Dependencies
-
-↓
-
-Configuration
-
-↓
-
-External Services
-
-↓
-
-Loading Order
-
-Dependencies determine loading boundaries.
-
----
-
-# Stage 5 — Loading Strategy
-
-Define
-
-Initial Loading
-
-↓
-
-Deferred Loading
-
-↓
-
-Conditional Loading
-
-↓
-
-Interaction-Based Loading
-
-↓
-
-Navigation-Based Loading
-
-↓
-
-Background Loading
-
-↓
-
-Progressive Loading
-
-↓
-
-Recovery Strategy
-
-Every loading decision should have a clear engineering purpose.
-
----
-
-# Stage 6 — Loading Execution
-
-Execute
-
-Resource Discovery
-
-↓
-
-Request Scheduling
-
-↓
-
-Loading
-
-↓
-
-Initialization
-
-↓
-
-State Synchronization
-
-↓
-
-Validation
-
-↓
-
-Availability
-
-↓
-
-User Feedback
-
-Loading should remain predictable and observable.
-
----
-
-# Stage 7 — User Experience Validation
-
-Validate
-
-Responsiveness
-
-↓
-
-Visual Stability
-
-↓
-
-Interaction Readiness
-
-↓
-
-Navigation
-
-↓
-
-Accessibility
-
-↓
-
-Loading Feedback
-
-↓
-
-Consistency
-
-↓
-
-Engineering Quality
-
-Users should understand that software is progressing rather than waiting.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Initial Load
-
-↓
-
-Deferred Load
-
-↓
-
-Loading Duration
-
-↓
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Network Usage
-
-↓
-
-Interaction Latency
-
-↓
-
-User Experience
-
-Every loading strategy should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Early Loading
-
-↓
-
-Unused Resources
-
-↓
-
-Duplicate Requests
-
-↓
-
-Blocking Dependencies
-
-↓
-
-Loading Bottlenecks
-
-↓
-
-Resource Waste
-
-↓
-
-Memory Pressure
-
-↓
-
-Network Overhead
-
-Optimization should eliminate unnecessary loading.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Component Boundaries
-
-↓
-
-Module Separation
-
-↓
-
-Dependency Direction
-
-↓
-
-Loading Isolation
-
-↓
-
-State Ownership
-
-↓
-
-Shared Resources
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Architecture determines loading efficiency.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Large Applications
-
-↓
-
-Growing Features
-
-↓
-
-Large Component Trees
-
-↓
-
-Heavy Media
-
-↓
-
-Distributed Systems
-
-↓
-
-Multiple Teams
-
-↓
-
-Future Expansion
-
-↓
-
-Operational Stability
-
-Loading strategies should scale naturally.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Loading Failures
-
-↓
-
-Recovery
-
-↓
-
-Retry Strategy
-
-↓
-
-Fallback Behavior
-
-↓
-
-Offline Handling
-
-↓
-
-Consistency
-
-↓
-
-Availability
-
-↓
-
-Operational Stability
-
-Deferred loading should remain reliable under failure.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Loading Strategy
-
-↓
-
-Architecture
-
-↓
-
-Dependencies
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves loading knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Missing Resources
-
-↓
-
-Loading Deadlocks
-
-↓
-
-Dependency Loops
-
-↓
-
-Network Failure
-
-↓
-
-Performance Regression
-
-↓
-
-Memory Growth
-
-↓
-
-Operational Risks
-
-↓
-
-Technical Debt
-
-Loading risks should remain visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Complexity
-
-↓
-
-Maintainability
-
-↓
-
-Reliability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Future Evolution
-
-Every deferred resource introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Loading Correctness
-
-↓
-
-Performance
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Accessibility
-
-↓
-
-Testing
-
-↓
-
-Documentation
-
-↓
-
-Engineering Quality
-
-Loading improvements require objective validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Loading Summary
-
-↓
-
-Performance Metrics
-
-↓
-
-Resource Analysis
-
-↓
-
-Optimization Results
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Opportunities
-
-↓
-
-Lessons Learned
-
-Reports preserve engineering decisions.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Workloads
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Recovery
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-Lazy loading should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Loading Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Discipline
-
-Loading quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Loading Efficiency
-
-↓
-
-User Experience
-
-↓
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional lazy loading minimizes unnecessary work while ensuring resources become available exactly when they create user value.
-
----
-
-# Lazy Loading Quality Attributes
-
-Evaluate
-
-Responsiveness
-
-Efficiency
-
-Scalability
-
-Reliability
-
-Maintainability
-
-Resource Utilization
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Has every deferred resource been intentionally selected?
-
-↓
-
-Can the application function correctly before deferred resources load?
-
-↓
-
-Does lazy loading improve actual user experience?
-
-↓
-
-Have dependency relationships been fully understood?
-
-↓
-
-Will future engineers understand why resources are deferred?
-
-↓
-
-Does the strategy reduce unnecessary computation rather than simply delay it?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this loading architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Application unusable
-
-Broken loading flow
-
-Missing critical resources
-
-Operational instability
-
-Major
-
-Loading bottlenecks
-
-Dependency failures
-
-Network inefficiency
-
-Performance regression
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Measurement deficiencies
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Lazy Loading Checklist
-
-✓ User journey analyzed
-
-✓ Resources identified
-
-✓ Critical resources classified
-
-✓ Dependencies evaluated
-
-✓ Loading strategy defined
-
-✓ Loading execution validated
-
-✓ User experience verified
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Lazy loading everything
-
-Loading without prioritization
-
-Ignoring dependency relationships
-
-Blocking critical interactions
-
-Duplicate resource loading
-
-Hidden loading failures
-
-Poor fallback behavior
-
-Architecture driven by loading hacks
-
-Ignoring accessibility
-
-Increasing complexity for insignificant gains
-
-Treating lazy loading as a universal optimization
-
-Optimizing without measurement
-
----
-
-# Definition of Done
-
-A lazy loading strategy is considered complete when
-
-- Resources are loaded according to actual user demand, business priority, and application behavior while preserving correctness, responsiveness, accessibility, maintainability, and architectural integrity.
-- Critical functionality remains immediately available, while non-critical resources are intentionally deferred through measurable engineering decisions that reduce unnecessary computation, memory usage, network activity, and execution overhead.
-- Loading architecture supports scalability, reliability, component isolation, operational stability, predictable dependency management, and future application growth without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate loading behavior, dependency relationships, performance characteristics, recovery mechanisms, documentation quality, maintainability, scalability, accessibility, and production readiness before deployment.
-- Documentation clearly explains loading boundaries, prioritization decisions, dependency analysis, engineering trade-offs, validation evidence, known constraints, governance expectations, and future optimization opportunities.
-- Loading decisions remain measurable, deterministic, implementation-independent, reproducible, and aligned with sustainable engineering principles rather than framework-specific implementation techniques.
-- The resulting system demonstrates engineering discipline, efficient resource utilization, responsive user experience, architectural clarity, predictable behavior, maintainability, operational excellence, and long-term software sustainability.
-
-Exceptional lazy loading is not measured by how many resources are deferred.
-
-It is measured by how intelligently software delivers the right resources at the right time while performing no unnecessary work, preserving responsiveness, minimizing resource consumption, and enabling sustainable engineering as the application continues to evolve.
+# Checklist
+
+- [ ] Verify: Above-the-fold content, the shell and critical CSS are never deferred
+- [ ] Verify: The LCP image is prioritised, not lazy-loaded
+- [ ] Verify: Below-the-fold images and iframes use native `loading="lazy"`
+- [ ] Verify: Every lazily loaded image sets dimensions
+- [ ] Verify: Visibility detection uses `IntersectionObserver` with a `rootMargin`
+- [ ] Verify: Lazy components are wrapped in `<Suspense>` with correctly sized fallbacks
+- [ ] Verify: Every lazy boundary has an error boundary with a retry path
+- [ ] Verify: Small components are not split
+- [ ] Verify: Chunks needed together load in parallel
+- [ ] Verify: Routes and heavy components prefetch on hover, focus or viewport entry
+- [ ] Verify: Prefetching respects `saveData` and does not compete with critical resources
+- [ ] Verify: Data loads with navigation rather than after mount
+- [ ] Verify: The first page of a list ships with the initial response
+- [ ] Verify: Third-party widgets load behind a facade on interaction
+- [ ] Verify: Tracking and cookie-setting scripts load only after consent

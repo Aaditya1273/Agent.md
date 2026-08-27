@@ -5,930 +5,185 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: authentication
+category: Backend
+description: Wiring authentication into a backend service — session versus token, the verification middleware, refresh and rotation, and multi-tenant identity.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# authentication.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines how Gemini should design, implement, review, secure, and maintain authentication systems.
+Rules for implementing authentication in a backend service: choosing a mechanism,
+verifying credentials on each request, and managing session lifetime.
 
-Authentication is not simply logging users into an application.
-
-It is the process of verifying identity before granting access to protected resources, services, and operations.
-
-The objective is to build authentication systems that are secure, scalable, reliable, user-friendly, and resilient against modern attacks while maintaining excellent developer experience.
-
-Authentication answers one question.
-
-"Who is making this request?"
+Credential storage, password policy and MFA are `Security/authentication`. Token
+format specifics are `Security/jwt`. This package is the server-side plumbing.
 
 ---
 
-# Core Philosophy
+# Choose the mechanism from the client
 
-Verify Identity
+| Client | Mechanism | Why |
+| --- | --- | --- |
+| First-party browser app | Opaque session id in an `HttpOnly` cookie | Revocable instantly; invisible to JavaScript |
+| First-party mobile app | Refresh token in the OS keystore + short access token | No cookie jar; needs explicit rotation |
+| Third-party integration | OAuth 2.0, or a scoped API key | Revocable per integration, auditable |
+| Service to service | mTLS, or a short-lived signed token | No long-lived shared secret |
 
-↓
+**Default to server-side sessions.** They can be revoked in one `DELETE`, they
+carry no claims that go stale, and they are a cookie the browser handles for you.
 
-Establish Trust
+Reach for JWTs only when statelessness is a genuine requirement — and then accept
+that a JWT cannot be revoked before it expires, which is why access tokens must be
+short-lived (5–15 minutes) and paired with a revocable refresh token.
 
-↓
+```
+Set-Cookie: sid=<128-bit random>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=1209600
+```
 
-Issue Credentials
-
-↓
-
-Protect Sessions
-
-↓
-
-Validate Every Request
-
-↓
-
-Monitor Activity
-
-↓
-
-Improve Continuously
-
-↓
-
-Approve
-
-Trust should never be assumed.
-
-Every request must earn it.
+**Never** put a session or access token in `localStorage`. Any XSS then becomes
+full account takeover. → `Security/xss`
 
 ---
 
-# Primary Objective
+# The verification middleware
 
-Every authentication system should answer one question.
+Authentication runs once, early, for every request, and establishes exactly one
+thing: **who is calling.**
 
-"Can the system reliably identify legitimate users while preventing unauthorized access under realistic attack conditions?"
+```ts
+app.use(async (req, res, next) => {
+  const sid = req.cookies.sid;
+  if (!sid) return next();                       // anonymous; authorization decides
+  const session = await sessions.get(sid);       // single lookup, cached briefly
+  if (!session || session.expiresAt < Date.now()) return next();
 
-If the answer is uncertain,
+  req.auth = { userId: session.userId, tenantId: session.tenantId,
+               scopes: session.scopes, sessionId: sid };
+  next();
+});
+```
 
-the authentication design requires improvement.
+- It establishes identity; it does **not** decide access. That is
+  `Security/authorization`.
+- Register it **before** any route. → `Backend/middlewares`
+- Default-deny: apply `requireAuth` globally and mark public routes explicitly,
+  so a new route is protected by default.
+- Never read identity from the request body or a client-supplied header such as
+  `X-User-Id`. Only the verified credential establishes it.
+- Put `userId`, `tenantId` and `sessionId` into async context so logging and
+  authorization reach them without threading parameters.
 
----
-
-# Authentication Principles
-
-Every implementation should maximize
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Usability
-
-↓
-
-Scalability
-
-↓
-
-Privacy
-
-↓
-
-Observability
-
-↓
-
-Developer Experience
-
-Authentication should protect users without creating unnecessary friction.
+For bearer tokens, verify the signature against a **cached** JWKS with a refresh
+interval — a network fetch per request is a hard dependency on the identity
+provider for every single call.
 
 ---
 
-# Authentication Workflow
+# Sessions and refresh
 
-Identify User
-
-↓
-
-Verify Credentials
-
-↓
-
-Issue Identity
-
-↓
-
-Create Session
-
-↓
-
-Validate Requests
-
-↓
-
-Monitor Activity
-
-↓
-
-Revoke When Necessary
-
-↓
-
-Approve
+- **Rotate the identifier** on login, on logout, and on any privilege change.
+  Reusing the pre-login id is session fixation.
+- Enforce **both** an idle timeout and an absolute lifetime. Idle alone lets a
+  stolen token live indefinitely under automated use.
+- **Logout deletes server-side state.** Clearing the cookie is not logout; a
+  captured token remains valid until natural expiry.
+- **Rotate refresh tokens on use**, and store them hashed. Detect reuse of an
+  already-consumed refresh token: that means it was stolen, so revoke the entire
+  token family and force re-authentication.
+- Invalidate every session on password change, except optionally the one making
+  the change.
+- Keep a **session list per user** with device, IP and last-seen, and let users
+  revoke individual sessions. This is both a security control and the feature
+  users ask for.
 
 ---
 
-# Stage 1 — Identity Design
+# Multi-tenant identity
 
-Determine
+The tenant is part of the identity, resolved server-side, and never taken from the
+request.
 
-Who can authenticate?
+```ts
+// Every query is scoped by the session's tenant, not by a parameter
+const order = await db.order.findFirst({
+  where: { id: req.params.id, tenantId: req.auth.tenantId },
+});
+```
 
-↓
+**Never** accept `tenantId` from a header, body or query parameter. A
+client-supplied tenant is horizontal privilege escalation in one line.
 
-Users
+When a user belongs to several tenants, the active tenant is part of the session,
+changed by an explicit endpoint that rotates the session id.
 
-↓
-
-Administrators
-
-↓
-
-Organizations
-
-↓
-
-Services
-
-↓
-
-Machines
-
-↓
-
-Third-party Applications
-
-Every identity should have a unique identifier.
+Impersonation ("log in as customer") must record the real actor alongside the
+impersonated one, be time-limited, and be audit-logged on every request.
+→ `Security/audit-log`
 
 ---
 
-# Stage 2 — Authentication Methods
+# Failure behaviour
 
-Choose the appropriate mechanism.
-
-Examples
-
-Email & Password
-
-OAuth 2.0
-
-OpenID Connect
-
-Magic Links
-
-Passkeys
-
-WebAuthn
-
-API Keys
-
-Mutual TLS
-
-Single Sign-On
-
-Service Accounts
-
-Use the simplest secure method that satisfies business requirements.
+- `401` for missing or invalid credentials; `403` for authenticated but not
+  permitted. Returning `403` to an anonymous caller confirms the resource exists.
+- **Identical responses** for unknown user and wrong password, in body, status and
+  timing. Any difference is a user-enumeration oracle.
+- Rate limit login attempts on **both** account and IP. Per-IP alone does not stop
+  distributed credential stuffing; per-account alone lets one host spray many
+  accounts. → `API/rate-limiting`
+- Never lock an account permanently on failed attempts — that is a
+  denial-of-service primitive against your own users. Use temporary backoff.
+- Log every authentication failure, success, logout and privilege change with
+  actor, source IP and user agent.
 
 ---
 
-# Stage 3 — Credential Management
+# Anti-patterns
 
-Credentials should
-
-Be unique
-
-↓
-
-Be revocable
-
-↓
-
-Be rotatable
-
-↓
-
-Be encrypted
-
-↓
-
-Never be logged
-
-↓
-
-Never be hardcoded
-
-Secrets should only exist where absolutely necessary.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Token in `localStorage` | XSS becomes account takeover | `HttpOnly` cookie |
+| JWT chosen by default | Cannot be revoked before expiry | Server-side sessions |
+| Long-lived access tokens | A stolen token stays valid for hours | 5–15 minutes plus refresh |
+| Identity from a request header | Client-controlled | Verified credential only |
+| `tenantId` from the request | Horizontal privilege escalation | Tenant from the session |
+| Per-route opt-in auth | One forgotten line is an open endpoint | Default-deny globally |
+| Session id reused after login | Session fixation | Rotate on privilege change |
+| Idle timeout only | Stolen token lives forever under use | Absolute lifetime too |
+| Logout clears only the cookie | Captured token still valid | Delete server-side state |
+| Refresh tokens not rotated | A stolen refresh token is permanent | Rotate on use; detect reuse |
+| Refresh tokens stored plaintext | DB leak yields live sessions | Store hashed |
+| Distinct errors for unknown user | Enumeration oracle | One identical failure response |
+| JWKS fetched per request | Hard dependency on the IdP for every call | Cache with refresh |
+| Permanent lockout | Self-inflicted DoS | Temporary backoff |
+| No session inventory | Users cannot revoke a stolen session | Per-user session list |
 
 ---
 
-# Stage 4 — Password Security
-
-Passwords should
-
-Meet minimum complexity
-
-↓
-
-Be hashed
-
-↓
-
-Use Argon2id or bcrypt
-
-↓
-
-Use unique salts
-
-↓
-
-Never be encrypted
-
-↓
-
-Never be reversible
-
-Store password hashes.
-
-Never passwords.
-
----
-
-# Stage 5 — Multi-Factor Authentication
-
-Support
-
-Authenticator Apps
-
-↓
-
-Passkeys
-
-↓
-
-Hardware Keys
-
-↓
-
-SMS (only when necessary)
-
-↓
-
-Email Verification
-
-↓
-
-Backup Codes
-
-MFA should protect sensitive accounts.
-
----
-
-# Stage 6 — Session Management
-
-Review
-
-Session creation
-
-↓
-
-Expiration
-
-↓
-
-Renewal
-
-↓
-
-Revocation
-
-↓
-
-Idle timeout
-
-↓
-
-Absolute timeout
-
-Sessions should have limited lifetime.
-
----
-
-# Stage 7 — Token Design
-
-Review
-
-JWT
-
-Opaque Tokens
-
-Refresh Tokens
-
-Access Tokens
-
-Short-lived Tokens
-
-Rotation
-
-Tokens should represent identity.
-
-Not authorization logic.
-
----
-
-# Stage 8 — Token Validation
-
-Validate
-
-Signature
-
-↓
-
-Expiration
-
-↓
-
-Issuer
-
-↓
-
-Audience
-
-↓
-
-Subject
-
-↓
-
-Nonce
-
-↓
-
-Clock skew
-
-Every request should validate token integrity.
-
----
-
-# Stage 9 — Refresh Strategy
-
-Implement
-
-Short-lived Access Tokens
-
-↓
-
-Long-lived Refresh Tokens
-
-↓
-
-Rotation
-
-↓
-
-Revocation
-
-↓
-
-Reuse Detection
-
-Compromised refresh tokens should be detected immediately.
-
----
-
-# Stage 10 — Account Protection
-
-Protect against
-
-Brute Force
-
-Credential Stuffing
-
-Password Spraying
-
-Replay Attacks
-
-Enumeration
-
-Automation
-
-Authentication systems are attack targets.
-
----
-
-# Stage 11 — Identity Verification
-
-Support
-
-Email Verification
-
-Phone Verification
-
-Identity Confirmation
-
-Device Verification
-
-Risk-based Authentication
-
-New Device Detection
-
-Identity should be verified before granting trust.
-
----
-
-# Stage 12 — Login Experience
-
-Review
-
-Clear errors
-
-↓
-
-Remember device
-
-↓
-
-Password reset
-
-↓
-
-Magic links
-
-↓
-
-Session continuation
-
-↓
-
-Graceful failures
-
-Security should not unnecessarily reduce usability.
-
----
-
-# Stage 13 — Password Recovery
-
-Recovery should require
-
-Identity verification
-
-↓
-
-Temporary tokens
-
-↓
-
-Expiration
-
-↓
-
-Single use
-
-↓
-
-Audit logging
-
-Password recovery must be as secure as login.
-
----
-
-# Stage 14 — Logout
-
-Logout should
-
-Invalidate sessions
-
-↓
-
-Revoke refresh tokens
-
-↓
-
-Clear cookies
-
-↓
-
-Invalidate caches
-
-↓
-
-Support global logout
-
-Users should always be able to terminate access.
-
----
-
-# Stage 15 — Device Management
-
-Allow users to
-
-View devices
-
-↓
-
-Revoke devices
-
-↓
-
-Rename devices
-
-↓
-
-View login history
-
-↓
-
-Receive new device alerts
-
-Users should control their authenticated devices.
-
----
-
-# Stage 16 — Monitoring
-
-Monitor
-
-Login failures
-
-↓
-
-Successful logins
-
-↓
-
-Password changes
-
-↓
-
-Token reuse
-
-↓
-
-Suspicious devices
-
-↓
-
-Geographic anomalies
-
-Authentication events provide valuable security signals.
-
----
-
-# Stage 17 — Logging
-
-Log
-
-Authentication attempts
-
-↓
-
-Session creation
-
-↓
-
-Session revocation
-
-↓
-
-Password changes
-
-↓
-
-MFA enrollment
-
-↓
-
-Recovery requests
-
-Never log
-
-Passwords
-
-Tokens
-
-Secrets
-
-Authentication codes
-
----
-
-# Stage 18 — Security Review
-
-Review
-
-Transport security
-
-↓
-
-Cookie security
-
-↓
-
-CSRF
-
-↓
-
-Replay attacks
-
-↓
-
-Session fixation
-
-↓
-
-Timing attacks
-
-↓
-
-Secret rotation
-
-Authentication security should assume hostile environments.
-
----
-
-# Stage 19 — Testing
-
-Verify
-
-Valid login
-
-↓
-
-Invalid credentials
-
-↓
-
-Expired tokens
-
-↓
-
-Revoked tokens
-
-↓
-
-Session expiration
-
-↓
-
-Password recovery
-
-↓
-
-MFA
-
-↓
-
-Concurrency
-
-Authentication should fail safely.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Authentication methods
-
-↓
-
-Threat landscape
-
-↓
-
-Cryptography
-
-↓
-
-Dependencies
-
-↓
-
-Monitoring
-
-↓
-
-User feedback
-
-Authentication evolves continuously.
-
----
-
-# Authentication Quality Attributes
-
-Evaluate
-
-Security
-
-Reliability
-
-Scalability
-
-Privacy
-
-Availability
-
-Maintainability
-
-Usability
-
-Developer Experience
-
----
-
-# Authentication Questions
-
-Before approval ask
-
-Can every identity be verified securely?
-
-↓
-
-Can compromised credentials be revoked immediately?
-
-↓
-
-Are secrets protected throughout their lifecycle?
-
-↓
-
-Can attackers bypass authentication?
-
-↓
-
-Can users recover accounts safely?
-
-↓
-
-Are authentication events observable?
-
-↓
-
-Would an independent security audit approve this implementation?
-
----
-
-# Severity Levels
-
-Critical
-
-Authentication bypass
-
-Credential exposure
-
-Token forgery
-
-Session hijacking
-
-Password leakage
-
-Major
-
-Weak hashing
-
-Missing MFA
-
-Weak token validation
-
-Poor session handling
-
-Recovery vulnerabilities
-
-Medium
-
-Monitoring improvements
-
-Documentation gaps
-
-Configuration weaknesses
-
-Minor
-
-Examples
-
-Documentation
-
-Developer experience
-
-Operational improvements
-
-Future authentication methods
-
----
-
-# Authentication Checklist
-
-✓ Identity model defined
-
-✓ Secure authentication method selected
-
-✓ Password hashing implemented
-
-✓ MFA supported
-
-✓ Sessions managed securely
-
-✓ Tokens validated correctly
-
-✓ Refresh token rotation implemented
-
-✓ Account recovery secured
-
-✓ Logout invalidates sessions
-
-✓ Monitoring enabled
-
-✓ Logging configured
-
-✓ Security reviewed
-
-✓ Testing completed
-
-✓ Documentation complete
-
-✓ Production ready
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Plaintext passwords
-
-Reversible encryption
-
-Long-lived access tokens
-
-Hardcoded secrets
-
-Weak password hashing
-
-Token storage in localStorage (when avoidable)
-
-Missing MFA
-
-Unlimited login attempts
-
-Detailed authentication errors
-
-Session fixation
-
-Ignoring refresh token rotation
-
-Logging credentials
-
-Trusting client-side authentication
-
-Treating authentication as authorization
-
----
-
-# Definition of Done
-
-Authentication review is complete when
-
-- Every identity is verified using secure, modern authentication mechanisms.
-- Credentials are protected through industry-standard hashing and secret management.
-- Sessions and tokens are short-lived, validated, rotatable, and revocable.
-- Multi-factor authentication protects sensitive accounts and privileged operations.
-- Account recovery, logout, and device management maintain the same security standards as login.
-- Monitoring and logging provide complete visibility into authentication activity without exposing sensitive information.
-- The implementation resists common attacks including brute force, credential stuffing, replay attacks, and session hijacking.
-- Documentation clearly explains authentication flows, token lifecycles, and operational procedures.
-- The authentication system scales with users, devices, and services without sacrificing security.
-- Developers and users experience a secure, reliable, and intuitive authentication process.
-
-Exceptional authentication systems disappear into the background.
-
-Legitimate users authenticate effortlessly, attackers encounter multiple layers of defense, and every request begins with a verified, trusted identity.
+# Checklist
+
+- [ ] Verify: The mechanism is chosen per client type and written down
+- [ ] Verify: Browser sessions use `HttpOnly; Secure; SameSite` cookies
+- [ ] Verify: No token is stored in `localStorage` or `sessionStorage`
+- [ ] Verify: Access tokens, where used, are short-lived and paired with refresh tokens
+- [ ] Verify: Authentication middleware runs before all routes and only establishes identity
+- [ ] Verify: Routes are default-deny with explicitly marked public exceptions
+- [ ] Verify: Identity and tenant are never read from client-supplied fields
+- [ ] Verify: Identity is carried in async context, not threaded parameters
+- [ ] Verify: JWKS or key material is cached with a refresh interval
+- [ ] Verify: Session identifiers rotate on login, logout and privilege change
+- [ ] Verify: Both idle and absolute expiry are enforced
+- [ ] Verify: Logout deletes server-side session state
+- [ ] Verify: Refresh tokens rotate on use, are stored hashed, and reuse triggers revocation
+- [ ] Verify: All sessions are invalidated on password change
+- [ ] Verify: Users can list and revoke their own sessions
+- [ ] Verify: Impersonation records the real actor and is time-limited and audited
+- [ ] Verify: `401` and `403` are used correctly; failures are indistinguishable
+- [ ] Verify: Login is rate limited on both account and IP, with temporary backoff

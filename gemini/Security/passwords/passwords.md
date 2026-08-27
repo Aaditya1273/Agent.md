@@ -5,1139 +5,181 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: passwords
+category: Security
+description: Password policy that reduces account takeover — length over composition, breach screening, and the rules that actively make things worse.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# passwords.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, password security methodologies, credential protection frameworks, authentication resilience strategies, secure password lifecycle management, and long-term best practices for designing secure, scalable, maintainable, and production-ready systems that protect user passwords throughout their entire lifecycle.
+Rules for password policy and handling. Storage mechanics — `argon2id`
+parameters, rehash-on-login — are in `Security/authentication`; this package is
+about the policy that surrounds them.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Mobile Applications
-- Administrative Systems
-- Cloud Platforms
-- Identity Platforms
-- Production Software
-
-Password security is not enforcing complicated password rules.
-
-Password security is the engineering discipline of protecting user credentials from creation through retirement by minimizing exposure, preventing compromise, resisting modern attacks, and maintaining strong authentication without sacrificing usability or long-term maintainability.
-
-Password security answers one question:
-
-**Can user credentials remain confidential throughout their entire lifecycle?**
+Modern guidance (NIST SP 800-63B) reversed decades of common practice. **Length
+and breach screening reduce compromise. Composition rules and forced rotation do
+not, and they cause harm.**
 
 ---
 
-# Core Philosophy
+# Policy
 
-Protect User Credentials
+| Rule | Setting | Why |
+| --- | --- | --- |
+| Minimum length | **8**, prefer **12** for privileged accounts | The only composition factor that reliably helps |
+| Maximum length | **≥ 64** | A low cap implies storage rather than hashing |
+| Character set | **All Unicode**, including spaces and emoji | Restrictions shrink the space |
+| Normalisation | `NFKC` before hashing | Same typed password verifies across platforms |
+| Breach screening | **Required** | Blocks the credentials attackers actually try |
+| Composition rules | **None** | Produce `Password1!`, measurably not stronger |
+| Forced rotation | **None**, on schedule | Produces `Summer2026` → `Summer2027` |
+| Rotation on compromise | **Required** | Rotate on evidence, not on a calendar |
+| Hints and security questions | **Never** | Guessable and publicly researchable |
 
-↓
+```js
+// Truncation before hashing is a footgun: bcrypt silently ignores bytes past 72.
+// Pre-hash so a long passphrase is not quietly shortened.
+import crypto from "node:crypto";
 
-Minimize Exposure
+const normalised = password.normalize("NFKC");
+const prepared = Buffer.byteLength(normalised) > 72
+  ? crypto.createHash("sha256").update(normalised).digest("base64")
+  : normalised;
+```
 
-↓
-
-Secure Storage
-
-↓
-
-Strong Authentication
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Detect Abuse
-
-↓
-
-Respond Securely
-
-↓
-
-Continuously Improve
-
-Passwords should never become recoverable information.
+**Never** silently truncate. If you must cap input, reject with a clear message
+rather than hashing a prefix — the user will believe a password works that does
+not.
 
 ---
 
-# Primary Objective
+# Breach screening
 
-Every password security strategy should maximize
+Check candidates against a corpus of known-compromised passwords at signup and at
+change. This prevents more takeover than every composition rule combined, because
+credential stuffing uses exactly these lists.
 
-Credential Confidentiality
+```js
+// k-anonymity: send only the first 5 hex characters of the SHA-1 hash.
+// The full password and full hash never leave your service.
+const sha1 = crypto.createHash("sha1").update(password).digest("hex").toUpperCase();
+const [prefix, suffix] = [sha1.slice(0, 5), sha1.slice(5)];
 
-+
+const res = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
+const breached = (await res.text())
+  .split("\n")
+  .some((line) => line.split(":")[0] === suffix);
+```
 
-Authentication Integrity
+SHA-1 here is a lookup key for a public range API, not password storage — that
+distinction matters. Storage still uses `argon2id`.
 
-+
-
-User Trust
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Passwords should remain confidential regardless of infrastructure failures or system compromise.
+Host the corpus locally if you cannot make outbound calls. **Never** send the
+full password or full hash to a third party.
 
 ---
 
-# Engineering Principles
+```js
+// Policy check at signup and change. Length and breach status are the gates;
+// `zxcvbn` score is advisory only.
+async function assessPassword(raw) {
+  const password = raw.normalize("NFKC");
+  if ([...password].length < 8) return { ok: false, reason: "too_short" };
+  if (Buffer.byteLength(password) > 4096) return { ok: false, reason: "too_long" };
+  if (await isBreached(password)) return { ok: false, reason: "breached" };
 
-Always prioritize
+  const { score } = zxcvbn(password);        // 0–4, guidance not a gate
+  return { ok: true, score };
+}
+```
 
-Password Hashing
+Note what is absent: no `/[A-Z]/` test, no `/[0-9]/` test, no `/[!@#$%]/` test.
+Those regexes are the composition rules this policy deliberately rejects.
 
-↓
+# Handling in transit and at rest
 
-Credential Confidentiality
-
-↓
-
-Least Exposure
-
-↓
-
-Defense in Depth
-
-↓
-
-Adaptive Authentication
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Passwords should always be verified—not decrypted.
+- **Never** log a password, even at debug level, even on failure. Scrub request
+  bodies before they reach an error reporter.
+- **Never** email a password, new or existing. Send a single-use reset link.
+- **Never** store a recoverable form — if you can display it, so can an attacker.
+  "Forgot password" must reset, never reveal.
+- Accept passwords only over HTTPS, and only via `POST` body — never a query
+  string, where they reach logs and `Referer` headers.
+- Set `autocomplete="current-password"` / `"new-password"` so password managers
+  work correctly. Fighting managers pushes users toward weaker, memorable choices.
+- **Never** disable paste on a password field. It exists to defeat password
+  managers and achieves only weaker passwords.
 
 ---
 
-# Password Security Lifecycle
+## Storage recap
 
-Create Credentials
+Policy and storage are separate concerns, and both must hold. Even a strong
+policy is worthless behind a weak hash, so confirm the storage side too:
+`argon2id` with `memoryCost` at least `19456`, `timeCost` `2`, verified with the
+library's own comparator rather than `===`. Full parameters and the rehash-on-login
+pattern are in `Security/authentication`.
 
-↓
+Never store a password with `md5`, `sha1`, `sha256` or any bare digest, and never
+keep a plaintext copy "for support" — there is no support workflow that justifies
+a recoverable password column.
 
-Protect Credentials
+# Rate limiting and lockout
 
-↓
-
-Authenticate Users
-
-↓
-
-Monitor Usage
-
-↓
-
-Detect Abuse
-
-↓
-
-Rotate Security
-
-↓
-
-Retire Credentials
-
-↓
-
-Continuously Improve
-
-Every password requires lifecycle protection.
+- Limit attempts per account **and** per IP — see `Security/authentication`.
+- Prefer exponential backoff to a hard lock. A permanent lockout triggered by
+  failures is a denial-of-service primitive against your own users.
+- Apply the same limits to password *change* and *reset*, not only to login.
+- Notify the user by email on password change, from an address they can act on.
 
 ---
 
-# Stage 1 — Credential Analysis
+# Strength feedback
 
-Identify
+Use an entropy estimator such as `zxcvbn` rather than a character-class meter. It
+recognises `P@ssw0rd!` as weak and `correct horse battery staple` as strong,
+which a class-counting meter inverts.
 
-User Passwords
-
-↓
-
-Administrative Passwords
-
-↓
-
-Temporary Passwords
-
-↓
-
-Recovery Credentials
-
-↓
-
-Initial Passwords
-
-↓
-
-Shared Accounts
-
-↓
-
-Legacy Credentials
-
-↓
-
-Third-Party Authentication
-
-Every credential should have defined ownership.
+Show strength as guidance, not as a gate. The hard requirements are length and
+breach screening.
 
 ---
 
-# Stage 2 — Threat Analysis
+# Anti-patterns
 
-Identify
-
-Credential Theft
-
-↓
-
-Password Reuse
-
-↓
-
-Credential Stuffing
-
-↓
-
-Brute Force Attacks
-
-↓
-
-Dictionary Attacks
-
-↓
-
-Phishing
-
-↓
-
-Insider Abuse
-
-↓
-
-Emerging Threats
-
-Understanding attack techniques strengthens authentication security.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Requiring symbol + digit + mixed case | Produces `Password1!` | Length plus breach screening |
+| 90-day forced rotation | Produces predictable increments | Rotate on compromise |
+| Maximum length of 16 | Signals storage, not hashing | Accept ≥ 64 |
+| Silent truncation at 72 bytes | Users trust a password that is not theirs | Pre-hash or reject clearly |
+| Blocking paste | Defeats password managers | Allow paste and autocomplete |
+| Security questions | Publicly researchable | MFA and recovery codes |
+| Emailing a password | Plaintext in an unowned mailbox | Single-use reset link |
+| Class-based strength meters | Rank `P@ssw0rd!` above a passphrase | `zxcvbn` |
+| Logging failed passwords | Plaintext credentials in log storage | Never log the field |
+| Permanent lockout on failures | Attacker locks out every user | Exponential backoff |
 
 ---
 
-# Stage 3 — Credential Lifecycle Analysis
-
-Analyze
-
-Password Creation
-
-↓
-
-Transmission
-
-↓
-
-Hashing
-
-↓
-
-Storage
-
-↓
-
-Authentication
-
-↓
-
-Recovery
-
-↓
-
-Retirement
-
-↓
-
-Audit Logging
-
-Credential protection extends beyond storage.
-
----
-
-# Stage 4 — Authentication Architecture
-
-Design
-
-Identity Store
-
-↓
-
-Authentication Service
-
-↓
-
-Password Hashing
-
-↓
-
-Session Management
-
-↓
-
-Recovery Workflow
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Future Expansion
-
-Authentication architecture should minimize password exposure.
-
----
-
-# Stage 5 — Protection Strategy
-
-Define
-
-Strong Password Policies
-
-↓
-
-Secure Hashing
-
-↓
-
-Password Managers
-
-↓
-
-Rate Limiting
-
-↓
-
-Multi-Factor Authentication
-
-↓
-
-Secure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Operational Controls
-
-Protection should reduce password compromise opportunities.
-
----
-
-# Stage 6 — Credential Protection
-
-Protect
-
-Password Hashes
-
-↓
-
-Authentication Database
-
-↓
-
-Recovery Tokens
-
-↓
-
-Administrative Credentials
-
-↓
-
-Backup Credentials
-
-↓
-
-Authentication Logs
-
-↓
-
-User Sessions
-
-↓
-
-Operational Security
-
-Credentials should remain confidential throughout their lifecycle.
-
----
-
-# Stage 7 — Authentication Validation
-
-Validate
-
-Credential Integrity
-
-↓
-
-Identity Verification
-
-↓
-
-Business Rules
-
-↓
-
-Risk Assessment
-
-↓
-
-Authentication Policies
-
-↓
-
-Session Creation
-
-↓
-
-Access Approval
-
-↓
-
-Engineering Quality
-
-Authentication should validate identity without exposing credentials.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Authentication Success
-
-↓
-
-Failed Logins
-
-↓
-
-Password Reset Requests
-
-↓
-
-Credential Reuse
-
-↓
-
-Attack Attempts
-
-↓
-
-Lockout Events
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Password security should remain measurable.
-
----
-
-# Stage 9 — Attack Detection
-
-Identify
-
-Credential Stuffing
-
-↓
-
-Brute Force Activity
-
-↓
-
-Password Spraying
-
-↓
-
-Account Enumeration
-
-↓
-
-Compromised Accounts
-
-↓
-
-Suspicious Authentication
-
-↓
-
-Automation
-
-↓
-
-Operational Threats
-
-Detection should identify attacks before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Credential Storage
-
-↓
-
-Authentication Workflow
-
-↓
-
-Hashing Strategy
-
-↓
-
-Recovery Process
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Authentication architecture should remain understandable and secure.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Authentication Requests
-
-↓
-
-Distributed Systems
-
-↓
-
-Cloud Infrastructure
-
-↓
-
-Global Authentication
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Password security should scale without reducing protection.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Authentication Reliability
-
-↓
-
-Credential Availability
-
-↓
-
-Session Stability
-
-↓
-
-Operational Consistency
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Engineering Quality
-
-Reliable authentication preserves user trust.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Authentication Architecture
-
-↓
-
-Password Policies
-
-↓
-
-Recovery Procedures
-
-↓
-
-Hashing Standards
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves authentication consistency.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Credential Risks
-
-↓
-
-Authentication Risks
-
-↓
-
-Recovery Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Technical Debt
-
-Password risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Usability
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every authentication decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Credential Protection
-
-↓
-
-Authentication Workflow
-
-↓
-
-Hashing Strategy
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Password security requires continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Authentication Summary
-
-↓
-
-Credential Metrics
-
-↓
-
-Threat Analysis
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen authentication governance.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Authentication
-
-↓
-
-Credential Storage
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Recovery Procedures
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Password security should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Authentication Standards
-
-↓
-
-Password Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Credential security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Credential Protection
-
-↓
-
-Authentication Security
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Adaptive Authentication
-
-↓
-
-Software Longevity
-
-Exceptional password security continuously strengthens authentication resilience while preserving usability, maintainability, and operational simplicity.
-
----
-
-# Password Quality Attributes
-
-Evaluate
-
-Credential Confidentiality
-
-Authentication Integrity
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Usability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Are passwords stored only as secure password hashes?
-
-↓
-
-Can passwords ever be recovered instead of verified?
-
-↓
-
-Are authentication attempts protected against automated attacks?
-
-↓
-
-Can compromised credentials be detected quickly?
-
-↓
-
-Does password recovery maintain authentication integrity?
-
-↓
-
-Will future engineers understand the authentication architecture?
-
-↓
-
-Would experienced Security Engineers, Identity Engineers, Principal Engineers, Authentication Specialists, and Engineering Leadership confidently approve this password security strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Plaintext password storage
-
-Recoverable passwords
-
-Administrative credential compromise
-
-Mass credential exposure
-
-Major
-
-Weak password hashing
-
-Credential stuffing vulnerability
-
-Weak recovery workflow
-
-Authentication bypass
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Password Checklist
-
-✓ Credentials identified
-
-✓ Threats analyzed
-
-✓ Credential lifecycle reviewed
-
-✓ Authentication architecture designed
-
-✓ Protection strategy selected
-
-✓ Credentials protected
-
-✓ Authentication validated
-
-✓ Security measured
-
-✓ Attacks monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Storing plaintext passwords
-
-Encrypting passwords instead of hashing them
-
-Weak password hashing algorithms
-
-Recoverable passwords
-
-Logging passwords
-
-Hardcoded default passwords
-
-Password hints
-
-Shared user accounts
-
-Ignoring credential stuffing
-
-Weak password recovery
-
-Exposing authentication errors unnecessarily
-
-Optimizing convenience over credential security
-
----
-
-# Definition of Done
-
-A password security strategy is considered complete when
-
-- User credentials, authentication workflows, password hashing mechanisms, recovery procedures, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every password remains confidential throughout its lifecycle while preventing plaintext storage, credential disclosure, password recovery abuse, brute force attacks, credential stuffing, password spraying, account enumeration, and unauthorized authentication throughout the software lifecycle.
-- The authentication architecture supports scalable distributed systems, cloud platforms, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, adaptive authentication, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate password hashing strategies, authentication workflows, recovery mechanisms, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains authentication architecture, credential lifecycle management, password policies, hashing standards, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, recovery strategies, and future authentication improvements.
-- Password security decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving identity platforms, authentication technologies, cloud infrastructure, distributed architectures, and future software engineering environments.
-- The resulting system demonstrates engineering discipline, strong credential confidentiality, resilient authentication integrity, predictable authentication behavior, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional password security is not measured by how complex password requirements become.
-
-It is measured by how consistently software protects user credentials, resists modern authentication attacks, minimizes credential exposure, preserves user trust, and continuously delivers secure, maintainable, and resilient authentication throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: Minimum 8 characters; maximum at least 64
+- [ ] Verify: All Unicode accepted; input `NFKC`-normalised before hashing
+- [ ] Verify: No composition rules enforced
+- [ ] Verify: Candidates screened against a breach corpus via k-anonymity or a local copy
+- [ ] Verify: No scheduled forced rotation; rotation on compromise is supported
+- [ ] Verify: Long inputs pre-hashed or clearly rejected, never silently truncated
+- [ ] Verify: Passwords never logged, emailed, or placed in a URL
+- [ ] Verify: Storage is one-way only; reset never reveals
+- [ ] Verify: Paste and password-manager autocomplete both work
+- [ ] Verify: Rate limiting covers login, change and reset, keyed by account and IP
+- [ ] Verify: Users are emailed on password change
+- [ ] Verify: Strength feedback uses an entropy estimator, as guidance not a gate

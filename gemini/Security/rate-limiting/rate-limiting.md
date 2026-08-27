@@ -5,1139 +5,172 @@ targetModels:
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
-version: "1.0.0"
-
-
+name: rate-limiting
+category: Security
+description: Limiting request rates without breaking legitimate users — algorithm choice, correct keys, distributed state, and the headers clients need.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
 
-# rate-limiting.md
-
-Version: 1.0.0
-
-Target Models
-
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
-- Gemini 3.1 Pro
-- Gemini 3 Family
-- Future Gemini Models
-
----
 
 # Purpose
 
-This document defines engineering principles, rate limiting methodologies, request control frameworks, abuse prevention strategies, traffic management practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready systems that protect services from excessive, malicious, or unintended request activity.
+Rules for throttling requests to protect capacity and to slow abuse. Rate
+limiting is a **control on volume**, not a substitute for authentication or
+authorisation.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Cloud Platforms
-- Microservices
-- Developer Platforms
-- Administrative Systems
-- Production Software
-
-Rate limiting is not rejecting requests after a fixed number.
-
-Rate limiting is the engineering discipline of controlling resource consumption by ensuring that every client, identity, service, or system consumes computational resources within predictable and authorized limits while preserving fairness, availability, and operational stability.
-
-Rate limiting answers one question:
-
-**Is every client consuming system resources within acceptable operational boundaries?**
+Get the **key** right before the algorithm. Limiting the wrong dimension is the
+most common failure: per-IP alone does not stop distributed credential stuffing
+against one account, and per-account alone lets one host spray many accounts.
 
 ---
 
-# Core Philosophy
+# Choosing the key
 
-Identify Consumers
+| Key | Protects against | Weakness |
+| --- | --- | --- |
+| API key or user id | Per-tenant fairness, quota | Requires authentication first |
+| Account identifier | Credential stuffing on one account | Attacker rotates accounts |
+| Client IP | Single noisy source | NAT and CGNAT share IPs; IPv6 rotates cheaply |
+| IP + account | Login endpoints | — |
+| Endpoint cost class | Expensive operations | Needs per-route configuration |
 
-↓
+For login, limit **per account and per IP independently** — a request is rejected
+if either budget is exhausted.
 
-Understand Resource Constraints
+**Never** trust `X-Forwarded-For` blindly. It is client-settable; an attacker
+prepends a fake address and evades every per-IP limit. Configure `trust proxy` to
+the exact number of proxies you run and take the correct position from the right.
 
-↓
+```js
+app.set("trust proxy", 1);      // exactly one proxy in front — not `true`
+```
 
-Define Usage Policies
-
-↓
-
-Control Request Rates
-
-↓
-
-Protect System Capacity
-
-↓
-
-Monitor Traffic
-
-↓
-
-Detect Abuse
-
-↓
-
-Continuously Improve
-
-System resources should be consumed intentionally—not without limits.
+**Never** key on `User-Agent`, a cookie the client controls, or a request body
+field. All are attacker-chosen.
 
 ---
 
-# Primary Objective
+# Algorithms
 
-Every rate limiting strategy should maximize
+| Algorithm | Behaviour | Use |
+| --- | --- | --- |
+| **Token bucket** | Steady refill, allows bursts up to capacity | **Default** — matches real traffic |
+| **Sliding window log** | Exact; stores each timestamp | Low volume, strict accuracy |
+| **Sliding window counter** | Approximate, cheap | High volume |
+| **Fixed window** | Simple counter per interval | Avoid — see below |
+| **Leaky bucket** | Smooths output to a constant rate | Queue-shaped workloads |
 
-Availability
+**Avoid fixed windows.** They permit a double burst at the boundary: a client
+spends the whole budget at `00:59` and the whole next budget at `01:01`, sending
+two allowances within two seconds.
 
-+
+```js
+// Token bucket in Redis — atomic, so concurrent requests cannot both pass.
+const ALLOW = `
+local key, rate, burst, now = KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+local b = redis.call('HMGET', key, 'tokens', 'ts')
+local tokens = tonumber(b[1]) or burst
+local ts = tonumber(b[2]) or now
+tokens = math.min(burst, tokens + (now - ts) * rate)
+if tokens < 1 then
+  redis.call('HMSET', key, 'tokens', tokens, 'ts', now)
+  return 0
+end
+redis.call('HMSET', key, 'tokens', tokens - 1, 'ts', now)
+redis.call('EXPIRE', key, math.ceil(burst / rate) * 2)
+return 1
+`;
+const allowed = await redis.eval(ALLOW, 1, `rl:${key}`, rate, burst, Date.now() / 1000);
+```
 
-Fairness
-
-+
-
-Resource Protection
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-Every request should be evaluated according to system capacity and business policy.
-
----
-
-# Engineering Principles
-
-Always prioritize
-
-Resource Protection
-
-↓
-
-Fair Resource Allocation
-
-↓
-
-Least Exposure
-
-↓
-
-Defense in Depth
-
-↓
-
-Predictable Enforcement
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Availability should never depend upon unrestricted resource consumption.
+The Lua script matters: read-then-write from application code is a race, and under
+concurrency more requests pass than the limit permits.
 
 ---
 
-# Rate Limiting Lifecycle
+# Distributed state
 
-Identify Consumers
-
-↓
-
-Analyze Traffic
-
-↓
-
-Define Limits
-
-↓
-
-Enforce Policies
-
-↓
-
-Monitor Usage
-
-↓
-
-Detect Abuse
-
-↓
-
-Review Capacity
-
-↓
-
-Continuously Improve
-
-Every externally accessible service should have explicit consumption policies.
+- An in-memory counter per process means the real limit is `limit × instances`,
+  and it resets on every deploy. Acceptable for a single instance; wrong for
+  anything scaled.
+- Use a shared store — Redis, or the platform's own limiter at the edge.
+- Prefer limiting **at the edge** (CDN, API gateway) for volumetric abuse: it
+  never reaches your origin. Keep application-level limits for per-account and
+  per-endpoint rules the edge cannot see.
+- **Fail open or closed deliberately.** If Redis is down, decide in advance
+  whether to allow (availability) or deny (protection), and log the decision.
+  Silently allowing because an exception was swallowed is the common accident.
 
 ---
 
-# Stage 1 — Consumer Analysis
+# Responding
 
-Identify
+```
+HTTP/1.1 429 Too Many Requests
+RateLimit-Limit: 100
+RateLimit-Remaining: 0
+RateLimit-Reset: 30
+Retry-After: 30
+```
 
-Anonymous Users
-
-↓
-
-Authenticated Users
-
-↓
-
-API Clients
-
-↓
-
-Administrative Users
-
-↓
-
-Internal Services
-
-↓
-
-Partner Systems
-
-↓
-
-Automation
-
-↓
-
-Third-Party Integrations
-
-Every resource consumer should have an identifiable boundary.
+- Return **`429`**, not `403`. `403` tells a client it is forbidden forever.
+- Always send **`Retry-After`**. Without it, well-behaved clients retry
+  immediately and make the situation worse.
+- Expose remaining budget so clients can self-pace.
+- Apply **jitter** to any server-suggested backoff, or every throttled client
+  returns simultaneously.
+- **Never** leak whether an account exists through differing limits — see
+  `Security/authentication`.
 
 ---
 
-# Stage 2 — Threat Analysis
+# Tuning
 
-Identify
-
-Denial of Service
-
-↓
-
-Credential Stuffing
-
-↓
-
-Brute Force Attacks
-
-↓
-
-Resource Exhaustion
-
-↓
-
-API Abuse
-
-↓
-
-Bot Activity
-
-↓
-
-Traffic Spikes
-
-↓
-
-Emerging Threats
-
-Understanding traffic abuse strengthens system resilience.
+- Measure real traffic **before** setting a limit. A limit below the p99 of
+  legitimate use is an outage you scheduled for yourself.
+- Set different limits per endpoint class: a search or export endpoint costs
+  orders of magnitude more than a health check.
+- Run in **observe-only** first, logging what would have been rejected.
+- Exempt health checks and internal service traffic explicitly, by credential —
+  never by IP range alone.
+- Alert on sustained `429` rates. A spike is either an attack or a broken client,
+  and both are worth knowing about.
 
 ---
 
-# Stage 3 — Traffic Analysis
+# Anti-patterns
 
-Analyze
-
-Incoming Requests
-
-↓
-
-Authentication
-
-↓
-
-Routing
-
-↓
-
-Business Logic
-
-↓
-
-Resource Consumption
-
-↓
-
-Response Generation
-
-↓
-
-Logging
-
-↓
-
-Operational Metrics
-
-Traffic flow determines protection strategy.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Trusting `X-Forwarded-For` | Client-settable; trivially spoofed | Configure `trust proxy` precisely |
+| In-memory counters across instances | Real limit is `limit × instances` | Shared store |
+| Read-then-write without atomicity | Concurrent requests overshoot | Lua script or atomic primitive |
+| Fixed window | Double burst at the boundary | Token bucket |
+| Per-IP only on login | Distributed stuffing passes | Also limit per account |
+| `403` instead of `429` | Reads as permanent denial | `429` with `Retry-After` |
+| No `Retry-After` | Clients retry immediately | Always send it |
+| Fail-open by swallowed exception | Limit silently disappears | Decide and log the mode |
+| Limit set without measuring | Blocks legitimate users | Observe first |
+| Permanent lockout on failures | Self-inflicted denial of service | Exponential backoff |
 
 ---
 
-# Stage 4 — Capacity Architecture
-
-Design
-
-Request Flow
-
-↓
-
-Policy Engine
-
-↓
-
-Identity Boundaries
-
-↓
-
-Quota Management
-
-↓
-
-Distributed Enforcement
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Future Expansion
-
-Traffic management should remain centralized and predictable.
-
----
-
-# Stage 5 — Protection Strategy
-
-Define
-
-Identity Limits
-
-↓
-
-IP-Based Limits
-
-↓
-
-Endpoint Limits
-
-↓
-
-Resource Quotas
-
-↓
-
-Burst Handling
-
-↓
-
-Adaptive Controls
-
-↓
-
-Backoff Policies
-
-↓
-
-Operational Controls
-
-Protection should preserve service availability under normal and abnormal traffic.
-
----
-
-# Stage 6 — Resource Protection
-
-Protect
-
-Authentication Services
-
-↓
-
-Public APIs
-
-↓
-
-Administrative Interfaces
-
-↓
-
-Sensitive Operations
-
-↓
-
-Database Resources
-
-↓
-
-Infrastructure Services
-
-↓
-
-Shared Resources
-
-↓
-
-Operational Security
-
-Critical services should receive stronger protection than low-risk resources.
-
----
-
-# Stage 7 — Request Validation
-
-Validate
-
-Consumer Identity
-
-↓
-
-Rate Policy
-
-↓
-
-Quota Availability
-
-↓
-
-Business Rules
-
-↓
-
-Resource Priority
-
-↓
-
-Operational State
-
-↓
-
-Request Authorization
-
-↓
-
-Engineering Quality
-
-Every request should satisfy defined consumption policies before processing.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Request Volume
-
-↓
-
-Rejected Requests
-
-↓
-
-Quota Consumption
-
-↓
-
-Traffic Distribution
-
-↓
-
-Burst Frequency
-
-↓
-
-Audit Events
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Traffic protection should remain measurable.
-
----
-
-# Stage 9 — Abuse Detection
-
-Identify
-
-Traffic Spikes
-
-↓
-
-Credential Stuffing
-
-↓
-
-Bot Activity
-
-↓
-
-Distributed Abuse
-
-↓
-
-Unexpected Consumers
-
-↓
-
-Quota Violations
-
-↓
-
-Automation
-
-↓
-
-Operational Threats
-
-Detection should identify abuse before service degradation.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Traffic Policies
-
-↓
-
-Capacity Planning
-
-↓
-
-Identity Boundaries
-
-↓
-
-Resource Allocation
-
-↓
-
-Distributed Enforcement
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Traffic architecture should remain understandable and resilient.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing APIs
-
-↓
-
-Distributed Infrastructure
-
-↓
-
-Cloud Platforms
-
-↓
-
-Global Traffic
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Rate limiting should scale without becoming a bottleneck.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Traffic Stability
-
-↓
-
-Quota Consistency
-
-↓
-
-Operational Reliability
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Audit Consistency
-
-↓
-
-Capacity Protection
-
-↓
-
-Engineering Quality
-
-Reliable traffic control preserves system availability.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Rate Policies
-
-↓
-
-Quota Rules
-
-↓
-
-Capacity Planning
-
-↓
-
-Identity Strategy
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves consistent traffic management.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Availability Risks
-
-↓
-
-Capacity Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Traffic Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Technical Debt
-
-Traffic risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Availability
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Maintainability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every rate limiting decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Rate Policies
-
-↓
-
-Quota Enforcement
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Rate limiting requires continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Traffic Protection Summary
-
-↓
-
-Quota Metrics
-
-↓
-
-Threat Analysis
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen operational governance.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Limits
-
-↓
-
-Traffic Policies
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-↓
-
-Deployment Consistency
-
-Rate limiting should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Traffic Standards
-
-↓
-
-Policy Reviews
-
-↓
-
-Capacity Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Traffic management requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Traffic Protection
-
-↓
-
-Capacity Management
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Adaptive Policies
-
-↓
-
-Software Longevity
-
-Exceptional rate limiting continuously strengthens service availability while preserving fairness, scalability, and operational simplicity.
-
----
-
-# Rate Limiting Quality Attributes
-
-Evaluate
-
-Availability
-
-Fairness
-
-Resource Protection
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every externally accessible resource have defined consumption limits?
-
-↓
-
-Can abusive traffic be controlled before affecting legitimate users?
-
-↓
-
-Are limits based on appropriate consumer identities?
-
-↓
-
-Can traffic policies adapt to changing operational conditions?
-
-↓
-
-Can capacity exhaustion be detected before service degradation?
-
-↓
-
-Will future engineers understand the traffic protection architecture?
-
-↓
-
-Would experienced Security Engineers, Platform Engineers, Site Reliability Engineers, Principal Engineers, and Engineering Leadership confidently approve this rate limiting strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Complete resource exhaustion
-
-Denial of service
-
-Unlimited API consumption
-
-Authentication service failure
-
-Major
-
-Missing rate limits
-
-Weak quota enforcement
-
-Traffic policy inconsistencies
-
-Excessive resource allocation
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Capacity improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Rate Limiting Checklist
-
-✓ Consumers identified
-
-✓ Threats analyzed
-
-✓ Traffic reviewed
-
-✓ Capacity architecture designed
-
-✓ Protection strategy selected
-
-✓ Resources protected
-
-✓ Requests validated
-
-✓ Security measured
-
-✓ Abuse monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Unlimited public endpoints
-
-Applying identical limits to every resource
-
-Ignoring authenticated identities
-
-Trusting client-side enforcement
-
-Missing burst protection
-
-Ignoring distributed attacks
-
-Applying static policies forever
-
-Protecting only authentication endpoints
-
-Ignoring monitoring
-
-Treating rate limiting as authentication
-
-Disabling protections during high traffic
-
-Optimizing convenience over availability
-
----
-
-# Definition of Done
-
-A rate limiting strategy is considered complete when
-
-- Resource consumers, traffic patterns, capacity constraints, quota policies, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- Every externally accessible resource enforces explicit consumption policies while preventing resource exhaustion, denial of service, credential stuffing, brute force attacks, excessive API consumption, automated abuse, policy inconsistencies, and operational instability throughout the software lifecycle.
-- The traffic protection architecture supports scalable distributed systems, cloud platforms, global infrastructure, maintainable engineering practices, adaptive policy enforcement, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate quota enforcement, capacity planning, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, interoperability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains traffic policies, quota strategies, identity boundaries, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, capacity planning, and future traffic management improvements.
-- Rate limiting decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving cloud platforms, API ecosystems, distributed architectures, edge networks, and future software engineering environments.
-- The resulting system demonstrates engineering discipline, strong availability protection, resilient resource management, predictable traffic behavior, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional rate limiting is not measured by how many requests are rejected.
-
-It is measured by how consistently software protects shared resources, preserves service availability, allocates capacity fairly, withstands evolving traffic abuse, and continuously delivers secure, maintainable, and resilient resource management throughout the lifetime of the software.
+# Checklist
+
+- [ ] Verify: Limits are keyed on account and IP independently for authentication routes
+- [ ] Verify: `trust proxy` is set to the exact proxy count; `X-Forwarded-For` is not trusted raw
+- [ ] Verify: Algorithm is token bucket or sliding window, never fixed window
+- [ ] Verify: Counter updates are atomic under concurrency
+- [ ] Verify: State is shared across instances, not per-process memory
+- [ ] Verify: Store-unavailable behaviour is a deliberate, logged decision
+- [ ] Verify: Responses return `429` with `Retry-After` and remaining budget
+- [ ] Verify: Backoff guidance includes jitter
+- [ ] Verify: Limits differ by endpoint cost class
+- [ ] Verify: Limits were derived from measured traffic and trialled in observe-only mode
+- [ ] Verify: Health checks and internal traffic are exempted by credential
+- [ ] Verify: Sustained `429` rates raise an alert
