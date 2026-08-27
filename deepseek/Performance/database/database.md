@@ -5,1137 +5,183 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: database
+category: Performance
+description: Database performance at the system level — connection pooling, saturation, lock contention, bloat, and the signals that tell you which one you have.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# database.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, database performance methodologies, query optimization strategies, storage efficiency practices, resource utilization standards, and long-term best practices for building fast, reliable, scalable, maintainable, and production-ready database systems.
+Rules for database performance above the level of a single query. Individual query
+tuning is `Performance/queries` and `Database/query-optimization`; this covers the
+system: connections, contention, capacity, and diagnosing which of them is
+actually the problem.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- APIs
-- Microservices
-- Distributed Systems
-- Cloud Applications
-- Analytics Platforms
-- Production Software
-
-Database performance is not executing queries faster.
-
-Database performance is the engineering discipline of storing, retrieving, updating, and managing data efficiently while minimizing latency, resource consumption, operational complexity, and infrastructure cost without compromising correctness, reliability, scalability, or maintainability.
-
-Every unnecessary database operation increases engineering cost.
+The most common diagnosis error: **"the database is slow" when the database is
+idle and the application is queueing for a connection.**
 
 ---
 
-# Core Philosophy
+# Diagnose before tuning
 
-Understand Business Data
+| Symptom | Likely cause | Check |
+| --- | --- | --- |
+| High latency, low database CPU | Pool exhaustion or lock waits | `pg_stat_activity`, pool metrics |
+| High CPU, few queries | One expensive query | `pg_stat_statements` by total time |
+| Latency spikes at intervals | Checkpoints, autovacuum, a cron job | Log checkpoints; correlate |
+| Gradual slowdown over weeks | Bloat, or an index no longer in memory | `n_dead_tup`, cache hit ratio |
+| Fast in `psql`, slow in the app | Round trips or pool wait | Query count per request |
+| Fine in staging, slow in production | Data volume changed the plan | `EXPLAIN` on real volume |
 
-↓
+```sql
+-- What is happening right now, and what is waiting on what
+SELECT pid, state, wait_event_type, wait_event, now() - query_start AS runtime, left(query, 80)
+FROM pg_stat_activity
+WHERE state <> 'idle'
+ORDER BY runtime DESC;
+```
 
-Understand Access Patterns
-
-↓
-
-Store Data Efficiently
-
-↓
-
-Retrieve Only Required Data
-
-↓
-
-Optimize Database Operations
-
-↓
-
-Validate Performance
-
-↓
-
-Measure Continuously
-
-↓
-
-Continuously Improve
-
-Databases should deliver information efficiently rather than process unnecessary work.
+`idle in transaction` sessions are the single most damaging thing in that output:
+they hold locks, pin the vacuum horizon, and consume a pool slot while doing
+nothing. → `Database/postgres`
 
 ---
 
-# Primary Objective
+# Connections are the usual bottleneck
 
-Every database optimization should maximize
+A Postgres connection is an OS process. A few hundred is a crisis, not a
+comfortable number.
 
-Efficiency
+```
+app replicas × pool size  ≤  max_connections − reserved
+pool size ≈ (cores × 2) + effective_spindle_count
+```
 
-+
-
-Reliability
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Availability
-
-+
-
-Data Integrity
-
-+
-
-Resource Utilization
-
-+
-
-Long-Term Sustainability
-
-Database optimization should improve real-world system performance rather than isolated benchmark results.
+- A **transaction-mode pooler** (PgBouncer, Supavisor) sits between the
+  application and the database. In serverless it is mandatory — every cold start
+  otherwise opens a connection nobody closes.
+- More connections **reduce** throughput past the sweet spot: the database spends
+  its time context switching. Measure before raising the pool.
+- Watch `pool_wait_time` / `db_pool_in_use`. Wait time above a few milliseconds
+  means requests are queueing for a connection, and every latency graph will
+  mislead you until it is fixed.
+- Workers and the API share `max_connections`. Size them together.
+  → `Backend/workers`
 
 ---
 
-# Engineering Principles
+# Contention
 
-Always prioritize
+Locks serialise work that looked concurrent.
 
-Correctness
+```sql
+-- Who is blocking whom
+SELECT blocked.pid AS blocked_pid, blocking.pid AS blocking_pid,
+       left(blocked.query, 60) AS blocked_query, left(blocking.query, 60) AS blocking_query
+FROM pg_stat_activity blocked
+JOIN pg_stat_activity blocking ON blocking.pid = ANY(pg_blocking_pids(blocked.pid));
+```
 
-↓
+Rules that remove most contention:
 
-Efficient Data Access
-
-↓
-
-Minimal Database Work
-
-↓
-
-Predictable Performance
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Every database operation should have measurable business value.
+- **Short transactions.** No network calls, no user interaction, no queue publish
+  inside one. → `Database/transactions`
+- **Consistent lock ordering** across code paths, or two transactions deadlock by
+  taking the same rows in opposite orders.
+- A **row counter updated by every request** is a serialisation point regardless of
+  index quality. Use an aggregate table, a periodic rollup, or sharded counters.
+- DDL takes an exclusive lock and queues behind any open transaction — then blocks
+  every subsequent query on that table, including reads. Always set `lock_timeout`
+  before DDL. → `Database/migration`
 
 ---
 
-# Database Performance Lifecycle
+# Capacity and maintenance
 
-Understand Data
-
-↓
-
-Measure Performance
-
-↓
-
-Analyze Workloads
-
-↓
-
-Identify Bottlenecks
-
-↓
-
-Optimize Operations
-
-↓
-
-Validate Results
-
-↓
-
-Monitor Production
-
-↓
-
-Continuously Improve
-
-Optimization begins with understanding workload behavior.
+- **Working set versus RAM.** Once the frequently-read data no longer fits in
+  `shared_buffers` plus the OS cache, latency changes character — reads become
+  disk-bound and the graph steps rather than sloping. Track the buffer cache hit
+  ratio.
+- **Bloat.** MVCC leaves dead tuples; if autovacuum cannot keep up, tables and
+  indexes grow and plans degrade with no change in row count. Monitor
+  `n_dead_tup` and `last_autovacuum`, and tune autovacuum per hot table rather
+  than globally.
+- **Checkpoints** cause periodic write storms. Spread them
+  (`checkpoint_completion_target`), and correlate latency spikes against
+  checkpoint logs before blaming a query.
+- **Replicas** offload reads, but only for reads that tolerate staleness — and
+  they add a data-loss window on failover. → `Database/replication`
+- **Partition** large time-series tables so old data can be dropped in one
+  operation and queries prune to one partition. Note it complicates unique
+  constraints and foreign keys; do it when the table is genuinely large, not
+  preemptively.
 
 ---
 
-# Stage 1 — Data Analysis
+# Guard it in CI and in production
 
-Understand
+```sql
+-- Always set these. An unbounded query is an unbounded outage.
+statement_timeout = '30s';
+lock_timeout = '5s';
+idle_in_transaction_session_timeout = '60s';
+```
 
-Business Requirements
-
-↓
-
-Application Workflows
-
-↓
-
-Data Relationships
-
-↓
-
-Access Patterns
-
-↓
-
-Transaction Requirements
-
-↓
-
-Operational Constraints
-
-↓
-
-Growth Expectations
-
-↓
-
-Future Evolution
-
-Database optimization begins with understanding data usage.
+- `statement_timeout` per role: short for the web application, longer for
+  reporting. Reporting queries should not run on the primary at all.
+- Assert query counts per endpoint in tests. → `Performance/queries`
+- Run migrations through a linter (`squawk`, `atlas lint`) that flags full-table
+  rewrites and blocking index builds.
+- Load-test against production-shaped **volume**, not production-shaped schema.
+  Plans depend on data distribution, so a query that is instant on 100 rows can be
+  an outage on 10 million. → `Testing/load`
 
 ---
 
-# Stage 2 — Performance Measurement
+# Anti-patterns
 
-Measure
-
-Query Latency
-
-↓
-
-Transaction Duration
-
-↓
-
-Database Throughput
-
-↓
-
-Connection Usage
-
-↓
-
-Storage Utilization
-
-↓
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Operational Stability
-
-Optimization requires objective measurement.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Blaming the query before checking pool wait | The database may be idle | Check saturation first |
+| Raising the pool size to fix latency | Past the sweet spot throughput falls | Measure; add a pooler |
+| No connection pooler in serverless | Connection exhaustion on cold starts | Transaction-mode pooler |
+| Sizing API and worker pools independently | Combined total exceeds `max_connections` | Size together |
+| Long transactions | Locks, bloat, pool slots held | Keep them short |
+| Network calls inside transactions | Locks held for external latency | Move them out |
+| Inconsistent lock ordering | Deadlocks | Fixed order everywhere |
+| A single hot counter row | Serialises every request | Rollups or sharded counters |
+| DDL without `lock_timeout` | Queues behind one transaction, blocks all reads | Always set it |
+| No `statement_timeout` | One query becomes an outage | Set it per role |
+| Reporting queries on the primary | Long queries block maintenance | A dedicated replica |
+| Ignoring `n_dead_tup` | Silent plan degradation | Monitor and tune autovacuum |
+| Latency spikes blamed on queries | Often checkpoints or autovacuum | Correlate with logs |
+| Testing on small datasets | Plans differ entirely at scale | Production-shaped volume |
+| Partitioning preemptively | Complexity without benefit | Partition when genuinely large |
 
 ---
 
-# Stage 3 — Workload Analysis
-
-Identify
-
-Read Operations
-
-↓
-
-Write Operations
-
-↓
-
-Updates
-
-↓
-
-Deletes
-
-↓
-
-Batch Processing
-
-↓
-
-Analytical Queries
-
-↓
-
-Background Jobs
-
-↓
-
-Maintenance Tasks
-
-Every workload has different optimization requirements.
-
----
-
-# Stage 4 — Bottleneck Identification
-
-Analyze
-
-Slow Queries
-
-↓
-
-Table Scans
-
-↓
-
-Lock Contention
-
-↓
-
-Connection Bottlenecks
-
-↓
-
-Storage Delays
-
-↓
-
-Large Transactions
-
-↓
-
-Resource Contention
-
-↓
-
-Operational Waste
-
-Optimization targets measurable bottlenecks.
-
----
-
-# Stage 5 — Optimization Strategy
-
-Define
-
-Query Optimization
-
-↓
-
-Index Strategy
-
-↓
-
-Storage Optimization
-
-↓
-
-Caching Strategy
-
-↓
-
-Connection Management
-
-↓
-
-Transaction Strategy
-
-↓
-
-Maintenance Plan
-
-↓
-
-Recovery Strategy
-
-Optimization should improve overall system behavior.
-
----
-
-# Stage 6 — Resource Optimization
-
-Optimize
-
-Queries
-
-↓
-
-Indexes
-
-↓
-
-Schema Usage
-
-↓
-
-Storage
-
-↓
-
-Connections
-
-↓
-
-Transactions
-
-↓
-
-Background Processing
-
-↓
-
-Resource Allocation
-
-Optimization should eliminate unnecessary database work.
-
----
-
-# Stage 7 — Data Integrity Validation
-
-Validate
-
-Correctness
-
-↓
-
-Consistency
-
-↓
-
-Transactions
-
-↓
-
-Isolation
-
-↓
-
-Recovery
-
-↓
-
-Availability
-
-↓
-
-Reliability
-
-↓
-
-Engineering Quality
-
-Performance improvements must preserve data integrity.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Query Performance
-
-↓
-
-Transaction Throughput
-
-↓
-
-Response Time
-
-↓
-
-Resource Utilization
-
-↓
-
-Connection Efficiency
-
-↓
-
-Cache Effectiveness
-
-↓
-
-Operational Stability
-
-↓
-
-User Experience
-
-Database performance should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Slow Queries
-
-↓
-
-Duplicate Queries
-
-↓
-
-Unused Indexes
-
-↓
-
-Missing Indexes
-
-↓
-
-Large Transactions
-
-↓
-
-Redundant Data
-
-↓
-
-Connection Waste
-
-↓
-
-Storage Inefficiencies
-
-Optimization should remove operational waste.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Schema Design
-
-↓
-
-Data Ownership
-
-↓
-
-Service Boundaries
-
-↓
-
-Transaction Boundaries
-
-↓
-
-Dependency Relationships
-
-↓
-
-Scaling Strategy
-
-↓
-
-Maintainability
-
-↓
-
-Future Growth
-
-Architecture determines database scalability.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Data
-
-↓
-
-High Traffic
-
-↓
-
-Concurrent Users
-
-↓
-
-Distributed Services
-
-↓
-
-Large Transactions
-
-↓
-
-Global Deployment
-
-↓
-
-Operational Stability
-
-↓
-
-Future Expansion
-
-Database architecture should scale predictably.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Transaction Success
-
-↓
-
-Data Integrity
-
-↓
-
-Recovery
-
-↓
-
-Backup Strategy
-
-↓
-
-Replication
-
-↓
-
-Availability
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Reliable databases preserve business continuity.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Database Architecture
-
-↓
-
-Optimization Decisions
-
-↓
-
-Index Strategy
-
-↓
-
-Engineering Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Maintenance Strategy
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves database knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Slow Queries
-
-↓
-
-Data Corruption
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Connection Saturation
-
-↓
-
-Storage Growth
-
-↓
-
-Performance Regression
-
-↓
-
-Operational Risks
-
-↓
-
-Technical Debt
-
-Database risks should remain continuously visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Consistency
-
-↓
-
-Availability
-
-↓
-
-Maintainability
-
-↓
-
-Complexity
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Future Evolution
-
-Every optimization introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Performance
-
-↓
-
-Correctness
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-Database improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Database Summary
-
-↓
-
-Performance Metrics
-
-↓
-
-Optimization Results
-
-↓
-
-Resource Analysis
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Opportunities
-
-↓
-
-Lessons Learned
-
-Reports preserve engineering knowledge.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Workloads
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Backup Verification
-
-↓
-
-Recovery Testing
-
-↓
-
-Documentation
-
-↓
-
-Maintainability
-
-↓
-
-Reliability
-
-Database optimization should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Database Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Schema Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Engineering Discipline
-
-Database quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Database Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional database systems continuously minimize unnecessary data processing while maximizing correctness, reliability, scalability, and engineering simplicity.
-
----
-
-# Database Quality Attributes
-
-Evaluate
-
-Performance
-
-Reliability
-
-Scalability
-
-Availability
-
-Maintainability
-
-Data Integrity
-
-Resource Utilization
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every database operation provide measurable business value?
-
-↓
-
-Have optimization decisions been supported by objective measurements?
-
-↓
-
-Can unnecessary database work be eliminated?
-
-↓
-
-Does the database architecture support future growth?
-
-↓
-
-Will future engineers understand these optimization decisions?
-
-↓
-
-Are reliability and data integrity fully preserved?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this database strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Database unavailable
-
-Data corruption
-
-Transaction failure
-
-Application instability
-
-Major
-
-Slow queries
-
-Lock contention
-
-Connection exhaustion
-
-Performance degradation
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Database Checklist
-
-✓ Data analyzed
-
-✓ Performance measured
-
-✓ Workloads evaluated
-
-✓ Bottlenecks identified
-
-✓ Optimization strategy defined
-
-✓ Resources optimized
-
-✓ Data integrity validated
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Optimizing without measurement
-
-Ignoring slow queries
-
-Large unnecessary transactions
-
-Duplicate database operations
-
-Fetching unnecessary data
-
-Over-indexing
-
-Under-indexing
-
-Ignoring connection management
-
-Architecture driven by temporary optimizations
-
-Ignoring scalability
-
-Optimizing benchmarks instead of production workloads
-
-Treating storage as unlimited
-
----
-
-# Definition of Done
-
-A database optimization strategy is considered complete when
-
-- Database operations have been systematically analyzed and optimized to minimize latency, unnecessary data access, redundant processing, storage overhead, connection waste, transaction cost, and infrastructure utilization while preserving correctness, reliability, maintainability, scalability, and operational stability.
-- Query execution, indexing strategies, transaction management, connection utilization, storage efficiency, workload distribution, maintenance processes, and resource allocation have been optimized through evidence-based engineering decisions rather than speculative improvements.
-- Database architecture supports predictable performance, scalable growth, reliable transaction processing, efficient resource utilization, maintainable schema evolution, operational resilience, and sustainable engineering practices without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate performance characteristics, query correctness, transaction integrity, architectural consistency, documentation quality, maintainability, scalability, production readiness, and long-term sustainability before deployment.
-- Documentation clearly explains database architecture, optimization rationale, indexing strategy, engineering trade-offs, validation evidence, governance expectations, operational constraints, maintenance policies, and future optimization opportunities.
-- Database optimization decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than database-specific implementation techniques.
-- The resulting system demonstrates engineering discipline, efficient data processing, predictable performance, architectural clarity, operational excellence, reliable transaction management, scalable infrastructure, maintainability, and long-term software sustainability.
-
-Exceptional database performance is not measured by the fastest individual query.
-
-It is measured by how efficiently the entire system stores, retrieves, and manages information while preserving correctness, reliability, scalability, operational excellence, and sustainable engineering throughout the lifetime of the software.
+# Checklist
+
+- [ ] Pool wait time is measured and ruled out before query tuning
+- [ ] A transaction-mode pooler sits in front of the database
+- [ ] Combined pool capacity across all consumers is below `max_connections`
+- [ ] Pool size was chosen by measurement, not by increasing it until it worked
+- [ ] `pg_stat_activity` is checked for `idle in transaction` sessions
+- [ ] Transactions are short and contain no network calls
+- [ ] Lock ordering is consistent across code paths
+- [ ] Blocking-query monitoring exists
+- [ ] Hot single-row counters are replaced by rollups or sharding
+- [ ] `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` are set
+- [ ] Reporting workloads run on a replica, not the primary
+- [ ] Buffer cache hit ratio and working-set growth are tracked
+- [ ] Dead tuples and autovacuum recency are monitored, with per-table tuning
+- [ ] Latency spikes are correlated against checkpoint and autovacuum logs
+- [ ] Migrations are linted for full-table rewrites and blocking index builds
+- [ ] Load tests run against production-shaped data volume

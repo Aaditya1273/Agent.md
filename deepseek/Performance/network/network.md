@@ -5,1137 +5,178 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: network
+category: Performance
+description: Network performance — latency versus bandwidth, connection setup cost, compression, request waterfalls, and delivering bytes from close to the user.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# network.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, network optimization methodologies, communication strategies, resource delivery practices, latency reduction techniques, and long-term best practices for building efficient, reliable, scalable, and maintainable network communication across modern software systems.
+Rules for making the network faster. The central fact: **latency, not bandwidth,
+dominates web performance.** Doubling bandwidth barely changes page load time;
+halving round trips changes it a lot.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- APIs
-- Progressive Web Applications
-- Mobile Applications
-- Distributed Systems
-- Cloud Applications
-- Production Software
-
-Network optimization is not sending requests faster.
-
-Network optimization is the engineering discipline of minimizing unnecessary communication, reducing latency, optimizing data transfer, improving reliability, and ensuring every network request delivers measurable business value.
-
-Every unnecessary network request consumes infrastructure, bandwidth, energy, and user time.
+Every rule here reduces round trips, moves bytes closer, or sends fewer of them —
+in that order of impact.
 
 ---
 
-# Core Philosophy
+# Count the round trips
 
-Understand User Needs
+A cold HTTPS connection costs, before a single byte of your content:
 
-↓
+```
+DNS lookup        1 RTT (0 if cached)
+TCP handshake     1 RTT
+TLS 1.3 handshake 1 RTT (0 on resumption)
+HTTP request      1 RTT
+```
 
-Understand Data Requirements
+On a 100 ms round trip that is 300–400 ms before anything arrives. Consequences:
 
-↓
-
-Minimize Communication
-
-↓
-
-Optimize Data Transfer
-
-↓
-
-Preserve Reliability
-
-↓
-
-Validate Performance
-
-↓
-
-Measure Continuously
-
-↓
-
-Continuously Improve
-
-Network communication should transfer value—not unnecessary data.
+- **Every additional origin costs a full connection setup.** Three third-party
+  domains on a page is roughly a second of setup on mobile.
+- `preconnect` for origins you will definitely use, early; `dns-prefetch` for
+  likely ones. Do not preconnect to everything — each open connection competes.
+- **HTTP/2 or HTTP/3** multiplexes many requests over one connection, removing
+  head-of-line blocking at the HTTP layer. HTTP/3 (QUIC) also removes TCP-level
+  head-of-line blocking, which matters most on lossy mobile networks.
+- Keep connections alive. Set the server's `keepAliveTimeout` **above** the load
+  balancer's idle timeout, or you get intermittent `502`s from close races.
+  → `Backend/express`
 
 ---
 
-# Primary Objective
+# Eliminate waterfalls
 
-Every network strategy should maximize
+A waterfall is a request that cannot start until a previous one finishes. It is
+the single largest avoidable cost in most applications.
 
-Efficiency
+```
+❌ HTML → JS → fetch config → fetch user → fetch orders      4 sequential RTTs
+✅ HTML → (JS ∥ config) → (user ∥ orders)                    2
+```
 
-+
-
-Reliability
-
-+
-
-Responsiveness
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Availability
-
-+
-
-Resource Utilization
-
-+
-
-Long-Term Sustainability
-
-Network optimization should improve communication without sacrificing correctness.
+- Server-render or return data with the document, so the client does not make a
+  round trip to discover what to request. → `Frontend/server-components`
+- Start independent requests together (`Promise.all`), on the client and the
+  server. A sequential `await` chain in a server component is a server-side
+  waterfall.
+- Discovery waterfalls: an import that discovers another import, a JSON manifest
+  that names the real asset. Use `modulepreload` and `preload` for known critical
+  resources.
+- Do not preload everything — a preloaded resource competes with the one that
+  actually blocks rendering. → `Frontend/performance`
 
 ---
 
-# Engineering Principles
+# Send fewer bytes
 
-Always prioritize
+| Technique | Typical saving |
+| --- | --- |
+| Brotli over gzip (static assets) | 15–25% |
+| AVIF/WebP over JPEG/PNG | 30–60% |
+| Font subsetting | 50–90% |
+| Removing an unused dependency | Whatever it weighed |
+| Projecting API responses to needed fields | Frequently 50%+ |
 
-Correctness
-
-↓
-
-Minimal Communication
-
-↓
-
-Reliable Delivery
-
-↓
-
-Efficient Data Transfer
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Every network request should have a measurable purpose.
+- Compress text: Brotli level 11 for static assets at build time, a lower level
+  for dynamic responses where CPU matters.
+- **Do not compress already-compressed formats** — images, video, `.woff2`. It
+  costs CPU and saves nothing.
+- Compression on responses that reflect user input can leak secrets by size
+  (BREACH). Do not compress a response containing a secret alongside
+  attacker-controlled content. → `Security/headers`
+- API payload size is a real cost on mobile: return the fields the client needs,
+  paginate, and avoid deeply nested expansions nobody reads.
+  → `API/pagination`
 
 ---
 
-# Network Engineering Lifecycle
+# Cache to avoid the request entirely
 
-Understand System
+The fastest request is the one not made.
 
-↓
+```
+Cache-Control: public, max-age=31536000, immutable      # content-hashed assets
+Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+Cache-Control: private, no-store                        # authenticated
+```
 
-Measure Network Activity
-
-↓
-
-Analyze Communication
-
-↓
-
-Identify Bottlenecks
-
-↓
-
-Optimize Data Transfer
-
-↓
-
-Validate Reliability
-
-↓
-
-Monitor Production
-
-↓
-
-Continuously Improve
-
-Network optimization begins with understanding communication patterns.
+- Content-hash asset filenames so they can be cached for a year and a deploy
+  changes the URL.
+- `ETag`/`If-None-Match` turns a repeat request into a 304 with no body — still a
+  round trip, so it is second-best to a cache hit.
+- `stale-while-revalidate` serves instantly from cache and refreshes in the
+  background.
+- **Never cache an authenticated response in a shared cache.**
+  → `Performance/caching`
 
 ---
 
-# Stage 1 — Communication Analysis
+# Move bytes closer
 
-Understand
-
-Business Processes
-
-↓
-
-User Journeys
-
-↓
-
-Application Behavior
-
-↓
-
-Client Requirements
-
-↓
-
-Server Responsibilities
-
-↓
-
-External Services
-
-↓
-
-Operational Constraints
-
-↓
-
-Future Growth
-
-Network architecture begins with understanding communication.
+- A CDN turns a 150 ms origin round trip into a 15 ms edge round trip. It is the
+  highest-leverage change available for a geographically distributed audience.
+- Ensure a high cache hit ratio at the edge — a CDN that proxies every request to
+  the origin adds a hop and helps nothing.
+- Co-locate compute with data. An edge function querying a database in another
+  region pays that latency on every query, which usually cancels the benefit of
+  being at the edge. → `DevOps/vercel`
+- For chatty internal services, latency multiplies: a request that makes twenty
+  sequential internal calls at 2 ms each is 40 ms of pure network. Batch, or
+  co-locate.
 
 ---
 
-# Stage 2 — Network Measurement
+# Anti-patterns
 
-Measure
-
-Request Count
-
-↓
-
-Response Size
-
-↓
-
-Latency
-
-↓
-
-Bandwidth Usage
-
-↓
-
-Connection Duration
-
-↓
-
-Throughput
-
-↓
-
-Failure Rate
-
-↓
-
-Operational Stability
-
-Optimization requires measurable network behavior.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Optimising bandwidth, ignoring latency | Round trips dominate | Reduce round trips |
+| Many third-party origins | Full connection setup each | Consolidate; `preconnect` |
+| `preconnect` to everything | Open connections compete | Only definite origins |
+| Sequential dependent requests | Waterfall | Parallelise; send data with the document |
+| Client fetching config before data | An extra round trip before anything | Inline it in the response |
+| Preloading everything | Competes with render-blocking resources | Preload deliberately |
+| HTTP/1.1 with many small assets | Six-connection limit, head-of-line blocking | HTTP/2 or HTTP/3 |
+| `keepAliveTimeout` below the LB's | Intermittent `502`s | Set it higher |
+| No compression on text | Multiples of the necessary bytes | Brotli/gzip |
+| Compressing images and fonts | CPU cost, no saving | Skip already-compressed types |
+| Compressing secrets with reflected input | BREACH-style size oracle | Do not compress those responses |
+| Returning full entities from APIs | Payload dominated by unused fields | Project fields |
+| No content hashing on assets | Cannot cache long; deploys serve stale | Hash filenames |
+| Caching authenticated responses | Cross-user data exposure | `private, no-store` |
+| CDN with a low hit ratio | Adds a hop, saves nothing | Fix the cache rules |
+| Edge compute far from the data | Per-query latency cancels the gain | Co-locate |
+| Chatty internal calls | Latency multiplies | Batch or co-locate |
 
 ---
 
-# Stage 3 — Request Analysis
-
-Identify
-
-Critical Requests
-
-↓
-
-Background Requests
-
-↓
-
-Repeated Requests
-
-↓
-
-Duplicate Requests
-
-↓
-
-Large Payloads
-
-↓
-
-External Calls
-
-↓
-
-Real-Time Communication
-
-↓
-
-Unused Requests
-
-Every request should provide measurable value.
-
----
-
-# Stage 4 — Data Flow Evaluation
-
-Analyze
-
-Request Lifecycle
-
-↓
-
-Response Flow
-
-↓
-
-Data Ownership
-
-↓
-
-Transfer Frequency
-
-↓
-
-Dependency Chains
-
-↓
-
-Synchronization
-
-↓
-
-Retry Behavior
-
-↓
-
-Recovery
-
-Efficient systems minimize unnecessary communication.
-
----
-
-# Stage 5 — Communication Strategy
-
-Define
-
-Request Priorities
-
-↓
-
-Data Compression
-
-↓
-
-Caching Strategy
-
-↓
-
-Connection Reuse
-
-↓
-
-Retry Strategy
-
-↓
-
-Timeout Policy
-
-↓
-
-Fallback Strategy
-
-↓
-
-Recovery Planning
-
-Communication should remain predictable and reliable.
-
----
-
-# Stage 6 — Data Transfer Optimization
-
-Optimize
-
-Payload Size
-
-↓
-
-Request Frequency
-
-↓
-
-Response Structure
-
-↓
-
-Compression
-
-↓
-
-Serialization
-
-↓
-
-Connection Usage
-
-↓
-
-Transfer Timing
-
-↓
-
-Resource Utilization
-
-Optimization should eliminate unnecessary network activity.
-
----
-
-# Stage 7 — Reliability Validation
-
-Validate
-
-Request Success
-
-↓
-
-Response Accuracy
-
-↓
-
-Error Recovery
-
-↓
-
-Timeout Handling
-
-↓
-
-Retry Behavior
-
-↓
-
-Connection Stability
-
-↓
-
-Operational Reliability
-
-↓
-
-Engineering Quality
-
-Network optimization should never reduce reliability.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Latency
-
-↓
-
-Transfer Time
-
-↓
-
-Bandwidth Usage
-
-↓
-
-Connection Efficiency
-
-↓
-
-Request Duration
-
-↓
-
-Failure Rate
-
-↓
-
-Availability
-
-↓
-
-User Experience
-
-Network performance should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Duplicate Requests
-
-↓
-
-Oversized Payloads
-
-↓
-
-Unnecessary Communication
-
-↓
-
-Connection Waste
-
-↓
-
-Retry Inefficiencies
-
-↓
-
-Serialization Overhead
-
-↓
-
-Slow Endpoints
-
-↓
-
-Bandwidth Waste
-
-Optimization should eliminate communication waste.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Communication Boundaries
-
-↓
-
-API Design
-
-↓
-
-Service Relationships
-
-↓
-
-Dependency Direction
-
-↓
-
-Connection Management
-
-↓
-
-Data Ownership
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Architecture determines network efficiency.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-High Traffic
-
-↓
-
-Distributed Systems
-
-↓
-
-Global Deployment
-
-↓
-
-Large Payloads
-
-↓
-
-Concurrent Requests
-
-↓
-
-Operational Stability
-
-↓
-
-Future Expansion
-
-Network architecture should scale predictably.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Connection Stability
-
-↓
-
-Service Availability
-
-↓
-
-Failure Recovery
-
-↓
-
-Retry Logic
-
-↓
-
-Timeout Management
-
-↓
-
-Data Integrity
-
-↓
-
-Consistency
-
-↓
-
-Engineering Quality
-
-Reliable communication preserves user trust.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Network Architecture
-
-↓
-
-Communication Strategy
-
-↓
-
-Optimization Decisions
-
-↓
-
-Engineering Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Recovery Policies
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves communication knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-High Latency
-
-↓
-
-Network Congestion
-
-↓
-
-Bandwidth Waste
-
-↓
-
-Service Failures
-
-↓
-
-Communication Loops
-
-↓
-
-Performance Regression
-
-↓
-
-Operational Risks
-
-↓
-
-Technical Debt
-
-Network risks should remain continuously visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Complexity
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Future Evolution
-
-Every communication optimization introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Communication Correctness
-
-↓
-
-Performance
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-Network improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Network Summary
-
-↓
-
-Traffic Analysis
-
-↓
-
-Performance Metrics
-
-↓
-
-Optimization Results
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Opportunities
-
-↓
-
-Lessons Learned
-
-Reports preserve engineering decisions.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Traffic
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Reliability
-
-↓
-
-Availability
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Maintainability
-
-Network optimization should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Network Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Discipline
-
-Network quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Communication Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional software continuously minimizes unnecessary communication while maximizing reliability, responsiveness, and engineering simplicity.
-
----
-
-# Network Quality Attributes
-
-Evaluate
-
-Efficiency
-
-Reliability
-
-Responsiveness
-
-Scalability
-
-Availability
-
-Maintainability
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every network request provide measurable business value?
-
-↓
-
-Can unnecessary communication be eliminated?
-
-↓
-
-Has network optimization been based on objective measurement?
-
-↓
-
-Does the communication architecture support future scalability?
-
-↓
-
-Will future engineers understand these networking decisions?
-
-↓
-
-Are reliability and recovery strategies clearly defined?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this network architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Network failure
-
-Service unavailable
-
-Data corruption
-
-Application instability
-
-Major
-
-High latency
-
-Bandwidth waste
-
-Request failures
-
-Communication bottlenecks
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Network Checklist
-
-✓ Communication analyzed
-
-✓ Network usage measured
-
-✓ Requests evaluated
-
-✓ Data flow analyzed
-
-✓ Communication strategy defined
-
-✓ Data transfer optimized
-
-✓ Reliability validated
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Availability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Sending unnecessary requests
-
-Duplicate API calls
-
-Oversized payloads
-
-Ignoring latency measurements
-
-Excessive polling
-
-Poor retry strategies
-
-Unlimited request retries
-
-Ignoring network failures
-
-Architecture driven by temporary optimizations
-
-Optimizing without measurement
-
-Ignoring scalability
-
-Treating bandwidth as unlimited
-
----
-
-# Definition of Done
-
-A network optimization strategy is considered complete when
-
-- Network communication has been systematically analyzed and optimized to minimize unnecessary requests, redundant data transfer, bandwidth consumption, latency, connection overhead, and infrastructure cost while preserving correctness, reliability, maintainability, scalability, and operational stability.
-- Communication architecture supports efficient request scheduling, predictable data flow, reliable error recovery, scalable service interaction, sustainable resource utilization, and future application growth without introducing unnecessary complexity or technical debt.
-- Network resources, payloads, communication frequency, retry behavior, timeout policies, connection management, caching opportunities, and transfer efficiency have been optimized through evidence-based engineering decisions rather than speculative improvements.
-- Engineering reviews validate communication correctness, network reliability, performance characteristics, architectural consistency, documentation quality, maintainability, scalability, production readiness, and long-term sustainability before deployment.
-- Documentation clearly explains communication architecture, optimization rationale, recovery strategies, engineering trade-offs, validation evidence, governance expectations, known constraints, and future optimization opportunities.
-- Network optimization decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than protocol-specific implementation details.
-- The resulting software demonstrates engineering discipline, efficient communication, responsive user experience, architectural clarity, operational excellence, reliable connectivity, predictable scalability, and long-term software sustainability.
-
-Exceptional network optimization is not measured by sending fewer requests alone.
-
-It is measured by ensuring every network interaction delivers meaningful value, transfers only the data that is required, preserves reliability under changing conditions, scales efficiently with demand, and continuously minimizes unnecessary communication throughout the lifetime of the software.
+# Checklist
+
+- [ ] Performance work targets round trips before bandwidth
+- [ ] Third-party origins are minimised and critical ones are `preconnect`ed
+- [ ] No request waterfall exists on the critical path
+- [ ] Independent requests are issued in parallel on client and server
+- [ ] Data needed for first render arrives with the document
+- [ ] Preloading is deliberate and limited to render-critical resources
+- [ ] HTTP/2 or HTTP/3 is enabled
+- [ ] Server keep-alive exceeds the load balancer idle timeout
+- [ ] Text responses are compressed with Brotli or gzip
+- [ ] Already-compressed formats are not re-compressed
+- [ ] Responses mixing secrets and reflected input are not compressed
+- [ ] API responses return only required fields and paginate
+- [ ] Static assets are content-hashed and cached immutably
+- [ ] `stale-while-revalidate` is used for cacheable dynamic content
+- [ ] Authenticated responses are never in a shared cache
+- [ ] A CDN serves static assets with a monitored hit ratio
+- [ ] Compute is co-located with the data it queries
+- [ ] Internal service calls are batched rather than sequential

@@ -5,1144 +5,193 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: forms
+category: Frontend
+description: Forms that are accessible, resilient and correct — controlled state, validation timing, submission and error handling, and never trusting the client.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# forms.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, validation strategies, submission workflows, security requirements, and long-term best practices for building production-grade forms in modern web applications.
+Rules for building forms. Forms are where accessibility, validation, state
+management and security all meet, and where users lose work.
 
-It applies to
-
-- React Applications
-- Next.js Applications
-- Enterprise Platforms
-- SaaS Products
-- AI Applications
-- Dashboards
-- Authentication Systems
-- E-Commerce Platforms
-- Production Web Systems
-
-Forms are not input fields.
-
-Forms are systems for collecting, validating, transforming, and securely processing user data while providing predictable user experiences.
-
-Inputs collect information.
-
-Architecture ensures correctness.
+The first rule, which is not a frontend rule at all: **client-side validation is a
+convenience, never a control.** Every rule below assumes the server validates
+independently. → `Backend/validation`
 
 ---
 
-# Core Philosophy
+# Use the platform
 
-Understand User Intent
+```html
+<form action="/orders" method="post">
+  <label for="email">Email address</label>
+  <input id="email" name="email" type="email" autocomplete="email" required
+         aria-describedby="email-error" />
+  <p id="email-error" role="alert">Enter a valid email address.</p>
+  <button type="submit">Continue</button>
+</form>
+```
 
-↓
+A real `<form>` with a submit button gives you Enter-to-submit, browser
+autofill, password-manager integration, and — with a progressively enhanced
+framework — a form that works before JavaScript loads.
 
-Design Data Model
+| Attribute | Effect |
+| --- | --- |
+| `type="email"`, `tel`, `url`, `number` | Correct mobile keyboard and native validation |
+| `autocomplete` | Autofill; `new-password` and `one-time-code` matter especially |
+| `inputmode="numeric"` | Numeric keypad without `number`'s spinner and scroll quirks |
+| `required`, `minlength`, `pattern` | Native constraints, free |
+| `name` | **Required** for a form to submit without JavaScript |
+| `enterkeyhint` | Labels the mobile Enter key |
 
-↓
-
-Validate Input
-
-↓
-
-Guide User
-
-↓
-
-Process Submission
-
-↓
-
-Handle Errors
-
-↓
-
-Confirm Success
-
-↓
-
-Continuously Improve
-
-A well-designed form reduces mistakes before validation becomes necessary.
+**Never** use a `<div onClick>` as a submit control — it is not keyboard-operable
+and does not submit the form.
 
 ---
 
-# Primary Objective
+# Validate at the right moment
 
-Every form system should maximize
+Validating on every keystroke tells the user their email is invalid after the
+first character. Validating only on submit hides errors until the end.
 
-Usability
+| Field state | When to validate |
+| --- | --- |
+| Never touched | Never |
+| Being typed, previously invalid | On change — show the fix immediately |
+| Being typed, currently valid | On blur |
+| Submit attempted | All fields, immediately |
 
-+
+Define the schema once and use it on both sides:
 
-Correctness
+```ts
+// shared/schemas.ts — one definition, both client and server
+export const SignUp = z.object({
+  email: z.string().email(),
+  password: z.string().min(12).max(200),
+}).strict();
+```
 
-+
+Two schemas drift, and the drift always favours the client — the form accepts
+something the server rejects, and the user gets a generic `500`.
 
-Security
-
-+
-
-Accessibility
-
-+
-
-Performance
-
-+
-
-Maintainability
-
-+
-
-Reliability
-
-+
-
-Long-Term Sustainability
-
-Users should complete forms with confidence rather than uncertainty.
+Message rules: say what is wrong **and how to fix it**. "Invalid input" is not a
+message. Never blame the user, and never clear what they typed.
 
 ---
 
-# Engineering Principles
+# Errors must be announced, not just coloured
 
-Always prioritize
+```html
+<input aria-invalid="true" aria-describedby="pw-error" />
+<p id="pw-error" role="alert">Password must be at least 12 characters.</p>
+```
 
-User Experience
-
-↓
-
-Data Integrity
-
-↓
-
-Validation
-
-↓
-
-Accessibility
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Forms should prevent mistakes instead of merely reporting them.
+- Associate the message with the input via `aria-describedby`, and set
+  `aria-invalid`.
+- `role="alert"` on the error container so screen readers announce it.
+- **Never** convey an error by colour alone — colour-blind users see nothing.
+  Combine colour with text and an icon.
+- On a failed submit, move focus to the first invalid field and, for a long form,
+  show a summary at the top with links to each field.
+- Keep labels visible. Placeholder-as-label disappears on focus, fails contrast
+  requirements, and breaks autofill. → `Testing/accessibility`
 
 ---
 
-# Form Development Lifecycle
+# Submission
 
-Understand Requirements
+```tsx
+async function onSubmit(values) {
+  setStatus("submitting");                     // disable the button, show progress
+  try {
+    await api.createOrder(values, { idempotencyKey });   // stable across retries
+    setStatus("success");
+  } catch (err) {
+    setStatus("error");
+    setFieldErrors(err.fieldErrors ?? {});     // map server errors back to fields
+  }
+}
+```
 
-↓
-
-Model Data
-
-↓
-
-Design User Flow
-
-↓
-
-Implement Validation
-
-↓
-
-Process Submission
-
-↓
-
-Handle Errors
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Good forms begin with understanding the data being collected.
+- **Disable the submit button while in flight**, and use an idempotency key so a
+  double-submit cannot create two orders. The button alone is not enough — the
+  user can press Enter. → `API/rest`
+- Map server-side field errors back onto the fields. A form that shows "Validation
+  failed" without saying which field is unusable.
+- **Never clear the form on error.** Losing typed data is the single most
+  frustrating form bug.
+- Warn on navigating away with unsaved changes (`beforeunload`), and for long
+  forms save a draft to `localStorage` — but never a draft containing a password
+  or a card number.
+- Show a clear success state; a form that silently resets leaves users unsure
+  whether it worked.
 
 ---
 
-# Stage 1 — Requirements Analysis
+# Security
 
-Understand
-
-Business Goals
-
-↓
-
-Required Information
-
-↓
-
-Optional Information
-
-↓
-
-User Journey
-
-↓
-
-Compliance Requirements
-
-↓
-
-Security Constraints
-
-↓
-
-Success Criteria
-
-↓
-
-Future Evolution
-
-Every field should have a business purpose.
+- Never trust anything from the client: not hidden fields, not `disabled`
+  attributes, not `readonly` values. All are editable in devtools.
+- Cross-site request forgery protection on every state-changing submission.
+  → `Security/csrf`
+- File uploads: validate type by content server-side, cap size, and never trust
+  the filename. → `Backend/validation`
+- Never log form values. A debug log of a signup form is a password disclosure.
+- `autocomplete="off"` on a password field fights password managers and makes
+  users choose weaker passwords. Use `new-password` instead.
 
 ---
 
-# Stage 2 — Data Modeling
+# Anti-patterns
 
-Define
-
-Field Types
-
-↓
-
-Required Fields
-
-↓
-
-Relationships
-
-↓
-
-Validation Rules
-
-↓
-
-Default Values
-
-↓
-
-Data Constraints
-
-↓
-
-Transformation Rules
-
-↓
-
-Storage Requirements
-
-The data model should exist before the UI.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Client-side validation as the control | Trivially bypassed | Server validates independently |
+| Separate client and server schemas | They drift; the server rejects what the form accepted | One shared schema |
+| `<div onClick>` submit | Not keyboard-operable; no native submit | `<button type="submit">` |
+| No `name` attributes | Cannot submit without JavaScript | Name every field |
+| Validating on every keystroke | Errors before the user finishes typing | Validate on blur, then on change |
+| Errors shown only by colour | Invisible to colour-blind users | Text plus icon |
+| Errors not associated with inputs | Screen readers never announce them | `aria-describedby` + `role="alert"` |
+| Placeholder as label | Disappears; fails contrast; breaks autofill | Visible `<label>` |
+| No submit-in-flight state | Double submission creates duplicates | Disable plus idempotency key |
+| Server errors not mapped to fields | User cannot tell what to fix | Field-level error mapping |
+| Clearing the form on error | Users lose their work | Preserve input |
+| No unsaved-changes warning | Accidental navigation loses everything | `beforeunload` and drafts |
+| Drafts containing secrets | Passwords persisted in `localStorage` | Exclude sensitive fields |
+| Trusting hidden or disabled fields | Editable in devtools | Re-derive server-side |
+| Missing `autocomplete` | Breaks autofill and password managers | Correct token per field |
+| `autocomplete="off"` on passwords | Encourages weaker passwords | `new-password` |
+| Logging form payloads | Password disclosure | Never log values |
 
 ---
 
-# Stage 3 — Form Architecture
-
-Design
-
-Logical Sections
-
-↓
-
-Field Groups
-
-↓
-
-Progressive Disclosure
-
-↓
-
-Reusable Components
-
-↓
-
-Submission Flow
-
-↓
-
-Navigation
-
-↓
-
-Confirmation
-
-↓
-
-Future Scalability
-
-Complex forms should be divided into meaningful sections.
-
----
-
-# Stage 4 — User Experience
-
-Design
-
-Clear Labels
-
-↓
-
-Helpful Descriptions
-
-↓
-
-Logical Ordering
-
-↓
-
-Minimal Friction
-
-↓
-
-Visual Feedback
-
-↓
-
-Progress Indicators
-
-↓
-
-Confirmation
-
-↓
-
-Predictable Interaction
-
-Users should understand every step.
-
----
-
-# Stage 5 — Validation
-
-Validate
-
-Required Fields
-
-↓
-
-Input Format
-
-↓
-
-Business Rules
-
-↓
-
-Cross-Field Dependencies
-
-↓
-
-Length Constraints
-
-↓
-
-Value Ranges
-
-↓
-
-Consistency
-
-↓
-
-Final Verification
-
-Validation should be immediate when helpful and complete before submission.
-
----
-
-# Stage 6 — Error Handling
-
-Provide
-
-Clear Messages
-
-↓
-
-Field-Level Errors
-
-↓
-
-Form-Level Errors
-
-↓
-
-Recovery Guidance
-
-↓
-
-Retry Support
-
-↓
-
-Focus Management
-
-↓
-
-Logging
-
-↓
-
-Observability
-
-Errors should explain how to recover.
-
----
-
-# Stage 7 — Security
-
-Protect
-
-Input Validation
-
-↓
-
-Output Encoding
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-CSRF Protection
-
-↓
-
-Sensitive Data
-
-↓
-
-Rate Limiting
-
-↓
-
-Abuse Prevention
-
-Never trust client-side validation alone.
-
----
-
-# Stage 8 — State Management
-
-Maintain
-
-Current Values
-
-↓
-
-Dirty State
-
-↓
-
-Touched Fields
-
-↓
-
-Validation Status
-
-↓
-
-Submission Status
-
-↓
-
-Loading State
-
-↓
-
-Success State
-
-↓
-
-Recovery State
-
-Form state should remain predictable throughout its lifecycle.
-
----
-
-# Stage 9 — Submission Workflow
-
-Design
-
-Validation
-
-↓
-
-Transformation
-
-↓
-
-Submission
-
-↓
-
-Confirmation
-
-↓
-
-Retry Logic
-
-↓
-
-Recovery
-
-↓
-
-Notifications
-
-↓
-
-Completion
-
-Submission should be reliable and idempotent whenever practical.
-
----
-
-# Stage 10 — Accessibility
-
-Ensure
-
-Semantic Labels
-
-↓
-
-Keyboard Navigation
-
-↓
-
-Focus Order
-
-↓
-
-Error Announcements
-
-↓
-
-Screen Reader Support
-
-↓
-
-Accessible Controls
-
-↓
-
-Color Independence
-
-↓
-
-Inclusive Design
-
-Every user should complete the form successfully.
-
----
-
-# Stage 11 — Performance
-
-Optimize
-
-Rendering
-
-↓
-
-Validation Frequency
-
-↓
-
-Network Requests
-
-↓
-
-Bundle Size
-
-↓
-
-Field Updates
-
-↓
-
-Large Forms
-
-↓
-
-Async Validation
-
-↓
-
-User Experience
-
-Performance should support uninterrupted interaction.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Reusable Fields
-
-↓
-
-Validation Logic
-
-↓
-
-Schemas
-
-↓
-
-Utilities
-
-↓
-
-Submission Logic
-
-↓
-
-Shared Components
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-Separate presentation from validation and business logic.
-
----
-
-# Stage 13 — Scalability
-
-Design for
-
-Growing Forms
-
-↓
-
-Reusable Components
-
-↓
-
-Multiple Workflows
-
-↓
-
-Dynamic Fields
-
-↓
-
-Internationalization
-
-↓
-
-Large Teams
-
-↓
-
-Enterprise Applications
-
-↓
-
-Future Evolution
-
-Forms should scale without increasing complexity.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Business Rules
-
-↓
-
-Validation Rules
-
-↓
-
-Submission Process
-
-↓
-
-Error Handling
-
-↓
-
-Security Decisions
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves engineering intent.
-
----
-
-# Stage 15 — Review
-
-Review
-
-User Experience
-
-↓
-
-Validation
-
-↓
-
-Accessibility
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Consistency
-
-↓
-
-Engineering Standards
-
-Review complete workflows rather than individual fields.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Invalid Data
-
-↓
-
-Duplicate Submission
-
-↓
-
-Security Risks
-
-↓
-
-Accessibility Failures
-
-↓
-
-Validation Gaps
-
-↓
-
-Technical Debt
-
-↓
-
-Operational Risk
-
-↓
-
-Maintenance Cost
-
-Poor forms increase operational support costs.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Validation
-
-↓
-
-User Experience
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Every completed form provides opportunities for improvement.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Validation Rules
-
-↓
-
-Security
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Submission Reliability
-
-↓
-
-Recovery
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Reliable forms create reliable data.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Validation Standards
-
-↓
-
-Component Ownership
-
-↓
-
-Review Process
-
-↓
-
-Documentation
-
-↓
-
-Version Management
-
-↓
-
-Engineering Discipline
-
-↓
-
-Quality Standards
-
-↓
-
-Continuous Evolution
-
-Form systems require consistent governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Architecture
-
-↓
-
-Validation
-
-↓
-
-Accessibility
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-Software Longevity
-
-Exceptional form systems remain understandable and reliable regardless of application growth.
-
----
-
-# Forms Quality Attributes
-
-Evaluate
-
-Usability
-
-Correctness
-
-Security
-
-Accessibility
-
-Performance
-
-Maintainability
-
-Reliability
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every field serve a business purpose?
-
-↓
-
-Can users understand what information is required?
-
-↓
-
-Are validation rules complete and consistent?
-
-↓
-
-Can users recover from every error?
-
-↓
-
-Is sensitive information properly protected?
-
-↓
-
-Will future engineers understand the validation architecture?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this form system?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken validation
-
-Security vulnerabilities
-
-Data corruption
-
-Sensitive information exposure
-
-Major
-
-Poor user experience
-
-Weak validation
-
-Submission failures
-
-Accessibility violations
-
-Medium
-
-Large components
-
-Documentation gaps
-
-Naming inconsistencies
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Forms Checklist
-
-✓ Requirements understood
-
-✓ Data model designed
-
-✓ Form architecture established
-
-✓ User experience optimized
-
-✓ Validation implemented
-
-✓ Error handling completed
-
-✓ Security reviewed
-
-✓ State managed
-
-✓ Submission workflow validated
-
-✓ Accessibility ensured
-
-✓ Performance optimized
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Validating only on submission
-
-Duplicating validation rules
-
-Weak error messages
-
-Hidden required fields
-
-Large monolithic forms
-
-Mixing UI with business validation
-
-Ignoring accessibility
-
-Client-only validation
-
-Multiple submission paths
-
-Inconsistent field behavior
-
-Collecting unnecessary information
-
-Ignoring recovery workflows
-
-Treating forms as simple input screens
-
----
-
-# Definition of Done
-
-A form system is considered production-ready when
-
-- Every field represents a clearly defined business requirement supported by documented validation rules, predictable behavior, meaningful defaults, and explicit ownership throughout the submission lifecycle.
-- User experience, accessibility, validation, security, error recovery, submission workflows, and data integrity operate together as a cohesive system that minimizes user friction while maximizing correctness.
-- Validation architecture consistently enforces business constraints at appropriate boundaries, prevents invalid data from entering the system, and provides actionable feedback that enables successful recovery.
-- Form state, asynchronous operations, persistence, loading states, confirmation flows, retries, and failure handling remain deterministic, observable, and resilient under both normal and exceptional conditions.
-- Security controls protect sensitive information through server-side validation, input sanitization, authorization, rate limiting, abuse prevention, and secure handling of confidential data.
-- Engineering reviews validate usability, accessibility compliance, validation completeness, performance characteristics, security posture, maintainability, documentation quality, and long-term scalability before production deployment.
-- Documentation preserves business rules, validation strategies, architectural decisions, known constraints, operational workflows, and future evolution plans for subsequent engineering teams.
-- The resulting form system demonstrates engineering discipline, architectural clarity, operational reliability, maintainability, scalability, and long-term software sustainability.
-
-Exceptional forms are not measured by the number of fields they contain.
-
-They are measured by how confidently users complete them, how reliably they preserve data integrity, how effectively they prevent errors before submission, and how easily future engineers can extend their behavior while maintaining architectural consistency.
+# Checklist
+
+- [ ] Every form is a real `<form>` with a submit button and named fields
+- [ ] Appropriate `type`, `inputmode` and `autocomplete` are set per field
+- [ ] Native constraint attributes are used where they apply
+- [ ] One schema definition validates on both client and server
+- [ ] Validation runs on blur first, then on change once a field is invalid
+- [ ] Error messages state the problem and the fix
+- [ ] Errors are associated with `aria-describedby` and announced with `role="alert"`
+- [ ] `aria-invalid` is set on failing fields
+- [ ] Errors are never conveyed by colour alone
+- [ ] Labels are visible and associated; placeholders are not used as labels
+- [ ] Focus moves to the first invalid field on failed submit
+- [ ] The submit control is disabled while in flight
+- [ ] Submissions carry an idempotency key
+- [ ] Server field errors are mapped back onto the fields
+- [ ] Input is never cleared on error
+- [ ] Unsaved-change warnings and drafts exist for long forms, excluding secrets
+- [ ] CSRF protection covers every state-changing submission
+- [ ] No form values are logged

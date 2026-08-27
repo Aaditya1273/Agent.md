@@ -5,994 +5,196 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: email
+category: Backend
+description: Sending transactional email that arrives — SPF/DKIM/DMARC, provider choice, templating, bounce handling, and keeping the sending domain reputable.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# email.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, implement, review, optimize, and maintain Email systems.
+Rules for transactional email — password resets, receipts, notifications. The hard
+part is not sending; it is **arriving**. An email that lands in spam is worse than
+one that fails loudly, because nothing tells you.
 
-Email is not simply sending messages.
-
-Email is a reliable communication channel used for authentication, notifications, transactional workflows, business communication, compliance, and customer engagement.
-
-The objective is to build email systems that are reliable, secure, scalable, observable, compliant, and capable of delivering the right message to the right recipient at the right time.
-
-Emails are user communication.
-
-Treat them as part of the product experience.
+Marketing email is a different discipline with different consent rules. Keep it on
+a different subdomain so its reputation cannot damage your password resets.
 
 ---
 
-# Core Philosophy
+# Authenticate the domain, or nothing else matters
 
-Trigger Event
+Three DNS records. Without all three, major providers will filter you regardless
+of content.
 
-↓
+```dns
+; SPF — which servers may send as this domain. One record only.
+example.com.  TXT  "v=spf1 include:_spf.provider.com -all"
 
-Validate Request
+; DKIM — the provider's public key; it signs each message
+sel1._domainkey.example.com.  CNAME  sel1.domainkey.provider.com.
 
-↓
+; DMARC — what to do when SPF and DKIM fail, and where to report
+_dmarc.example.com.  TXT  "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100"
+```
 
-Generate Content
+| Record | Purpose | Common mistake |
+| --- | --- | --- |
+| SPF | Authorises sending servers | Two SPF records — this is a permanent failure; merge them |
+| DKIM | Cryptographic signature over the message | Rotating keys without publishing the new selector first |
+| DMARC | Policy plus reporting | Leaving `p=none` forever; it enforces nothing |
+| BIMI | Logo display | Requires `p=quarantine`/`reject` first |
 
-↓
+Roll DMARC out as `p=none` → `p=quarantine; pct=25` → `p=reject`, reading the
+aggregate reports at each step. Going straight to `p=reject` will silently break
+whatever legitimate sender you forgot about.
 
-Queue Email
-
-↓
-
-Send Email
-
-↓
-
-Track Delivery
-
-↓
-
-Handle Failures
-
-↓
-
-Approve
-
-Email sending should never block business operations.
+Use a **subdomain** for sending (`mail.example.com`). It isolates reputation and
+keeps your root domain's DNS simpler.
 
 ---
 
-# Primary Objective
+# Use a provider, and one abstraction
 
-Every email system should answer one question.
+Do not run your own SMTP server. Deliverability depends on IP reputation, feedback
+loops and relationships with mailbox providers that a provider already has.
 
-"Can important emails be delivered reliably, securely, and observably without negatively affecting application performance or user experience?"
+```ts
+interface Mailer {
+  send(msg: { to: string; template: TemplateId; data: Record<string, unknown>;
+              idempotencyKey: string }): Promise<{ messageId: string }>;
+}
+```
 
-If the answer is uncertain,
+One interface, one implementation per provider. Providers have outages and price
+changes, and a direct SDK call from forty places is a migration nobody schedules.
 
-the email architecture requires improvement.
-
----
-
-# Email Principles
-
-Every implementation should maximize
-
-Reliability
-
-↓
-
-Deliverability
-
-↓
-
-Security
-
-↓
-
-Scalability
-
-↓
-
-Maintainability
-
-↓
-
-Observability
-
-↓
-
-Compliance
-
-↓
-
-Developer Experience
-
-Emails should reach users.
-
-Not spam folders.
+- **Warm up** a new sending domain or dedicated IP gradually. A cold domain sending
+  50,000 messages on day one is filtered as a spam source.
+- A **shared IP pool** is usually better for low volume — you inherit the
+  provider's reputation instead of building your own. A dedicated IP only pays off
+  above a consistent high volume.
 
 ---
 
-# Email Workflow
+# Send asynchronously and idempotently
 
-Business Event
+```ts
+// The request must not depend on the provider's availability or latency
+await queue.add("send-email", { userId, template: "password-reset" },
+                { jobId: `pwreset:${userId}:${tokenId}` });
+```
 
-↓
-
-Validate Recipient
-
-↓
-
-Generate Email
-
-↓
-
-Queue Message
-
-↓
-
-Send Email
-
-↓
-
-Track Delivery
-
-↓
-
-Handle Failures
-
-↓
-
-Approve
+- Never send inline in a request handler. A slow provider becomes your latency,
+  and an outage becomes your outage.
+- Enqueue **after** the transaction commits — a receipt for an order that rolled
+  back is a support ticket. → `Backend/background-jobs`
+- Deduplicate: retries must not send the message twice. The deterministic job id
+  above is the guard.
+- Retry on `5xx` and timeouts only. A `4xx` for an invalid address is permanent —
+  retrying it damages your reputation.
 
 ---
 
-# Stage 1 — Email Classification
+# Content and templating
 
-Identify email categories.
-
-Examples
-
-Account Verification
-
-↓
-
-Password Reset
-
-↓
-
-Magic Links
-
-↓
-
-Purchase Confirmation
-
-↓
-
-Invoice Delivery
-
-↓
-
-Security Alerts
-
-↓
-
-Welcome Emails
-
-↓
-
-Order Updates
-
-↓
-
-Marketing Campaigns
-
-↓
-
-Weekly Reports
-
-Transactional and marketing emails should remain independent.
+- **Multipart: HTML and plain text.** A missing text part is a spam signal, and
+  some clients only render text.
+- Table-based layout with inline CSS. Email clients are twenty years behind
+  browsers; `flexbox`, `grid` and external stylesheets do not work reliably.
+- Width around 600px, images with `alt` text, and a design that still communicates
+  with images blocked — which is the default in many clients.
+- **Escape every interpolated value.** A user-controlled display name in an HTML
+  email is an injection vector, especially where the email is later viewed in a
+  web client. → `Security/xss`
+- Never put a secret in a URL you also log, and never email a password.
+- Localise using the recipient's stored preference, not the sending server's.
+- Test rendering across clients (Litmus, Email on Acid, or at minimum Gmail,
+  Outlook, Apple Mail) — Outlook's rendering engine will break a layout that works
+  everywhere else.
 
 ---
 
-# Stage 2 — Trigger Design
+# Handle bounces and complaints
 
-Emails should be triggered by
+Ignoring these is how a sending domain gets blocked.
 
-Business events
+| Event | Action |
+| --- | --- |
+| Hard bounce | Mark the address invalid; **never send to it again** |
+| Soft bounce | Retry with backoff; after N, treat as hard |
+| Spam complaint | Suppress immediately, all categories |
+| Unsubscribe | Suppress for that category; honour `List-Unsubscribe` |
 
-↓
+Consume the provider's webhooks and maintain a **suppression list** checked before
+every send. → `API/webhooks`
 
-User actions
+Continuing to send to hard-bounced addresses is the fastest way to be classified
+as a spam source, because it is exactly what a spammer's list looks like.
 
-↓
+Watch bounce rate (< 2%), complaint rate (< 0.1%), and delivery rate. Alert when
+they move — a deploy that breaks the unsubscribe link shows up here first.
 
-Scheduled jobs
+| Header | Why it matters |
+| --- | --- |
+| `List-Unsubscribe` | Required by Gmail and Yahoo at volume; enables the native unsubscribe button |
+| `List-Unsubscribe-Post: List-Unsubscribe=One-Click` | Makes that button one-click, as required |
+| `Message-ID` | Correlates provider events back to your send record |
+| `In-Reply-To` / `References` | Threads replies correctly in the client |
+| `Reply-To` | A monitored address — `noreply@` discards real user replies |
+| `Return-Path` | Where bounces go; the provider sets it, and it must align for SPF |
+| `Precedence: bulk` | Suppresses vacation auto-responders on non-critical mail |
 
-↓
-
-Administrative actions
-
-↓
-
-System events
-
-Avoid triggering emails directly from controllers whenever possible.
-
----
-
-# Stage 3 — Recipient Validation
-
-Validate
-
-Email format
-
-↓
-
-Verified account
-
-↓
-
-Subscription status
-
-↓
-
-Bounce history
-
-↓
-
-Suppression list
-
-↓
-
-Recipient permissions
-
-Never send to invalid recipients.
+Verify your setup against a diagnostic tool (`mail-tester.com`, MXToolbox, or
+`dig TXT _dmarc.example.com`) before launch, and re-verify after any DNS change.
 
 ---
 
-# Stage 4 — Template Design
+# Anti-patterns
 
-Templates should be
-
-Reusable
-
-↓
-
-Responsive
-
-↓
-
-Accessible
-
-↓
-
-Versioned
-
-↓
-
-Localized
-
-↓
-
-Brand consistent
-
-↓
-
-Maintainable
-
-Business logic should never live inside templates.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No SPF/DKIM/DMARC | Filtered regardless of content | All three, validated |
+| Two SPF records | Permanent SPF failure | Merge into one |
+| `p=none` indefinitely | DMARC enforces nothing | Progress to `reject` |
+| Running your own SMTP | Reputation you cannot build | Use a provider |
+| Marketing and transactional on one domain | Campaign complaints block password resets | Separate subdomains |
+| Sending inline in a request | Provider latency and outages become yours | Queue it |
+| Sending before commit | Receipts for rolled-back work | Enqueue after commit |
+| No deduplication | Retries send duplicates | Deterministic job id |
+| Retrying hard bounces | Reputation damage | Suppress permanently |
+| No suppression list | Repeated sends to dead addresses | Consume bounce webhooks |
+| HTML only | Spam signal; unreadable in text clients | Multipart |
+| Modern CSS in email | Breaks in Outlook and others | Tables and inline styles |
+| Unescaped user content | Injection in the recipient's client | Escape everything |
+| Design that needs images | Images are blocked by default | Meaningful without them |
+| Ignoring bounce and complaint rates | Blocked before you notice | Monitor and alert |
+| Cold domain at full volume | Classified as a spam source | Warm up gradually |
 
 ---
 
-# Stage 5 — Personalization
-
-Support
-
-User name
-
-↓
-
-Organization
-
-↓
-
-Language
-
-↓
-
-Time zone
-
-↓
-
-Preferences
-
-↓
-
-Dynamic data
-
-Personalization should improve relevance without exposing sensitive information.
-
----
-
-# Stage 6 — Localization
-
-Support
-
-Multiple languages
-
-↓
-
-Regional formatting
-
-↓
-
-Currencies
-
-↓
-
-Dates
-
-↓
-
-Time zones
-
-↓
-
-Localized templates
-
-Global applications require localized communication.
-
----
-
-# Stage 7 — Email Generation
-
-Generate
-
-Subject
-
-↓
-
-Plain text version
-
-↓
-
-HTML version
-
-↓
-
-Attachments (when required)
-
-↓
-
-Tracking metadata
-
-↓
-
-Headers
-
-Every email should have a readable plain-text alternative.
-
----
-
-# Stage 8 — Attachments
-
-Review
-
-File type
-
-↓
-
-File size
-
-↓
-
-Virus scanning
-
-↓
-
-Access permissions
-
-↓
-
-Download expiration
-
-↓
-
-Compression
-
-Avoid unnecessary attachments.
-
-Prefer secure download links for large files.
-
----
-
-# Stage 9 — Queue Integration
-
-Email delivery should use
-
-Background jobs
-
-↓
-
-Queues
-
-↓
-
-Workers
-
-↓
-
-Retry policies
-
-↓
-
-Priority handling
-
-Never block HTTP requests while sending email.
-
----
-
-# Stage 10 — Deliverability
-
-Review
-
-SPF
-
-↓
-
-DKIM
-
-↓
-
-DMARC
-
-↓
-
-Sender reputation
-
-↓
-
-Bounce rate
-
-↓
-
-Spam score
-
-↓
-
-Domain alignment
-
-Deliverability is part of system reliability.
-
----
-
-# Stage 11 — Failure Handling
-
-Handle
-
-Temporary SMTP failures
-
-↓
-
-Provider outages
-
-↓
-
-Rate limiting
-
-↓
-
-Soft bounces
-
-↓
-
-Hard bounces
-
-↓
-
-Invalid recipients
-
-Every delivery failure should be observable.
-
----
-
-# Stage 12 — Retry Strategy
-
-Retry only transient failures.
-
-Implement
-
-Exponential backoff
-
-↓
-
-Retry limits
-
-↓
-
-Dead Letter Queue
-
-↓
-
-Alerting
-
-↓
-
-Manual replay
-
-Permanent failures should not be retried indefinitely.
-
----
-
-# Stage 13 — Security
-
-Review
-
-Encrypted transport
-
-↓
-
-Secret management
-
-↓
-
-Signed links
-
-↓
-
-One-time tokens
-
-↓
-
-Sensitive content
-
-↓
-
-Phishing resistance
-
-Security emails require the highest level of protection.
-
----
-
-# Stage 14 — Compliance
-
-Support
-
-Unsubscribe
-
-↓
-
-Consent management
-
-↓
-
-Data retention
-
-↓
-
-Privacy regulations
-
-↓
-
-Audit logging
-
-↓
-
-Legal requirements
-
-Compliance varies by jurisdiction and email category.
-
----
-
-# Stage 15 — Observability
-
-Monitor
-
-Delivery rate
-
-↓
-
-Open rate
-
-↓
-
-Click rate
-
-↓
-
-Bounce rate
-
-↓
-
-Complaint rate
-
-↓
-
-Queue latency
-
-↓
-
-Provider latency
-
-Every email should be traceable.
-
----
-
-# Stage 16 — Logging
-
-Log
-
-Email ID
-
-↓
-
-Recipient ID
-
-↓
-
-Template
-
-↓
-
-Provider
-
-↓
-
-Delivery status
-
-↓
-
-Retry count
-
-↓
-
-Failure reason
-
-Never log
-
-Passwords
-
-Reset tokens
-
-Secrets
-
-Sensitive email content
-
----
-
-# Stage 17 — Scalability
-
-Support
-
-Bulk sending
-
-↓
-
-Multiple providers
-
-↓
-
-Provider failover
-
-↓
-
-Regional delivery
-
-↓
-
-Horizontal workers
-
-↓
-
-Auto scaling
-
-Email infrastructure should scale independently of applications.
-
----
-
-# Stage 18 — Testing
-
-Verify
-
-Successful delivery
-
-↓
-
-Template rendering
-
-↓
-
-Localization
-
-↓
-
-Retry behavior
-
-↓
-
-Bounce handling
-
-↓
-
-Attachments
-
-↓
-
-Large campaigns
-
-↓
-
-Failure recovery
-
-Email systems require both functional and operational testing.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Email types
-
-↓
-
-Templates
-
-↓
-
-Trigger events
-
-↓
-
-Providers
-
-↓
-
-Retry policy
-
-↓
-
-Compliance rules
-
-↓
-
-Monitoring
-
-↓
-
-Recovery procedures
-
-Documentation should support both developers and operations teams.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Delivery metrics
-
-↓
-
-Bounce trends
-
-↓
-
-Template performance
-
-↓
-
-Infrastructure cost
-
-↓
-
-Provider reliability
-
-↓
-
-User feedback
-
-Email systems should improve continuously.
-
----
-
-# Email Quality Attributes
-
-Evaluate
-
-Reliability
-
-Deliverability
-
-Performance
-
-Scalability
-
-Security
-
-Compliance
-
-Observability
-
-Developer Experience
-
----
-
-# Email Questions
-
-Before approval ask
-
-Can important emails always be delivered?
-
-↓
-
-Can failed emails recover automatically?
-
-↓
-
-Can users receive localized content?
-
-↓
-
-Can delivery be fully observed?
-
-↓
-
-Can infrastructure scale during peak demand?
-
-↓
-
-Can compliance requirements be satisfied?
-
-↓
-
-Would another engineering team trust this email architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Lost transactional emails
-
-Password reset failure
-
-Verification email failure
-
-Sensitive information leakage
-
-Provider outage without recovery
-
-Major
-
-Poor deliverability
-
-Weak retry strategy
-
-Broken templates
-
-High bounce rate
-
-Missing monitoring
-
-Medium
-
-Localization improvements
-
-Performance optimization
-
-Template improvements
-
-Minor
-
-Formatting
-
-Brand consistency
-
-Operational enhancements
-
-Future optimization
-
----
-
-# Email Checklist
-
-✓ Email categories identified
-
-✓ Trigger events defined
-
-✓ Recipient validation implemented
-
-✓ Templates reusable
-
-✓ Localization supported
-
-✓ Plain-text version included
-
-✓ Queue integration implemented
-
-✓ Deliverability configured
-
-✓ Retry strategy implemented
-
-✓ Compliance reviewed
-
-✓ Logging enabled
-
-✓ Monitoring configured
-
-✓ Security validated
-
-✓ Testing completed
-
-✓ Documentation complete
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Sending emails inside HTTP requests
-
-Hardcoded email templates
-
-Business logic inside templates
-
-Sending to unverified recipients
-
-Ignoring SPF, DKIM, and DMARC
-
-Infinite retries
-
-Logging email secrets
-
-Large attachments without validation
-
-Ignoring unsubscribe preferences
-
-No plain-text alternative
-
-Provider-specific implementation throughout the codebase
-
-Ignoring bounce handling
-
-Treating transactional and marketing emails identically
-
----
-
-# Definition of Done
-
-Email system review is complete when
-
-- Transactional and marketing emails are clearly separated and independently managed.
-- Email generation is asynchronous and does not affect request-response performance.
-- Templates are reusable, localized, accessible, and version-controlled.
-- Deliverability is protected through proper authentication, reputation management, and monitoring.
-- Retry strategies recover from temporary failures without causing duplicate or excessive delivery.
-- Sensitive emails use secure links, encrypted transport, and minimal exposure of confidential information.
-- Logging and monitoring provide complete visibility into delivery, failures, and provider performance.
-- Compliance requirements for consent, privacy, retention, and unsubscribe management are satisfied.
-- Documentation explains email workflows, templates, providers, retries, and operational procedures.
-- The email system continues delivering reliable communication despite provider outages, traffic spikes, infrastructure failures, or increasing business scale.
-
-Exceptional email systems are nearly invisible.
-
-Users receive timely, secure, and relevant communication, transactional messages arrive reliably, marketing campaigns remain compliant, operators have complete visibility into delivery health, and the platform communicates with confidence regardless of scale or infrastructure conditions.
+# Checklist
+
+- [ ] SPF, DKIM and DMARC are published and verified for the sending domain
+- [ ] Exactly one SPF record exists
+- [ ] DMARC has progressed beyond `p=none` and reports are reviewed
+- [ ] Transactional and marketing mail use separate subdomains
+- [ ] A provider is used; no self-hosted SMTP
+- [ ] New domains and IPs are warmed up gradually
+- [ ] All sending goes through one internal interface
+- [ ] Email is sent from a background job, after the transaction commits
+- [ ] Sends are deduplicated by a deterministic key
+- [ ] Retries cover transient failures only
+- [ ] Every message is multipart HTML and plain text
+- [ ] Templates use table layout and inline CSS, tested in real clients
+- [ ] Emails remain useful with images blocked
+- [ ] All interpolated values are escaped
+- [ ] Bounce, complaint and unsubscribe webhooks feed a suppression list
+- [ ] The suppression list is checked before every send
+- [ ] Bounce rate, complaint rate and delivery rate are monitored and alerted

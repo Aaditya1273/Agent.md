@@ -5,942 +5,193 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: middlewares
+category: Backend
+description: HTTP middleware — correct ordering, per-route scoping, error propagation, async context, and keeping request-scoped state out of module scope.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# middlewares.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, implement, review, optimize, and maintain middleware architecture in backend applications.
+Rules for middleware — the functions that run before, around and after a request
+handler. Middleware is where cross-cutting concerns belong: correlation ids,
+authentication, rate limiting, body parsing, error translation.
 
-Middleware is not simply code that executes before a request reaches a controller.
-
-Middleware is a request-processing pipeline responsible for handling cross-cutting concerns such as authentication, authorization, validation, logging, security, rate limiting, tracing, and request transformation.
-
-The objective is to build middleware systems that remain modular, composable, reusable, observable, secure, and independent from business logic.
-
-Middleware should process requests.
-
-It should never become business logic.
+It is also where two expensive bugs live: **wrong order**, which silently disables
+a security control, and **module-scoped request state**, which leaks one user's
+data into another's response.
 
 ---
 
-# Core Philosophy
+# Order is a security control
 
-Receive Request
+Middleware runs in registration order. Registering authentication after a route
+means the route is public.
 
-↓
+```ts
+app.use(requestId());              // 1. first — everything below logs with it
+app.use(securityHeaders());        // 2. applies even to error responses
+app.use(cors(corsOptions));        // 3. before auth: preflight carries no credentials
+app.use(express.json({ limit: "100kb" }));  // 4. bounded body parsing
+app.use(rateLimit());              // 5. before expensive work, after identification
+app.use(authenticate());           // 6. establishes the identity
+app.use(authorize());              // 7. uses it
+app.use(routes);                   // 8. handlers
+app.use(notFound());               // 9.
+app.use(errorHandler());           // 10. last — Express identifies it by arity (4 args)
+```
 
-Execute Pipeline
+The reasoning behind each position:
 
-↓
+| Position | Why |
+| --- | --- |
+| Request id first | Every later log line and error response needs it |
+| Security headers early | They must apply to `4xx` and `5xx` too |
+| CORS before auth | Preflight `OPTIONS` carries no credentials and must not `401` |
+| Body limit before parsing | Otherwise a large body is read into memory first |
+| Rate limit before handlers | The point is to avoid the expensive work |
+| Authn before authz | You cannot authorize an unknown principal |
+| Error handler last | It is the terminal handler for everything above |
 
-Validate Request
-
-↓
-
-Protect Resources
-
-↓
-
-Enrich Context
-
-↓
-
-Continue Processing
-
-↓
-
-Generate Response
-
-↓
-
-Approve
-
-Every middleware should solve one concern.
-
-Nothing more.
+**Never** register a route before the authentication middleware and assume the
+route guards itself. That is one refactor away from a public endpoint.
 
 ---
 
-# Primary Objective
+# Scope it correctly
 
-Every middleware implementation should answer one question.
+Global middleware runs for every request, including health checks and static
+assets.
 
-"Can every request pass through a predictable, secure, reusable, and maintainable processing pipeline before reaching business logic?"
+```ts
+app.use("/api/admin", requireRole("admin"));       // path-scoped
+router.post("/orders", validate(CreateOrder), createOrder);   // route-scoped
+```
 
-If the answer is uncertain,
-
-the middleware architecture requires improvement.
-
----
-
-# Middleware Principles
-
-Every implementation should maximize
-
-Separation of Concerns
-
-↓
-
-Reusability
-
-↓
-
-Predictability
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Observability
-
-↓
-
-Developer Experience
-
-Middleware should reduce duplication.
-
-Never increase coupling.
+- Expensive middleware (session lookup, feature-flag fetch) should be scoped to
+  the routes that need it, not global.
+- **Default-deny is safer than default-allow.** Apply authentication globally and
+  mark public routes explicitly, rather than protecting routes one by one — a
+  forgotten `requireAuth` on a new route is an unauthenticated endpoint, whereas a
+  forgotten `public()` marker is a visible `401`.
+- Exempt health and metrics endpoints deliberately, and only those.
 
 ---
 
-# Middleware Workflow
+# Request-scoped state must not be module-scoped
 
-Receive Request
+```ts
+// Catastrophic — one shared object across all concurrent requests.
+// Under load, user A's request reads user B's identity.
+let currentUser;
+app.use((req, _res, next) => { currentUser = req.user; next(); });
 
-↓
+// Correct — async context, isolated per request
+const ctx = new AsyncLocalStorage<{ requestId: string; user: User }>();
+app.use((req, res, next) => ctx.run({ requestId: req.id, user: req.user }, next));
+```
 
-Identify Middleware Chain
+`AsyncLocalStorage` (Node), `context.Context` (Go), `contextvars` (Python) exist
+for exactly this. They let logging and tracing reach request context without
+threading a parameter through every function.
 
-↓
-
-Execute Sequentially
-
-↓
-
-Modify Context
-
-↓
-
-Validate Request
-
-↓
-
-Continue Pipeline
-
-↓
-
-Handle Response
-
-↓
-
-Approve
+Attach request-scoped resources — a per-request DataLoader, a database transaction
+handle — to the context, never to a module variable. A module-scope DataLoader
+caches across users and leaks data between them. → `API/graphql`
 
 ---
 
-# Stage 1 — Responsibility Identification
+# Errors must reach the handler
 
-Middleware should solve cross-cutting concerns.
+```ts
+// Express 4: a rejected promise in an async middleware is unhandled —
+// the request hangs until the client times out.
+app.use(async (req, res, next) => {
+  try { req.user = await loadUser(req); next(); }
+  catch (err) { next(err); }          // ← or use a wrapper / Express 5
+});
+```
 
-Examples
-
-Authentication
-
-Authorization
-
-Validation
-
-Logging
-
-Tracing
-
-Rate Limiting
-
-Compression
-
-Caching
-
-CORS
-
-Security Headers
-
-Request IDs
-
-Localization
-
-Never place business logic inside middleware.
+- Express 5 forwards rejected promises automatically; Express 4 does not.
+- Every middleware must either call `next()`, call `next(err)`, or send a
+  response — **exactly one**. Calling `next()` after sending produces
+  "headers already sent".
+- One error-handling middleware, registered last, translates errors into
+  responses. → `Backend/error-handling`
+- Response-modifying middleware (compression, headers) must wrap or hook the
+  response, not assume it runs before the handler.
 
 ---
 
-# Stage 2 — Middleware Ordering
+# Keep it fast
 
-Order matters.
+Every global middleware runs on every request, so its cost is multiplied by
+traffic.
 
-Recommended sequence
+- No blocking I/O in a middleware that could be lazy. Load the user's permissions
+  when a handler asks, not on every request including health checks.
+- Cache what is stable per process (JWKS, feature flags, configuration) with a
+  refresh interval, not per request. → `Security/jwt`
+- Do not parse a body the route does not use — scope the parser.
+- Measure middleware cost: a 15 ms lookup in a global middleware is 15 ms on the
+  p50 of every endpoint.
 
-Request ID
+| Framework | Registration | Error handler signature |
+| --- | --- | --- |
+| Express 4/5 | `app.use(fn)` | `(err, req, res, next)` — arity is how it is detected |
+| Fastify | `app.addHook("onRequest", fn)` | `setErrorHandler` |
+| Koa | `app.use(async (ctx, next) => …)` | `try/catch` around `await next()` |
+| Hono | `app.use("*", fn)` | `app.onError` |
+| NestJS | Guards, interceptors, pipes, filters | `ExceptionFilter` |
+| Go `net/http` | `func(http.Handler) http.Handler` | Recover middleware, outermost |
 
-↓
-
-Logging
-
-↓
-
-Security Headers
-
-↓
-
-CORS
-
-↓
-
-Rate Limiting
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Validation
-
-↓
-
-Business Logic
-
-↓
-
-Response Processing
-
-↓
-
-Error Handler
-
-Incorrect ordering creates security risks.
+Koa-style onion middleware wraps `await next()`, so one function sees both the
+request and the response — that is what makes timing and response rewriting
+straightforward there and awkward in Express.
 
 ---
 
-# Stage 3 — Single Responsibility
+# Anti-patterns
 
-Each middleware should perform exactly one task.
-
-Good
-
-Authentication Middleware
-
-Validation Middleware
-
-Logging Middleware
-
-Compression Middleware
-
-Bad
-
-Authentication + Validation + Database Queries
-
-Small middleware is easier to test and reuse.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Auth registered after routes | Routes are silently public | Order deliberately; test it |
+| Per-route opt-in auth | One forgotten line is an open endpoint | Default-deny with explicit public routes |
+| CORS after auth | Preflight `OPTIONS` gets `401` | CORS before auth |
+| Body parsing without a limit | Memory exhaustion | `limit` on the parser |
+| Module-scoped request state | Cross-request data leakage | `AsyncLocalStorage` |
+| Module-scoped DataLoader | Caches across users | Create per request |
+| Async middleware without a catch (Express 4) | Request hangs until timeout | `next(err)` or a wrapper |
+| Calling `next()` after responding | "Headers already sent" | Exactly one outcome per middleware |
+| Multiple error handlers | Inconsistent responses | One, registered last |
+| Expensive lookups in global middleware | Cost on every request including probes | Scope it, or make it lazy |
+| Per-request JWKS fetch | Network call per request | Cache with a refresh interval |
+| Security headers after the handler | Missing on error responses | Register early |
+| Order changed without a test | Silent security regression | Assert on unauthenticated access |
 
 ---
 
-# Stage 4 — Stateless Design
-
-Middleware should remain stateless.
-
-Avoid
-
-Global variables
-
-Mutable shared state
-
-Request-specific caches
-
-Hidden side effects
-
-Every request should be processed independently.
-
----
-
-# Stage 5 — Context Management
-
-Middleware may enrich request context.
-
-Examples
-
-Authenticated User
-
-Permissions
-
-Request ID
-
-Correlation ID
-
-Locale
-
-Tenant
-
-Feature Flags
-
-Only attach validated information.
-
----
-
-# Stage 6 — Authentication Middleware
-
-Responsibilities
-
-Verify identity
-
-↓
-
-Validate tokens
-
-↓
-
-Load user
-
-↓
-
-Attach identity
-
-↓
-
-Reject unauthorized requests
-
-Authentication verifies identity.
-
-Nothing more.
-
----
-
-# Stage 7 — Authorization Middleware
-
-Responsibilities
-
-Load permissions
-
-↓
-
-Evaluate policies
-
-↓
-
-Verify ownership
-
-↓
-
-Allow or deny
-
-Authorization determines access.
-
-Not identity.
-
----
-
-# Stage 8 — Validation Middleware
-
-Validate
-
-Headers
-
-↓
-
-Query Parameters
-
-↓
-
-Path Parameters
-
-↓
-
-Request Body
-
-↓
-
-Files
-
-↓
-
-Content Type
-
-Reject invalid requests immediately.
-
----
-
-# Stage 9 — Logging Middleware
-
-Capture
-
-Request ID
-
-↓
-
-Method
-
-↓
-
-URL
-
-↓
-
-Status
-
-↓
-
-Latency
-
-↓
-
-IP
-
-↓
-
-User Agent
-
-↓
-
-User ID (when authenticated)
-
-Never log
-
-Passwords
-
-Tokens
-
-Secrets
-
-Sensitive personal data
-
----
-
-# Stage 10 — Error Middleware
-
-Centralize
-
-Application errors
-
-↓
-
-Validation errors
-
-↓
-
-Authentication errors
-
-↓
-
-Authorization errors
-
-↓
-
-Unexpected exceptions
-
-Never duplicate error handling.
-
----
-
-# Stage 11 — Response Middleware
-
-Modify responses only when necessary.
-
-Examples
-
-Compression
-
-Caching
-
-Headers
-
-Cookies
-
-Metadata
-
-Version headers
-
-Response middleware should remain predictable.
-
----
-
-# Stage 12 — Performance
-
-Review
-
-Execution time
-
-↓
-
-Memory allocation
-
-↓
-
-Database queries
-
-↓
-
-External API calls
-
-↓
-
-Blocking operations
-
-Middleware should execute quickly.
-
----
-
-# Stage 13 — Security
-
-Review
-
-Input validation
-
-↓
-
-Security headers
-
-↓
-
-HTTPS
-
-↓
-
-CORS
-
-↓
-
-CSRF
-
-↓
-
-Rate limiting
-
-↓
-
-Request sanitization
-
-Security middleware should execute before business logic.
-
----
-
-# Stage 14 — Observability
-
-Implement
-
-Structured logs
-
-↓
-
-Tracing
-
-↓
-
-Metrics
-
-↓
-
-Correlation IDs
-
-↓
-
-Request timing
-
-↓
-
-Error tracking
-
-Every request should be traceable.
-
----
-
-# Stage 15 — Dependency Management
-
-Middleware should depend on
-
-Interfaces
-
-↓
-
-Configuration
-
-↓
-
-Services
-
-Avoid
-
-Database queries when unnecessary
-
-Business services
-
-Application workflows
-
-Dependencies should remain minimal.
-
----
-
-# Stage 16 — Reusability
-
-Middleware should
-
-Remain framework-independent when possible
-
-↓
-
-Be configurable
-
-↓
-
-Be composable
-
-↓
-
-Support multiple routes
-
-↓
-
-Support multiple applications
-
-Reusable middleware reduces maintenance.
-
----
-
-# Stage 17 — Testing
-
-Verify
-
-Execution order
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Validation
-
-↓
-
-Error handling
-
-↓
-
-Performance
-
-↓
-
-Failure scenarios
-
-↓
-
-Concurrency
-
-Every middleware should be independently testable.
-
----
-
-# Stage 18 — Documentation
-
-Document
-
-Purpose
-
-↓
-
-Execution order
-
-↓
-
-Configuration
-
-↓
-
-Dependencies
-
-↓
-
-Examples
-
-↓
-
-Failure behavior
-
-↓
-
-Response modifications
-
-Developers should understand middleware without reading implementation.
-
----
-
-# Stage 19 — Scalability
-
-Review
-
-Large traffic
-
-↓
-
-Horizontal scaling
-
-↓
-
-Stateless execution
-
-↓
-
-Distributed tracing
-
-↓
-
-Caching
-
-↓
-
-Cloud deployment
-
-Middleware should scale with infrastructure.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Developer feedback
-
-↓
-
-Monitoring
-
-↓
-
-Technical debt
-
-↓
-
-New framework capabilities
-
-Middleware architecture should evolve continuously.
-
----
-
-# Middleware Quality Attributes
-
-Evaluate
-
-Correctness
-
-Security
-
-Performance
-
-Maintainability
-
-Reusability
-
-Scalability
-
-Observability
-
-Developer Experience
-
----
-
-# Middleware Questions
-
-Before approval ask
-
-Does each middleware solve exactly one concern?
-
-↓
-
-Is middleware execution order correct?
-
-↓
-
-Can middleware be reused elsewhere?
-
-↓
-
-Can business logic accidentally enter middleware?
-
-↓
-
-Can requests be fully traced?
-
-↓
-
-Will middleware remain maintainable as the application grows?
-
-↓
-
-Would another engineering team immediately understand the middleware pipeline?
-
----
-
-# Severity Levels
-
-Critical
-
-Authentication bypass
-
-Authorization bypass
-
-Middleware order vulnerability
-
-Unhandled errors
-
-Sensitive information leakage
-
-Major
-
-Business logic inside middleware
-
-Performance bottlenecks
-
-Duplicate middleware
-
-Weak observability
-
-Medium
-
-Documentation improvements
-
-Configuration improvements
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Examples
-
-Naming improvements
-
-Future enhancements
-
----
-
-# Middleware Checklist
-
-✓ Middleware responsibilities defined
-
-✓ Single responsibility maintained
-
-✓ Correct execution order
-
-✓ Stateless implementation
-
-✓ Authentication middleware reviewed
-
-✓ Authorization middleware reviewed
-
-✓ Validation middleware implemented
-
-✓ Logging middleware configured
-
-✓ Error middleware centralized
-
-✓ Response middleware reviewed
-
-✓ Security validated
-
-✓ Observability implemented
-
-✓ Testing completed
-
-✓ Documentation complete
-
-✓ Production ready
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Business logic inside middleware
-
-Database-heavy middleware
-
-Large monolithic middleware
-
-Incorrect middleware order
-
-Global mutable state
-
-Blocking operations
-
-Duplicated middleware
-
-Hidden side effects
-
-Logging secrets
-
-Ignoring async errors
-
-Route-specific middleware duplication
-
-Framework-dependent reusable middleware
-
----
-
-# Definition of Done
-
-Middleware review is complete when
-
-- Every middleware has a single, clearly defined responsibility.
-- Cross-cutting concerns are isolated from business logic.
-- Middleware execution order is deterministic, secure, and well documented.
-- Authentication, authorization, validation, logging, and error handling operate independently while composing into a predictable request pipeline.
-- Middleware remains stateless, reusable, configurable, and independently testable.
-- Security protections execute before application logic and prevent invalid or unauthorized requests from progressing.
-- Performance overhead remains minimal and observable through metrics and tracing.
-- Documentation accurately describes middleware responsibilities, execution order, configuration, and failure behavior.
-- The middleware architecture scales with increasing traffic, services, and engineering teams.
-- Every incoming request passes through a clean, maintainable, and production-ready processing pipeline before reaching business logic.
-
-Exceptional middleware architecture is almost invisible.
-
-Requests flow through a secure, observable, and predictable pipeline where each middleware performs one responsibility exceptionally well, allowing business logic to remain clean, focused, and independent.
+# Checklist
+
+- [ ] Middleware order is explicit and documented in one place
+- [ ] Request id is established first and reaches every log line
+- [ ] Security headers apply to error responses as well as successes
+- [ ] CORS handling precedes authentication
+- [ ] Body parsing is bounded and scoped to routes that need it
+- [ ] Rate limiting runs before expensive work
+- [ ] Authentication precedes authorization
+- [ ] Authentication is default-deny with explicitly marked public routes
+- [ ] A test asserts that an unauthenticated request to a protected route fails
+- [ ] Request-scoped state lives in async context, never module scope
+- [ ] Per-request resources are created per request, not at module load
+- [ ] Async middleware forwards rejections to the error handler
+- [ ] Each middleware calls `next()`, `next(err)`, or responds — exactly one
+- [ ] One error handler is registered last
+- [ ] Global middleware performs no blocking I/O; stable data is cached per process
+- [ ] Middleware latency is measured and reviewed

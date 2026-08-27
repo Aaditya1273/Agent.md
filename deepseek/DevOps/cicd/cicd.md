@@ -5,1173 +5,204 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: cicd
+category: DevOps
+description: Pipelines that catch real problems fast — stage ordering, caching, build-once promotion, secrets handling, and gates that are worth blocking a merge for.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# cicd.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, implementing, securing, operating, and continuously improving Continuous Integration and Continuous Delivery (CI/CD) systems.
+Rules for continuous integration and delivery. A pipeline has one job: **give a
+trustworthy answer about whether this change is safe to ship, quickly.**
 
-It applies to
-
-- Web Applications
-- Backend APIs
-- Frontend Applications
-- Mobile Backends
-- AI Applications
-- SaaS Platforms
-- Enterprise Systems
-- Cloud Infrastructure
-- Microservices
-- Monorepositories
-
-CI/CD is not merely deployment automation.
-
-CI/CD is an engineering discipline that transforms every code change into a reliable, secure, validated, observable, and production-ready software release through repeatable automation.
-
-Every deployment is a business event.
-
-Automation exists to make it predictable.
+Two ways it fails. Too slow, and people stop waiting for it. Too flaky, and people
+stop believing it — a red build that gets re-run rather than investigated is worse
+than no build.
 
 ---
 
-# Core Philosophy
+# Order stages by cost and by what they catch
 
-Write Code
+```
+lint + typecheck   (~30s, parallel)     → fails fast on the cheapest problems
+unit tests         (~2min, parallel)
+build              (~3min)              → produces the artefact everything else uses
+integration tests  (~5min)
+security scans     (parallel with above)
+e2e tests          (~10min, sharded)
+deploy             (staging → production)
+```
 
-↓
+Run independent stages in parallel and fail the whole run early. A developer
+should learn about a lint error in under a minute, not after ten minutes of tests.
 
-Validate Automatically
-
-↓
-
-Build Reproducibly
-
-↓
-
-Verify Quality
-
-↓
-
-Secure Supply Chain
-
-↓
-
-Deploy Predictably
-
-↓
-
-Observe Continuously
-
-↓
-
-Continuously Improve
-
-Every release should be boring.
-
-Unexpected deployments indicate engineering problems.
+Target under ten minutes for the pull-request pipeline. Above that, people batch
+changes and context-switch away, and both make debugging harder.
 
 ---
 
-# Primary Objective
+# Build once, promote the artefact
 
-Every CI/CD platform should maximize
+```yaml
+build:
+  outputs: { digest: ${{ steps.push.outputs.digest }} }
+deploy-staging:
+  needs: build
+  run: kubectl set image deploy/api api=$REGISTRY/api@${{ needs.build.outputs.digest }}
+deploy-production:
+  needs: [deploy-staging, verify]
+  run: kubectl set image deploy/api api=$REGISTRY/api@${{ needs.build.outputs.digest }}
+```
 
-Reliability
+Rebuilding per environment means staging and production run **different bytes**,
+so "it worked in staging" proves nothing. Build one artefact, promote that exact
+digest.
 
-+
-
-Automation
-
-+
-
-Security
-
-+
-
-Reproducibility
-
-+
-
-Observability
-
-+
-
-Developer Productivity
-
-+
-
-Maintainability
-
-+
-
-Operational Excellence
-
-Software delivery should become a deterministic engineering process.
+Environment differences belong in configuration injected at runtime, never in the
+build. → `DevOps/environments`
 
 ---
 
-# Engineering Principles
+# Make it reproducible
 
-Always prioritize
+- Pin the toolchain: language version in `.nvmrc`/`.tool-versions`, and the same
+  version in CI as in production.
+- Install from the lockfile (`npm ci`, `pip install -r requirements.lock`,
+  `cargo build --locked`). `npm install` can resolve differently on two runs.
+- Pin action and image versions by SHA, not by a floating tag — a mutable tag is
+  arbitrary code execution in your pipeline.
+- Cache dependencies keyed on the lockfile hash, never on a branch name:
 
-Automation
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.npm
+    key: npm-${{ hashFiles('**/package-lock.json') }}
+```
 
-↓
-
-Deterministic Builds
-
-↓
-
-Continuous Validation
-
-↓
-
-Security
-
-↓
-
-Fast Feedback
-
-↓
-
-Progressive Delivery
-
-↓
-
-Observability
-
-↓
-
-Continuous Improvement
-
-Every manual deployment is future technical debt.
+A cache keyed loosely serves stale dependencies and produces failures that
+disappear when the cache expires — the hardest kind of pipeline bug to diagnose.
 
 ---
 
-# CI/CD Lifecycle
+# Secrets
 
-Developer Commit
-
-↓
-
-Continuous Integration
-
-↓
-
-Validation
-
-↓
-
-Build
-
-↓
-
-Testing
-
-↓
-
-Security Verification
-
-↓
-
-Artifact Creation
-
-↓
-
-Continuous Delivery
-
-↓
-
-Deployment
-
-↓
-
-Monitoring
-
-↓
-
-Feedback
-
-↓
-
-Continuous Improvement
+- Secrets come from the platform's secret store, never from the repository, never
+  from a `.env` committed "temporarily".
+- Prefer **OIDC federation** over long-lived cloud credentials: the pipeline
+  exchanges its identity for a short-lived token, and there is no static key to
+  leak or rotate.
+- Scope tokens to the minimum: a deploy token cannot read source, a registry token
+  is push-only for one repository.
+- **Never expose secrets to workflows triggered by forks.** `pull_request_target`
+  and similar triggers run with repository secrets against untrusted code — this is
+  a well-known and repeatedly exploited pattern.
+- Scan for committed secrets (`gitleaks`, `trufflehog`) in CI and pre-commit.
+  → `Security/secret-management`
+- Assume anything printed is public: mask secrets in logs and never `echo` a
+  variable to debug it.
 
 ---
 
-# Stage 1 — Business Requirements
+# Gates worth blocking on
 
-Understand
+| Gate | Blocks | Rationale |
+| --- | --- | --- |
+| Lint and format | Merge | Cheap, deterministic |
+| Type check | Merge | Catches real errors |
+| Unit and integration tests | Merge | The point of the pipeline |
+| Build | Merge | A broken build must not land |
+| Dependency audit (high/critical) | Merge | Known vulnerabilities |
+| Secret scanning | Merge | Leaks are irreversible |
+| Bundle-size budget | Merge | Regressions are invisible otherwise |
+| Migration safety check | Merge | → `Database/migration` |
+| Coverage **threshold** | Warn | Gameable; use trend, not a number |
+| Flaky test | **Quarantine** | Never re-run and merge |
 
-Business Objectives
+A flaky test must be quarantined with an owner and a deadline, not retried. Retry
+logic on a flaky suite hides real intermittent failures — the exact class of bug
+that only appears in production.
 
-↓
+Require branch protection: no direct pushes to the default branch, status checks
+required, and review required.
 
-Release Frequency
-
-↓
-
-Compliance
-
-↓
-
-Availability Requirements
-
-↓
-
-Recovery Objectives
-
-↓
-
-Risk Tolerance
-
-↓
-
-Deployment Strategy
-
-↓
-
-Engineering Workflow
-
-Delivery pipelines should support business goals.
-
----
-
-# Stage 2 — Pipeline Architecture
-
-Design
-
-Source Control
-
-↓
-
-Build Pipeline
-
-↓
-
-Testing Pipeline
-
-↓
-
-Security Pipeline
-
-↓
-
-Artifact Repository
-
-↓
-
-Deployment Pipeline
-
-↓
-
-Monitoring
-
-↓
-
-Feedback Loop
-
-Architecture determines pipeline maturity.
+| Tool | Gate it provides |
+| --- | --- |
+| `eslint` / `ruff` / `golangci-lint` | Style and correctness lint |
+| `tsc --noEmit` / `mypy` | Type checking a bundler would skip |
+| `vitest` / `pytest` / `go test` | Unit and integration tests |
+| `npm audit` / `pip-audit` / `osv-scanner` | Known-vulnerable dependencies |
+| `gitleaks` / `trufflehog` | Committed secrets |
+| `trivy image` / `grype` | Container CVEs → `DevOps/docker` |
+| `size-limit` / `bundlesize` | Bundle regressions |
+| `oasdiff breaking` / `buf breaking` | API contract breaks → `API/versioning` |
+| `squawk` / `atlas lint` | Unsafe migrations → `Database/migration` |
+| `terraform plan` / `tflint` | Infrastructure drift and misconfiguration |
 
 ---
 
-# Stage 3 — Continuous Integration
+# Deployment
 
-Automate
-
-Code Validation
-
-↓
-
-Dependency Installation
-
-↓
-
-Compilation
-
-↓
-
-Static Analysis
-
-↓
-
-Linting
-
-↓
-
-Formatting
-
-↓
-
-Testing
-
-↓
-
-Artifact Creation
-
-Every commit should be validated.
+- **Automatic to staging** on merge; production either automatic or one-click,
+  with the same pipeline.
+- Deploy strategy that can fail safely: rolling with health checks, blue/green, or
+  canary with automatic rollback on error-rate breach. → `DevOps/rollback`
+- Run migrations as a separate, ordered step that is safe to run against the
+  currently-deployed code — expand, deploy, contract.
+- Smoke-test after deploying, before declaring success.
+- Tag the release with the commit SHA and record which SHA is in each environment.
+  During an incident the first question is what is actually running.
 
 ---
 
-# Stage 4 — Build System
+# Anti-patterns
 
-Produce
-
-Deterministic Builds
-
-↓
-
-Versioned Artifacts
-
-↓
-
-Container Images
-
-↓
-
-Packages
-
-↓
-
-Build Metadata
-
-↓
-
-Dependency Verification
-
-↓
-
-Integrity Checks
-
-↓
-
-Release Candidates
-
-Build once.
-
-Deploy many.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Rebuilding per environment | Staging and production differ | Build once, promote the digest |
+| Environment differences baked into the build | One artefact cannot be promoted | Runtime configuration |
+| Expensive stages first | Slow feedback on trivial errors | Cheapest first, fail fast |
+| Sequential independent stages | Wall-clock time wasted | Parallelise |
+| Pipelines over ~10 minutes | People stop waiting; changes batch up | Parallelise, shard, cache |
+| `npm install` in CI | Non-reproducible resolution | Install from the lockfile |
+| Floating action or image tags | Arbitrary code execution risk | Pin by SHA |
+| Cache keyed on branch | Stale dependencies; phantom failures | Key on the lockfile hash |
+| Long-lived cloud credentials | A leak is permanent until noticed | OIDC federation |
+| Secrets exposed to fork triggers | Untrusted code reads them | Never on fork-triggered runs |
+| Retrying flaky tests | Hides intermittent real bugs | Quarantine with an owner |
+| Coverage percentage as a hard gate | Gamed with meaningless tests | Track the trend |
+| No branch protection | Unreviewed code reaches the default branch | Require checks and review |
+| Migrations coupled to the deploy | Rollback becomes impossible | Expand-migrate-contract |
+| No post-deploy smoke test | Broken deploys reported by users | Verify before declaring success |
+| Deployed version not recorded | Incident response starts blind | Tag and record per environment |
 
 ---
 
-# Stage 5 — Quality Assurance
-
-Validate
-
-Unit Tests
-
-↓
-
-Integration Tests
-
-↓
-
-API Tests
-
-↓
-
-End-to-End Tests
-
-↓
-
-Regression Tests
-
-↓
-
-Performance Tests
-
-↓
-
-Accessibility Tests
-
-↓
-
-Compatibility Tests
-
-Quality should never depend on manual inspection.
-
----
-
-# Stage 6 — Security
-
-Verify
-
-Dependency Scanning
-
-↓
-
-Secret Detection
-
-↓
-
-Static Security Analysis
-
-↓
-
-Container Scanning
-
-↓
-
-License Validation
-
-↓
-
-Supply Chain Integrity
-
-↓
-
-Compliance
-
-↓
-
-Artifact Verification
-
-Security belongs inside the pipeline.
-
-Not after deployment.
-
----
-
-# Stage 7 — Artifact Management
-
-Manage
-
-Versioning
-
-↓
-
-Repositories
-
-↓
-
-Integrity
-
-↓
-
-Metadata
-
-↓
-
-Retention
-
-↓
-
-Promotion
-
-↓
-
-Distribution
-
-↓
-
-Traceability
-
-Artifacts should remain immutable.
-
----
-
-# Stage 8 — Continuous Delivery
-
-Prepare
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Staging
-
-↓
-
-Production Candidates
-
-↓
-
-Approvals
-
-↓
-
-Validation
-
-↓
-
-Rollback Readiness
-
-↓
-
-Release Confidence
-
-Every successful build should be deployable.
-
----
-
-# Stage 9 — Deployment Strategy
-
-Support
-
-Rolling Deployment
-
-↓
-
-Blue-Green Deployment
-
-↓
-
-Canary Deployment
-
-↓
-
-Progressive Delivery
-
-↓
-
-Feature Flags
-
-↓
-
-Health Verification
-
-↓
-
-Rollback
-
-↓
-
-Release Completion
-
-Deployment should minimize business risk.
-
----
-
-# Stage 10 — Environment Management
-
-Separate
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Staging
-
-↓
-
-Production
-
-↓
-
-Configuration
-
-↓
-
-Secrets
-
-↓
-
-Permissions
-
-↓
-
-Infrastructure
-
-Environment isolation prevents operational mistakes.
-
----
-
-# Stage 11 — Scalability
-
-Prepare for
-
-Growing Teams
-
-↓
-
-Growing Repositories
-
-↓
-
-More Services
-
-↓
-
-Parallel Pipelines
-
-↓
-
-Cloud Expansion
-
-↓
-
-Global Teams
-
-↓
-
-Monorepositories
-
-↓
-
-Future Growth
-
-Delivery systems should scale with engineering organizations.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Pipeline Duration
-
-↓
-
-Build Success
-
-↓
-
-Deployment Success
-
-↓
-
-Release Frequency
-
-↓
-
-Failure Rates
-
-↓
-
-Rollback Frequency
-
-↓
-
-Infrastructure Health
-
-↓
-
-Operational Metrics
-
-Pipelines should explain their health continuously.
-
----
-
-# Stage 13 — Reliability
-
-Ensure
-
-Retry Logic
-
-↓
-
-Failure Isolation
-
-↓
-
-Rollback
-
-↓
-
-Artifact Integrity
-
-↓
-
-Deployment Recovery
-
-↓
-
-Infrastructure Resilience
-
-↓
-
-Consistency
-
-↓
-
-Business Continuity
-
-Reliable delivery builds organizational trust.
-
----
-
-# Stage 14 — Performance
-
-Optimize
-
-Pipeline Speed
-
-↓
-
-Caching
-
-↓
-
-Parallel Execution
-
-↓
-
-Resource Utilization
-
-↓
-
-Incremental Builds
-
-↓
-
-Infrastructure Cost
-
-↓
-
-Queue Time
-
-↓
-
-Developer Feedback
-
-Fast pipelines improve engineering velocity.
-
----
-
-# Stage 15 — Automation
-
-Automate
-
-Testing
-
-↓
-
-Security
-
-↓
-
-Releases
-
-↓
-
-Versioning
-
-↓
-
-Deployment
-
-↓
-
-Rollback
-
-↓
-
-Monitoring
-
-↓
-
-Notifications
-
-Automation removes repetitive operational work.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Pipeline Architecture
-
-↓
-
-Deployment Process
-
-↓
-
-Approval Workflow
-
-↓
-
-Rollback Procedures
-
-↓
-
-Security Controls
-
-↓
-
-Recovery Plans
-
-↓
-
-Operational Decisions
-
-↓
-
-Future Evolution
-
-Documentation preserves delivery knowledge.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Pipeline Design
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Deployment Strategy
-
-↓
-
-Reliability
-
-↓
-
-Business Alignment
-
-Every pipeline deserves architectural review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Deployment Failure
-
-↓
-
-Security Risks
-
-↓
-
-Pipeline Failure
-
-↓
-
-Artifact Corruption
-
-↓
-
-Supply Chain Attacks
-
-↓
-
-Configuration Drift
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Business Impact
-
-Delivery pipelines amplify both good and bad engineering.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Pipeline Speed
-
-↓
-
-Automation
-
-↓
-
-Testing
-
-↓
-
-Security
-
-↓
-
-Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Developer Experience
-
-↓
-
-Engineering Maturity
-
-Healthy CI/CD systems never stop evolving.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Reliability
-
-↓
-
-Automation
-
-↓
-
-Security
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional CI/CD systems quietly deliver software.
-
----
-
-# CI/CD Quality Attributes
-
-Evaluate
-
-Reliability
-
-Automation
-
-Security
-
-Scalability
-
-Maintainability
-
-Observability
-
-Reproducibility
-
-Developer Experience
-
----
-
-# CI/CD Questions
-
-Before production ask
-
-Can every build be reproduced exactly?
-
-↓
-
-Can every deployment be rolled back safely?
-
-↓
-
-Can every artifact be trusted?
-
-↓
-
-Are deployments fully automated?
-
-↓
-
-Can failures recover automatically?
-
-↓
-
-Can the delivery platform scale with engineering growth?
-
-↓
-
-Would experienced DevOps engineers confidently approve this CI/CD architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken production deployment
-
-Compromised pipeline
-
-Supply chain attack
-
-Artifact corruption
-
-Credential exposure
-
-Major
-
-Deployment failures
-
-Pipeline failures
-
-Rollback failures
-
-Configuration drift
-
-Environment inconsistencies
-
-Medium
-
-Pipeline optimization
-
-Automation improvements
-
-Performance tuning
-
-Documentation gaps
-
-Minor
-
-Naming consistency
-
-Pipeline organization
-
-Formatting
-
-Comments
-
----
-
-# CI/CD Checklist
-
-✓ Business requirements understood
-
-✓ Pipeline architecture designed
-
-✓ Continuous integration implemented
-
-✓ Deterministic builds established
-
-✓ Testing automated
-
-✓ Security integrated
-
-✓ Artifact management implemented
-
-✓ Continuous delivery configured
-
-✓ Deployment strategy validated
-
-✓ Environment isolation established
-
-✓ Scalability planned
-
-✓ Monitoring enabled
-
-✓ Reliability validated
-
-✓ Performance optimized
-
-✓ Automation completed
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Manual deployments
-
-Building directly in production
-
-Skipping automated testing
-
-Ignoring rollback procedures
-
-Mutable artifacts
-
-Embedding secrets in pipelines
-
-Deploying unverified code
-
-Ignoring monitoring
-
-Large monolithic pipelines
-
-Duplicating deployment logic
-
-Treating CI and CD as independent systems
-
-Optimizing speed before reliability
-
-Ignoring deployment metrics
-
----
-
-# Definition of Done
-
-A CI/CD platform is considered production-ready when
-
-- Every source code change automatically progresses through deterministic validation, reproducible builds, comprehensive testing, security verification, artifact creation, deployment preparation, and production delivery.
-- Continuous Integration consistently validates correctness through automated compilation, testing, static analysis, dependency verification, quality enforcement, and reproducible build processes.
-- Continuous Delivery produces immutable, versioned, traceable artifacts that can be promoted safely across development, testing, staging, and production environments without rebuilding.
-- Deployment strategies support rolling releases, blue-green deployments, canary deployments, feature flag integration, health validation, progressive delivery, and rapid rollback capabilities.
-- Security continuously protects credentials, secrets, dependencies, artifacts, deployment environments, supply chains, and infrastructure throughout the software delivery lifecycle.
-- Monitoring provides complete visibility into pipeline execution, deployment health, release frequency, lead time, failure rates, rollback events, infrastructure status, and operational risks.
-- Automation eliminates repetitive operational work while preserving engineering control through approvals, policy enforcement, validation gates, and deployment governance.
-- Documentation preserves pipeline architecture, release processes, rollback procedures, operational workflows, security decisions, recovery strategies, and future platform evolution.
-- Engineering reviews continuously validate reliability, maintainability, scalability, observability, automation quality, developer productivity, and operational excellence.
-- The CI/CD platform consistently demonstrates deterministic software delivery, secure automation, engineering discipline, operational resilience, maintainability, and long-term organizational maturity.
-
-Exceptional CI/CD systems become an invisible part of software engineering.
-
-Developers focus on writing code instead of managing releases, every change follows the same trusted engineering process, deployments occur with confidence rather than anxiety, failures are detected before customers notice them, recovery is predictable, and software delivery becomes a measurable, repeatable, and continuously improving engineering capability that scales with both the product and the organization.
+# Checklist
+
+- [ ] Cheap checks run first and the pipeline fails fast
+- [ ] Independent stages run in parallel
+- [ ] Pull-request feedback arrives in under ten minutes
+- [ ] One artefact is built and promoted by digest across environments
+- [ ] All environment differences are injected at runtime
+- [ ] Toolchain versions are pinned and match production
+- [ ] Dependencies install from a committed lockfile
+- [ ] Actions and images are pinned by SHA
+- [ ] Caches are keyed on lockfile hashes
+- [ ] Secrets come from the platform store; none are committed
+- [ ] Cloud access uses short-lived OIDC credentials
+- [ ] No secret is available to fork-triggered workflows
+- [ ] Secret scanning runs in CI
+- [ ] Lint, types, tests, build, audit and size budgets block merges
+- [ ] Flaky tests are quarantined with an owner, never retried into green
+- [ ] Branch protection requires status checks and review
+- [ ] Migrations run as an ordered step compatible with the running code
+- [ ] Deploys are health-checked and smoke-tested before being declared successful
+- [ ] The deployed commit SHA is recorded per environment

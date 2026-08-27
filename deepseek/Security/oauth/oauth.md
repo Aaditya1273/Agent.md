@@ -5,1139 +5,183 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: oauth
+category: Security
+description: Implementing OAuth 2.1 and OIDC correctly — authorization code with PKCE, redirect URI exactness, state, and the flows that are now forbidden.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# oauth.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, OAuth authorization methodologies, delegated access frameworks, token exchange strategies, trust boundary management, and long-term best practices for designing secure, scalable, maintainable, and production-ready OAuth-based authorization systems.
+Rules for OAuth 2.0/2.1 and OpenID Connect as a client and as a provider.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Applications
-- APIs
-- Mobile Applications
-- Cloud Platforms
-- Microservices
-- Third-Party Integrations
-- Production Software
-
-OAuth is not authentication.
-
-OAuth is the engineering discipline of securely delegating limited access to protected resources without exposing user credentials while preserving least privilege, trust boundaries, operational reliability, and long-term maintainability.
-
-OAuth answers one question:
-
-**How can one application securely access another application's protected resources on behalf of an authorized identity?**
+The distinction that prevents most mistakes: **OAuth is authorisation
+(delegated access). OIDC is authentication (who the user is).** An access token
+says a client may call an API. It does not say who is logged in. If you need
+identity, use OIDC and validate the **ID token**.
 
 ---
 
-# Core Philosophy
+# Use authorization code with PKCE. Nothing else.
 
-Authenticate Identity
+```
+GET /authorize
+  ?response_type=code
+  &client_id=abc123
+  &redirect_uri=https://app.example.com/callback
+  &scope=openid%20profile%20email
+  &state=<csprng>
+  &nonce=<csprng>
+  &code_challenge=<BASE64URL(SHA256(verifier))>
+  &code_challenge_method=S256
+```
 
-↓
+PKCE is **required for every client type** in OAuth 2.1, including confidential
+server-side clients. It binds the authorization code to the client that started
+the flow, so an intercepted code cannot be redeemed by anyone else.
 
-Obtain Authorization
+```js
+const verifier = crypto.randomBytes(32).toString("base64url");
+const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+// Store `verifier` server-side against the session; send only `challenge`.
+```
 
-↓
+**Never** use `code_challenge_method=plain`. Always `S256`.
 
-Issue Limited Access
+## Flows that are removed or forbidden
 
-↓
-
-Protect Tokens
-
-↓
-
-Validate Requests
-
-↓
-
-Monitor Access
-
-↓
-
-Rotate Trust
-
-↓
-
-Continuously Improve
-
-Authorization should always remain limited, explicit, and revocable.
-
----
-
-# Primary Objective
-
-Every OAuth implementation should maximize
-
-Delegated Security
-
-+
-
-Least Privilege
-
-+
-
-Confidentiality
-
-+
-
-Integrity
-
-+
-
-Reliability
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Long-Term Sustainability
-
-OAuth should enable secure delegation without increasing trust unnecessarily.
+| Flow | Status |
+| --- | --- |
+| **Implicit** (`response_type=token`) | **Removed in 2.1.** Token in the URL fragment leaks via history, `Referer` and logs |
+| **Resource Owner Password Credentials** | **Removed in 2.1.** The client handles the password; defeats MFA and federation |
+| Authorization code **without** PKCE | Forbidden — code interception |
+| Client credentials | Valid, but machine-to-machine only. Never for a user session |
 
 ---
 
-# Engineering Principles
+# Redirect URI
 
-Always prioritize
+The redirect URI is the most attacked parameter in OAuth.
 
-Delegated Access
-
-↓
-
-Least Privilege
-
-↓
-
-Explicit Consent
-
-↓
-
-Short-Lived Tokens
-
-↓
-
-Trust Boundaries
-
-↓
-
-Continuous Validation
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Applications should receive only the permissions they genuinely require.
+- Register the **exact, full URI**. Compare by **exact string match**.
+- **Never** allow wildcards, prefix matching, or open subpaths.
+  `https://app.example.com/cb` must not match
+  `https://app.example.com/cb/../../evil` or
+  `https://app.example.com.evil.tld/cb`.
+- **Never** reflect a redirect target from a query parameter after the callback —
+  that reintroduces an open redirect and leaks the code.
+- Require HTTPS. `http://localhost` may be permitted for development only, with
+  the port ignored per the native-app guidance.
 
 ---
 
-# OAuth Engineering Lifecycle
+# `state` and `nonce`
 
-Identify Resources
+Both are required and they do different jobs.
 
-↓
+| Parameter | Purpose | Validated |
+| --- | --- | --- |
+| `state` | CSRF protection for the callback | Compare to the value stored in the session |
+| `nonce` | Replay protection for the ID token | Compare to the `nonce` claim in the ID token |
 
-Authenticate Identity
+Generate both with a CSPRNG, bind them to the session, and make them **single-use**.
 
-↓
-
-Request Authorization
-
-↓
-
-Issue Tokens
-
-↓
-
-Validate Access
-
-↓
-
-Monitor Usage
-
-↓
-
-Rotate Credentials
-
-↓
-
-Continuously Improve
-
-OAuth should minimize trust while maximizing interoperability.
+**Never** skip `state` because "the code is single-use". Without it, an attacker
+completes a flow with their own code in the victim's browser and links the
+victim's session to the attacker's account.
 
 ---
 
-# Stage 1 — Identity Analysis
+# Validating tokens
 
-Understand
+An **ID token** is a JWT and must be validated as one — see `Security/jwt`:
 
-Users
+- Signature against the provider's JWKS, with an explicit `algorithms` allow-list
+- `iss` exactly equals the provider's issuer
+- `aud` contains your `client_id`
+- `exp` not passed, `iat` reasonable
+- `nonce` matches the value you sent
+- `azp` equals your `client_id` when present
 
-↓
+An **access token** is opaque to the client. **Never** parse it, and never make
+authorisation decisions from its contents in the client. On the resource server,
+validate it by introspection or as a JWT with full claim validation, and check the
+`scope` and `aud` are for **your** API.
 
-Applications
-
-↓
-
-Services
-
-↓
-
-External Providers
-
-↓
-
-Machine Accounts
-
-↓
-
-Organizations
-
-↓
-
-Administrative Accounts
-
-↓
-
-Future Expansion
-
-Every participant must have a clearly defined trust relationship.
+**Never** use the `/userinfo` response as proof of authentication on its own — it
+is fetched with an access token that may have been issued to a different client.
+That is the confused-deputy problem OIDC's ID token exists to solve.
 
 ---
 
-# Stage 2 — Authorization Requirements
+```js
+// Redeem the code. The verifier proves this is the client that began the flow;
+// without PKCE an intercepted `code` would be enough on its own.
+const res = await fetch(`${ISSUER}/token`, {
+  method: "POST",
+  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  body: new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: REDIRECT_URI,          // must match the authorize request exactly
+    client_id: CLIENT_ID,
+    code_verifier: session.pkceVerifier,
+  }),
+});
 
-Define
+const { id_token, access_token } = await res.json();
+const claims = await verifyIdToken(id_token, { nonce: session.nonce });
+```
 
-Business Requirements
+# Tokens, scopes and storage
 
-↓
-
-Resource Access
-
-↓
-
-Permission Scope
-
-↓
-
-Consent Requirements
-
-↓
-
-Trust Boundaries
-
-↓
-
-Operational Constraints
-
-↓
-
-Compliance
-
-↓
-
-Security Objectives
-
-Authorization requirements determine system design.
+- Request the **narrowest scopes** that work, and request them incrementally as
+  features need them.
+- Access tokens short-lived (**5–15 minutes**); refresh tokens rotated on use,
+  with reuse of a consumed refresh token revoking the whole family.
+- In a browser, keep tokens in an `HttpOnly; Secure; SameSite` cookie via a
+  backend-for-frontend, not in `localStorage` → `Security/xss`.
+- Store the client secret server-side only. A "confidential" client in a SPA or
+  mobile app is a public client — the secret ships to every user.
+- Support **revocation** (`/revoke`) and honour it on logout. Clearing the client's
+  copy is not revocation.
 
 ---
 
-# Stage 3 — Trust Analysis
+# Anti-patterns
 
-Identify
-
-Authorization Server
-
-↓
-
-Resource Server
-
-↓
-
-Client Applications
-
-↓
-
-Users
-
-↓
-
-External Providers
-
-↓
-
-Internal Services
-
-↓
-
-Administrative Systems
-
-↓
-
-Future Integrations
-
-Trust relationships should remain explicit.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Implicit flow | Token in the URL fragment; removed in 2.1 | Code + PKCE |
+| Password grant | Client sees the password; defeats MFA | Code + PKCE |
+| Code flow without PKCE | Intercepted code is redeemable | Always `S256` |
+| Wildcard or prefix redirect matching | Code sent to an attacker origin | Exact string match |
+| Omitting `state` | Session fixation via the callback | CSPRNG, session-bound, single-use |
+| Treating an access token as identity | It authorises; it does not authenticate | Validate the ID token |
+| Parsing an access token in the client | Opaque by contract; format may change | Use the ID token or `/userinfo` |
+| `/userinfo` alone as login proof | Confused deputy across clients | Validate the ID token's `aud` |
+| Client secret in a SPA or mobile app | Shipped to every user | Public client + PKCE |
+| Tokens in `localStorage` | Any XSS becomes account takeover | `HttpOnly` cookie via BFF |
 
 ---
 
-# Stage 4 — OAuth Architecture
-
-Design
-
-Authorization Flow
-
-↓
-
-Token Lifecycle
-
-↓
-
-Scope Management
-
-↓
-
-Consent Management
-
-↓
-
-Trust Relationships
-
-↓
-
-Identity Integration
-
-↓
-
-Monitoring
-
-↓
-
-Future Growth
-
-Architecture should simplify secure delegation.
-
----
-
-# Stage 5 — OAuth Strategy
-
-Define
-
-Authorization Code Flow
-
-↓
-
-PKCE
-
-↓
-
-Client Credentials
-
-↓
-
-Device Authorization
-
-↓
-
-Refresh Tokens
-
-↓
-
-Token Revocation
-
-↓
-
-Consent Strategy
-
-↓
-
-Operational Limits
-
-Choose flows according to client trust and security requirements.
-
----
-
-# Stage 6 — Token Protection
-
-Protect
-
-Access Tokens
-
-↓
-
-Refresh Tokens
-
-↓
-
-Client Credentials
-
-↓
-
-Signing Keys
-
-↓
-
-Transmission
-
-↓
-
-Storage
-
-↓
-
-Rotation
-
-↓
-
-Operational Security
-
-Token protection determines delegated trust.
-
----
-
-# Stage 7 — Authorization Validation
-
-Validate
-
-Authorization Grant
-
-↓
-
-Scopes
-
-↓
-
-Audience
-
-↓
-
-Token Integrity
-
-↓
-
-Expiration
-
-↓
-
-Consent
-
-↓
-
-Business Policies
-
-↓
-
-Engineering Quality
-
-Every access request requires independent validation.
-
----
-
-# Stage 8 — OAuth Measurement
-
-Measure
-
-Authorization Requests
-
-↓
-
-Successful Grants
-
-↓
-
-Denied Requests
-
-↓
-
-Token Issuance
-
-↓
-
-Refresh Operations
-
-↓
-
-Revocations
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-OAuth health should remain measurable.
-
----
-
-# Stage 9 — Threat Analysis
-
-Identify
-
-Token Theft
-
-↓
-
-Authorization Code Interception
-
-↓
-
-Scope Abuse
-
-↓
-
-Consent Manipulation
-
-↓
-
-Replay Attacks
-
-↓
-
-Client Compromise
-
-↓
-
-Refresh Token Abuse
-
-↓
-
-Operational Threats
-
-Understanding attack vectors strengthens delegated security.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Trust Boundaries
-
-↓
-
-Authorization Flow
-
-↓
-
-Token Flow
-
-↓
-
-Consent Management
-
-↓
-
-Scope Design
-
-↓
-
-Identity Integration
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-OAuth architecture should remain predictable and secure.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Applications
-
-↓
-
-Distributed Services
-
-↓
-
-Multiple Identity Providers
-
-↓
-
-Multi-Region Deployment
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-OAuth should scale without weakening trust.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Authorization Availability
-
-↓
-
-Token Validation
-
-↓
-
-Consent Reliability
-
-↓
-
-Operational Stability
-
-↓
-
-Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Identity Consistency
-
-↓
-
-Engineering Quality
-
-Reliable authorization preserves user trust.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Authorization Flows
-
-↓
-
-Scope Definitions
-
-↓
-
-Consent Process
-
-↓
-
-Trust Relationships
-
-↓
-
-Engineering Decisions
-
-↓
-
-Operational Standards
-
-↓
-
-Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves delegated authorization knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Token Risks
-
-↓
-
-Consent Risks
-
-↓
-
-Scope Risks
-
-↓
-
-Client Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Business Risks
-
-↓
-
-Technical Debt
-
-OAuth risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Usability
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every OAuth decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Authorization Flow
-
-↓
-
-Scopes
-
-↓
-
-Consent
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-OAuth implementations require continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-OAuth Summary
-
-↓
-
-Authorization Metrics
-
-↓
-
-Scope Analysis
-
-↓
-
-Risk Assessment
-
-↓
-
-Operational Health
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports strengthen engineering governance.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Configuration
-
-↓
-
-Identity Providers
-
-↓
-
-Token Management
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-OAuth should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-OAuth Standards
-
-↓
-
-Authorization Reviews
-
-↓
-
-Scope Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-OAuth quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Delegated Authorization
-
-↓
-
-Trust Relationships
-
-↓
-
-Token Management
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional OAuth implementations continuously strengthen delegated trust while minimizing unnecessary permissions and operational complexity.
-
----
-
-# OAuth Quality Attributes
-
-Evaluate
-
-Least Privilege
-
-Delegated Trust
-
-Integrity
-
-Reliability
-
-Scalability
-
-Maintainability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every client have a clearly defined trust relationship?
-
-↓
-
-Are requested scopes limited to genuine business requirements?
-
-↓
-
-Can delegated permissions be reduced further?
-
-↓
-
-Are all authorization flows independently validated?
-
-↓
-
-Can compromised tokens be revoked safely?
-
-↓
-
-Will future engineers understand the trust architecture?
-
-↓
-
-Would experienced Security Engineers, Principal Engineers, Identity Architects, API Architects, and Engineering Leadership confidently approve this OAuth implementation?
-
----
-
-# Severity Levels
-
-Critical
-
-Authorization bypass
-
-Token compromise
-
-Privilege escalation
-
-Unauthorized resource access
-
-Major
-
-Excessive scopes
-
-Weak client validation
-
-Consent failures
-
-Refresh token weaknesses
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# OAuth Checklist
-
-✓ Identities analyzed
-
-✓ Authorization requirements defined
-
-✓ Trust relationships established
-
-✓ OAuth architecture designed
-
-✓ Authorization strategy selected
-
-✓ Tokens protected
-
-✓ Authorization validated
-
-✓ OAuth measured
-
-✓ Threats analyzed
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using OAuth as authentication
-
-Granting excessive scopes
-
-Long-lived access tokens
-
-Ignoring consent
-
-Skipping scope validation
-
-Trusting client applications implicitly
-
-Exposing client secrets
-
-Ignoring token revocation
-
-Weak redirect validation
-
-Missing PKCE where applicable
-
-Treating refresh tokens like access tokens
-
-Optimizing convenience over delegated security
-
----
-
-# Definition of Done
-
-An OAuth implementation is considered complete when
-
-- Authorization flows, delegated trust relationships, client registrations, scope definitions, consent mechanisms, token lifecycle management, monitoring capabilities, governance processes, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- OAuth securely enables delegated access without exposing user credentials while enforcing least privilege, explicit consent, token integrity, revocation capabilities, trust boundaries, operational resilience, and maintainable engineering practices throughout the software lifecycle.
-- The authorization architecture supports scalable distributed systems, multiple identity providers, secure token management, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate authorization flows, trust relationships, scope quality, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains authorization architecture, delegated trust, consent processes, scope definitions, token lifecycle, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, and future OAuth improvements.
-- OAuth decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving software architectures, identity providers, cloud platforms, distributed systems, and future authorization technologies.
-- The resulting OAuth implementation demonstrates engineering discipline, secure delegated authorization, predictable trust relationships, resilient architecture, comprehensive auditability, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional OAuth implementations are not measured by how many providers they support.
-
-They are measured by how securely they delegate access, minimize unnecessary trust, enforce least privilege, protect user consent, withstand evolving security threats, and continuously deliver maintainable, resilient, and trustworthy authorization throughout the lifetime of the software.
+# Checklist
+
+- [ ] Authorization code with PKCE `S256` is the only user-facing flow
+- [ ] Implicit and password grants are disabled
+- [ ] Redirect URIs are registered in full and compared by exact string match
+- [ ] `state` and `nonce` are CSPRNG-generated, session-bound and single-use
+- [ ] ID token signature, `iss`, `aud`, `exp` and `nonce` are all validated
+- [ ] The resource server validates `scope` and `aud` for its own API
+- [ ] Access tokens are never parsed by the client
+- [ ] Scopes requested are the narrowest that work
+- [ ] Access tokens expire in 5–15 minutes; refresh tokens rotate on use
+- [ ] Refresh-token reuse revokes the family
+- [ ] No client secret exists in any browser or mobile bundle
+- [ ] Logout calls the revocation endpoint

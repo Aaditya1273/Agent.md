@@ -5,1140 +5,185 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: visual
+category: Testing
+description: Visual regression testing that is not permanently red — deterministic rendering, masking dynamic content, and reviewing diffs instead of regenerating them.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# visual.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, visual regression testing methodologies, user interface verification strategies, design consistency standards, rendering validation, cross-platform visual quality, accessibility verification, and long-term engineering guidance for ensuring that software consistently presents the intended visual experience across releases, devices, browsers, operating systems, and user environments.
+Rules for catching unintended visual change by comparing rendered output against
+approved baselines.
 
-It applies to
-
-- Web Applications
-- Mobile Applications
-- SaaS Platforms
-- Dashboards
-- Design Systems
-- Component Libraries
-- E-Commerce Platforms
-- Enterprise Software
-- AI Applications
-- Consumer Products
-
-Visual Testing is not comparing screenshots.
-
-Visual Testing is the engineering discipline of validating that the visual representation of software remains consistent, accessible, predictable, and aligned with the intended product experience despite continuous software evolution.
-
-Visual Testing answers one question:
-
-**Does every user consistently experience the intended interface regardless of platform, device, browser, or software release?**
+Visual tests catch what assertions cannot: a CSS change that breaks an unrelated
+page, a font fallback, a component overlapping at one breakpoint. They fail badly
+when non-determinism makes them noisy — **the common outcome is a suite that is
+always slightly red and therefore approved without looking**, which is worse than
+having none.
 
 ---
 
-# Core Philosophy
+# Determinism is the whole problem
 
-Understand User Experience
+Every source of variation must be removed or masked before the first baseline.
 
-↓
+| Source | Fix |
+| --- | --- |
+| Dates and times | Freeze the clock; inject a fixed timestamp |
+| Random data | Seed the generator; use fixed fixtures |
+| Animations and transitions | Disable globally in the test stylesheet |
+| Font loading | Wait for `document.fonts.ready`; self-host fonts |
+| Images from a network | Stub them or use local fixtures |
+| Scrollbars | Consistent OS or a container-based screenshot |
+| GPU and font rendering | **Render in a container** — the biggest single fix |
+| Carousels, skeletons, spinners | Mask the region |
+| Blinking text caret | `caret-color: transparent` |
+| Lazy images below the fold | `loading="eager"` in the test build |
+| `Math.random()` in components | Inject a seeded generator |
+| Locale-dependent formatting | Pin `TZ=UTC` and `LANG=en_US.UTF-8` |
 
-Understand Visual Intent
+```css
+/* Loaded only in visual tests: nothing may be mid-animation at capture time */
+*, *::before, *::after {
+  animation: none !important;
+  transition: none !important;
+  caret-color: transparent !important;
+  scroll-behavior: auto !important;
+}
+```
 
-↓
-
-Identify Critical Interfaces
-
-↓
-
-Validate Rendering
-
-↓
-
-Detect Unexpected Changes
-
-↓
-
-Protect Design Consistency
-
-↓
-
-Increase Release Confidence
-
-↓
-
-Continuously Improve
-
-Users experience products visually before interacting with functionality.
-
----
-
-# Primary Objective
-
-Every Visual Testing Strategy should maximize
-
-Visual Consistency
-
-+
-
-User Experience Quality
-
-+
-
-Cross-Platform Reliability
-
-+
-
-Accessibility
-
-+
-
-Regression Prevention
-
-+
-
-Design Integrity
-
-+
-
-Engineering Confidence
-
-+
-
-Long-Term Sustainability
-
-The objective is protecting user experience—not comparing pixels.
+**Never** generate baselines on a developer laptop and compare them in CI. Font
+hinting and GPU rasterisation differ, so every screenshot differs. Generate and
+compare in the **same container image**, pinned by digest.
 
 ---
 
-# Engineering Principles
+Tooling: `@playwright/test` `toHaveScreenshot`, `percy`, `chromatic`,
+`argos-ci`, `backstopjs`, `loki`. Playwright's built-in comparison needs no
+service and stores baselines in the repository; hosted tools add review
+workflows and cross-browser rendering at a cost.
 
-Always prioritize
+Pin the runner explicitly — `mcr.microsoft.com/playwright:v1.49.0-jammy` by
+digest, not `:latest`. A browser or font-package update inside the image
+invalidates every baseline at once.
 
-User Experience
+# Capture
 
-↓
+```js
+test("invoice card renders", async ({ page }) => {
+  await page.goto("/components/invoice-card");
+  await page.evaluate(() => document.fonts.ready);      // fonts settled
 
-Visual Consistency
+  await expect(page.getByTestId("invoice-card")).toHaveScreenshot("invoice-card.png", {
+    maxDiffPixelRatio: 0.01,        // absorb sub-pixel noise, catch real change
+    animations: "disabled",
+    mask: [page.getByTestId("relative-time")],   // dynamic region excluded
+  });
+});
+```
 
-↓
-
-Accessibility
-
-↓
-
-Responsive Design
-
-↓
-
-Rendering Accuracy
-
-↓
-
-Design System Integrity
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Visual correctness should be evaluated through meaningful user experience rather than pixel perfection alone.
-
----
-
-# Visual Testing Lifecycle
-
-Understand User Interface
-
-↓
-
-Identify Critical Screens
-
-↓
-
-Define Visual Baselines
-
-↓
-
-Validate Rendering
-
-↓
-
-Detect Visual Changes
-
-↓
-
-Evaluate Business Impact
-
-↓
-
-Prevent Regression
-
-↓
-
-Continuously Improve
-
-Every visual test should protect meaningful user experiences.
+- **Screenshot the component, not the page**, where possible. A page-level
+  baseline fails for every unrelated change and tells you nothing about which.
+- Set a **small but non-zero** diff tolerance. Zero is brittle; anything above a
+  percent or two hides real regressions.
+- **Mask** genuinely dynamic regions rather than trying to freeze them.
+- Cover the states that break in production: `empty`, `loading`, `error`,
+  `overflow` and `long-text`. A component tested only with a two-word label
+  passes forever and breaks on the first real customer name.
+- Test the **breakpoints that matter** — typically 375px, 768px and 1280px — plus
+  dark mode if you support it. Every extra viewport is another baseline to review.
 
 ---
 
-# Stage 1 — User Experience Discovery
+```yaml
+# Pin the image by digest. A font or browser update inside :latest silently
+# invalidates every baseline in the repository.
+jobs:
+  visual:
+    container:
+      image: mcr.microsoft.com/playwright@sha256:<digest>
+    steps:
+      - run: npx playwright test --grep @visual
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: visual-diffs
+          path: test-results/**/*-diff.png    # reviewers need the diff image
+```
 
-Identify
+# Reviewing diffs
 
-Critical User Journeys
+This is where the practice succeeds or fails.
 
-↓
+- **Every baseline update is a code review.** The diff image goes in the pull
+  request and someone looks at it.
+- **Never** run the update command to make CI green. Doing so commits the
+  regression as the new expected appearance — the exact failure mode this suite
+  exists to prevent.
+- Approvals belong to the person who **owns the visual change**, not whoever is
+  unblocking the build.
+Commands worth knowing: `--update-snapshots` regenerates (dangerous — see above),
+`--grep @visual` runs only this tier, and `--reporter=html` produces the side-by-side
+`expected` / `actual` / `diff` view that makes review possible at all.
 
-Primary Screens
-
-↓
-
-Business-Critical Interfaces
-
-↓
-
-Navigation
-
-↓
-
-Forms
-
-↓
-
-Dashboards
-
-↓
-
-Reports
-
-↓
-
-Future Evolution
-
-Testing should begin with interfaces that directly influence user success.
-
----
-
-# Stage 2 — Visual Component Identification
-
-Identify
-
-Pages
-
-↓
-
-Layouts
-
-↓
-
-Components
-
-↓
-
-Navigation
-
-↓
-
-Forms
-
-↓
-
-Dialogs
-
-↓
-
-Tables
-
-↓
-
-Charts
-
-↓
-
-Typography
-
-↓
-
-Icons
-
-↓
-
-Media
-
-↓
-
-Design Tokens
-
-Every visual element should have clearly defined responsibilities.
+- Store baselines in the repository (Git LFS if they grow) or in the tool's
+  managed store — but they must be **versioned with the code**, so checking out an
+  old commit gives its correct baselines.
 
 ---
 
-# Stage 3 — Design Baseline
+# Scope
 
-Define
+| Worth a visual test | Not worth it |
+| --- | --- |
+| Design-system components in each state | Every page of a content site |
+| Critical pages: pricing, checkout, landing | Text-only changes |
+| Complex layouts: tables, grids, dashboards | Anything a unit test asserts better |
+| Dark mode and RTL variants | Rapidly iterating prototypes |
+| Empty, loading, error and overflow states | |
 
-Approved Layout
+Component-level baselines in a Storybook-style harness give the best ratio: they
+are stable, fast, and the failure points directly at the component.
 
-↓
-
-Spacing
-
-↓
-
-Typography
-
-↓
-
-Color System
-
-↓
-
-Responsive Behavior
-
-↓
-
-Component States
-
-↓
-
-Animations
-
-↓
-
-Interaction Feedback
-
-↓
-
-Accessibility Standards
-
-Baselines establish the expected visual experience before future changes occur.
+**Never** treat a visual test as an accessibility check. Identical pixels can hide
+a missing label or an unreachable control → `Testing/accessibility`.
 
 ---
 
-# Stage 4 — Rendering Validation
-
-Validate
-
-Layout Rendering
-
-↓
-
-Typography
-
-↓
-
-Spacing
-
-↓
-
-Alignment
-
-↓
-
-Colors
-
-↓
-
-Icons
-
-↓
-
-Images
-
-↓
-
-Component States
-
-↓
-
-Navigation
-
-↓
-
-Responsive Layouts
-
-Rendering should remain predictable across supported environments.
-
----
-
-# Stage 5 — Responsive Validation
-
-Verify
-
-Desktop
-
-↓
-
-Laptop
-
-↓
-
-Tablet
-
-↓
-
-Mobile
-
-↓
-
-Large Displays
-
-↓
-
-Portrait
-
-↓
-
-Landscape
-
-↓
-
-High-DPI Devices
-
-↓
-
-Accessibility Scaling
-
-Every supported device should provide a complete user experience.
-
----
-
-# Stage 6 — Browser Compatibility
-
-Validate
-
-Chrome
-
-↓
-
-Firefox
-
-↓
-
-Safari
-
-↓
-
-Edge
-
-↓
-
-Mobile Browsers
-
-↓
-
-Progressive Web Apps
-
-↓
-
-Embedded Browsers
-
-↓
-
-Future Browser Support
-
-Supported browsers should deliver consistent user experiences.
-
----
-
-# Stage 7 — Design System Validation
-
-Verify
-
-Colors
-
-↓
-
-Typography
-
-↓
-
-Spacing
-
-↓
-
-Components
-
-↓
-
-Icons
-
-↓
-
-Buttons
-
-↓
-
-Forms
-
-↓
-
-Navigation
-
-↓
-
-Brand Consistency
-
-The design system should remain the single source of visual consistency.
-
----
-
-# Stage 8 — State Validation
-
-Validate
-
-Default State
-
-↓
-
-Hover State
-
-↓
-
-Focus State
-
-↓
-
-Active State
-
-↓
-
-Loading State
-
-↓
-
-Success State
-
-↓
-
-Warning State
-
-↓
-
-Error State
-
-↓
-
-Disabled State
-
-Every visual state should clearly communicate system behavior.
-
----
-
-# Stage 9 — Accessibility Validation
-
-Verify
-
-Color Contrast
-
-↓
-
-Keyboard Focus
-
-↓
-
-Zoom Support
-
-↓
-
-Screen Reader Compatibility
-
-↓
-
-Typography Scaling
-
-↓
-
-Reduced Motion
-
-↓
-
-Visual Clarity
-
-↓
-
-Accessible Navigation
-
-Accessibility should remain visually consistent across every release.
-
----
-
-# Stage 10 — Reliability Engineering
-
-Design visual validation that maximizes
-
-Deterministic Rendering
-
-↓
-
-Stable Baselines
-
-↓
-
-Meaningful Comparisons
-
-↓
-
-Low False Positives
-
-↓
-
-Cross-Platform Consistency
-
-↓
-
-Regression Detection
-
-↓
-
-Engineering Confidence
-
-↓
-
-Continuous Improvement
-
-Reliable visual tests detect meaningful user-facing changes while ignoring insignificant rendering differences.
-
-
-# Stage 11 — Assertions Strategy
-
-Every visual assertion should verify meaningful user-facing behavior rather than insignificant rendering differences.
-
-Validate
-
-Visual Hierarchy
-
-↓
-
-Layout Consistency
-
-↓
-
-Component Appearance
-
-↓
-
-Spacing Accuracy
-
-↓
-
-Typography
-
-↓
-
-Brand Consistency
-
-↓
-
-Interactive States
-
-↓
-
-Regression Prevention
-
-Assertions should protect the intended user experience—not pixel perfection.
-
----
-
-# Stage 12 — Change Validation
-
-Every visual change should be intentionally evaluated.
-
-Verify
-
-Expected Design Updates
-
-↓
-
-Unexpected Layout Changes
-
-↓
-
-Component Modifications
-
-↓
-
-Theme Consistency
-
-↓
-
-Animation Changes
-
-↓
-
-Responsive Behavior
-
-↓
-
-Accessibility Impact
-
-↓
-
-Business Impact
-
-Every visual difference should have a clearly understood engineering reason.
-
----
-
-# Stage 13 — Cross-Platform Validation
-
-Verify rendering consistency across
-
-Operating Systems
-
-↓
-
-Browsers
-
-↓
-
-Screen Sizes
-
-↓
-
-Display Resolutions
-
-↓
-
-Touch Devices
-
-↓
-
-Desktop Devices
-
-↓
-
-Dark Mode
-
-↓
-
-Light Mode
-
-↓
-
-Future Platforms
-
-Users should experience a consistent interface regardless of platform.
-
----
-
-# Stage 14 — Content Integrity
-
-Validate
-
-Dynamic Content
-
-↓
-
-Tables
-
-↓
-
-Lists
-
-↓
-
-Cards
-
-↓
-
-Charts
-
-↓
-
-Images
-
-↓
-
-Icons
-
-↓
-
-Localization
-
-↓
-
-Overflow Handling
-
-Content should remain visually correct regardless of volume or language.
-
----
-
-# Stage 15 — Test Organization
-
-Organize visual tests around meaningful product areas.
-
-Group by
-
-Pages
-
-↓
-
-Features
-
-↓
-
-Design System Components
-
-↓
-
-Business Workflows
-
-↓
-
-Responsive Layouts
-
-↓
-
-Accessibility
-
-↓
-
-Themes
-
-↓
-
-Future Growth
-
-Organization should improve maintainability and engineering efficiency.
-
----
-
-# Stage 16 — Baseline Management
-
-Maintain visual baselines through disciplined engineering.
-
-Manage
-
-Approved Designs
-
-↓
-
-Version History
-
-↓
-
-Design Reviews
-
-↓
-
-Intentional Updates
-
-↓
-
-Regression Tracking
-
-↓
-
-Change Documentation
-
-↓
-
-Release Validation
-
-↓
-
-Continuous Improvement
-
-Visual baselines should evolve only through intentional product decisions.
-
----
-
-# Stage 17 — Quality Attributes
-
-Every Visual Testing strategy should maximize
-
-Design Consistency
-
-↓
-
-Rendering Accuracy
-
-↓
-
-Accessibility
-
-↓
-
-Cross-Platform Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Deterministic Results
-
-↓
-
-Regression Detection
-
-↓
-
-Engineering Excellence
-
-Visual quality should remain measurable throughout software evolution.
-
----
-
-# Stage 18 — Engineering Questions
-
-Before approving any visual test, ask
-
-Does this validate an important user-facing interface?
-
-↓
-
-Would users notice this visual change?
-
-↓
-
-Is the expected appearance clearly defined?
-
-↓
-
-Are responsive layouts validated?
-
-↓
-
-Is accessibility preserved?
-
-↓
-
-Does this improve release confidence?
-
-↓
-
-Can engineers understand the purpose immediately?
-
-↓
-
-Will this remain valuable as the design evolves?
-
-If any answer is "No", improve the visual validation before approval.
-
----
-
-# Stage 19 — Anti-Patterns
-
-Avoid
-
-Pixel-perfect validation for insignificant differences
-
-↓
-
-Ignoring responsive layouts
-
-↓
-
-Testing unfinished designs
-
-↓
-
-Poor baseline management
-
-↓
-
-Environment-specific rendering assumptions
-
-↓
-
-Ignoring accessibility
-
-↓
-
-Duplicated visual coverage
-
-↓
-
-Fragile rendering comparisons
-
-↓
-
-Unstable test environments
-
-↓
-
-Excessive screenshot maintenance
-
-↓
-
-Ignoring design system changes
-
-↓
-
-Treating visual changes as purely cosmetic
-
-The objective is protecting user experience—not accumulating screenshots.
-
----
-
-# Stage 20 — Continuous Evolution
-
-Visual Testing should evolve together with the product and design system.
-
-Continuously improve
-
-Critical Interface Coverage
-
-↓
-
-Baseline Quality
-
-↓
-
-Responsive Validation
-
-↓
-
-Accessibility Standards
-
-↓
-
-Cross-Platform Consistency
-
-↓
-
-Regression Detection
-
-↓
-
-Engineering Standards
-
-↓
-
-Release Confidence
-
-Visual Testing is a continuous engineering discipline that protects product quality throughout its lifecycle.
-
----
-
-# Quality Attributes
-
-A high-quality Visual Testing strategy demonstrates
-
-- Consistent visual presentation
-- Reliable regression detection
-- Stable visual baselines
-- Strong design system alignment
-- Cross-browser compatibility
-- Responsive validation
-- Accessibility compliance
-- Low false positives
-- Clear engineering intent
-- Long-term maintainability
-
----
-
-# Engineering Questions
-
-Before considering Visual Testing complete, verify
-
-- Are all business-critical interfaces validated?
-- Are visual baselines intentionally maintained?
-- Is responsive behavior verified?
-- Are supported browsers validated?
-- Is accessibility visually preserved?
-- Are interactive component states covered?
-- Are dynamic content scenarios validated?
-- Does the suite detect meaningful regressions?
-- Can engineers confidently approve UI changes?
-- Will these tests remain valuable as the design system evolves?
-
----
-
-# Severity Levels
-
-## Critical
-
-- Major layout failures.
-- Broken navigation.
-- Accessibility violations.
-- Critical UI elements missing.
-- User workflows visually blocked.
-
-Immediate correction required.
-
----
-
-## High
-
-- Responsive layout failures.
-- Design system inconsistencies.
-- Cross-browser rendering issues.
-- Incorrect visual states.
-
-Resolve before release.
-
----
-
-## Medium
-
-- Minor spacing inconsistencies.
-- Typography differences.
-- Low-impact component regressions.
-- Maintainability concerns.
-
-Improve during normal engineering work.
-
----
-
-## Low
-
-- Documentation improvements.
-- Baseline organization.
-- Naming consistency.
-- Minor visual refinements.
-
-Address during continuous improvement.
+# Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Baselines from a laptop, compared in CI | Font and GPU differences | Same pinned container |
+| Zero diff tolerance | Sub-pixel noise fails every run | Small `maxDiffPixelRatio` |
+| Updating baselines to go green | Commits the regression as expected | Review every diff image |
+| Full-page shots for everything | One change fails every test | Component-level captures |
+| No animation disabling | Captures mid-transition | Global disable stylesheet |
+| Live dates and random data | Different every run | Freeze and seed |
+| Screenshotting every page | Enormous review burden | Target components and key pages |
+| Baselines outside version control | Old commits fail against new baselines | Version alongside the code |
+| Treating pixels as accessibility | Identical pixels hide missing labels | Run `axe` separately |
+| Ignoring a persistently red test | Real regressions become invisible | Fix determinism or delete it |
 
 ---
 
 # Checklist
 
-Before approving Visual Testing
-
-- Critical interfaces identified
-- Visual baselines established
-- Layout consistency verified
-- Responsive behavior validated
-- Browser compatibility confirmed
-- Accessibility validated
-- Component states covered
-- Dynamic content verified
-- Design system consistency maintained
-- Cross-platform rendering verified
-- Deterministic execution achieved
-- Regression protection established
-- Engineering intent documented
-- Baselines reviewed
-- Long-term maintainability verified
-
----
-
-# Definition of Done
-
-A Visual Testing strategy is considered complete when every business-critical interface, responsive layout, design system component, visual state, accessibility requirement, supported browser, device configuration, dynamic content scenario, and user-facing presentation has been validated through stable, maintainable, and deterministic visual verification that provides engineering teams with high confidence that software releases preserve the intended user experience across all supported environments.
-
-Exceptional Visual Testing is not measured by the number of screenshots or visual comparisons.
-
-It is measured by how effectively it protects user experience, detects meaningful visual regressions, preserves design consistency, validates accessibility, ensures reliable cross-platform rendering, enables confident product releases, and continuously supports the delivery of visually consistent, production-ready software.
+- [ ] Baselines are generated and compared in the same pinned container image
+- [ ] Animations, transitions and carets are disabled during capture
+- [ ] Clocks are frozen and random data seeded
+- [ ] Fonts are self-hosted and awaited before capture
+- [ ] Dynamic regions are masked rather than left to vary
+- [ ] Captures target components; page-level shots are reserved for key pages
+- [ ] Diff tolerance is small but non-zero
+- [ ] Key breakpoints and dark mode are covered
+- [ ] Every baseline update is reviewed as a diff image by the change owner
+- [ ] Baselines are versioned with the code
+- [ ] Accessibility is tested separately, never inferred from pixels

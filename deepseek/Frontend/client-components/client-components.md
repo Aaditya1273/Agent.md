@@ -5,1143 +5,173 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: client-components
+category: Frontend
+description: Client components — when interactivity justifies the bundle, hydration correctness, browser-API access, and keeping the boundary small.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# client-components.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural boundaries, browser execution strategies, interaction patterns, state management guidelines, and long-term best practices for building production-grade applications using React Client Components.
+Rules for `"use client"` components. Every one of them costs download, parse and
+execution time on the user's device, so each should exist for a reason that can be
+named: state, an event handler, a browser API, or an effect.
 
-It applies to
-
-- Next.js Applications
-- React Applications
-- SaaS Platforms
-- Enterprise Dashboards
-- AI Applications
-- E-Commerce Systems
-- Design Systems
-- Internal Tools
-- Production Web Applications
-
-Client Components are not interactive React components.
-
-They are architectural execution units responsible for browser-specific behavior, user interaction, local state, and real-time experiences while remaining intentionally separated from server-side responsibilities.
-
-Server Components own computation.
-
-Client Components own interaction.
+The server side is `Frontend/server-components`; hydration specifics are
+`Frontend/hydration`.
 
 ---
 
-# Core Philosophy
+# `"use client"` is an entry point, not a file marker
 
-Understand User Interaction
+```tsx
+"use client";
+import { Chart } from "heavy-charting-lib";     // 180 KB — now in the bundle
+import { formatMoney } from "@/lib/format";     // and this, and its imports
+```
 
-↓
+The directive marks the **start of the client boundary**. Everything reachable
+from it — transitively — is bundled and shipped.
 
-Identify Browser Responsibilities
+Consequences worth remembering:
 
-↓
+- One `"use client"` at the top of a layout ships that entire subtree.
+- A utility imported by both server and client code ends up in the bundle.
+- Marking a file that needs no interactivity costs bytes for nothing.
 
-Design Client Boundaries
+Keep the boundary at the leaf:
 
-↓
-
-Manage State
-
-↓
-
-Handle Events
-
-↓
-
-Optimize Rendering
-
-↓
-
-Review Architecture
-
-↓
-
-Continuously Improve
-
-Every responsibility should execute in the browser only when browser execution is required.
+```tsx
+// The page stays on the server; only the button is a client component
+export default async function Page() {
+  const product = await getProduct(id);
+  return <article><ProductDetails product={product} /><AddToCart id={product.id} /></article>;
+}
+```
 
 ---
 
-# Primary Objective
+# Justify each one
 
-Every Client Component architecture should maximize
+A client component needs at least one of:
 
-User Experience
+| Reason | Example |
+| --- | --- |
+| State that changes from interaction | A dropdown, a form field |
+| An event handler | `onClick`, `onChange`, `onSubmit` |
+| A browser API | `localStorage`, `matchMedia`, `IntersectionObserver` |
+| An effect synchronising with something external | An analytics SDK, a map library |
+| A third-party library that uses any of the above | Most UI kits |
 
-+
+If none applies, it is a server component.
 
-Performance
-
-+
-
-Maintainability
-
-+
-
-Predictability
-
-+
-
-Accessibility
-
-+
-
-Scalability
-
-+
-
-Developer Experience
-
-+
-
-Long-Term Sustainability
-
-The browser should execute only the logic required to deliver an excellent interactive experience.
+Split rather than escalating: a card whose only interactive element is a "copy"
+button should be a server component containing a small client `<CopyButton>`, not
+a client component containing a card.
 
 ---
 
-# Engineering Principles
+# Hydration must match
 
-Always prioritize
+React renders on the server and then attaches on the client. If the two produce
+different HTML, React discards the server markup and re-renders — losing the
+performance benefit and, in some cases, producing visibly wrong content.
 
-Minimal Client JavaScript
+```tsx
+// Mismatch: the server and client evaluate these at different moments
+<span>{new Date().toLocaleTimeString()}</span>
+<span>{Math.random()}</span>
+<span>{window.innerWidth}</span>        // window does not exist on the server
+```
 
-↓
+Correct patterns:
 
-Explicit Client Boundaries
+```tsx
+// Values that genuinely differ: render after mount
+const [mounted, setMounted] = useState(false);
+useEffect(() => setMounted(true), []);
+if (!mounted) return <Placeholder />;
 
-↓
+// Reading an external store: the server snapshot must be deterministic
+const theme = useSyncExternalStore(subscribe, getClientSnapshot, () => "light");
+```
 
-Reusable Components
+**Never** read `window`, `document`, `localStorage` or `navigator` during render.
+They are undefined on the server. Read them in an effect or through
+`useSyncExternalStore`.
 
-↓
-
-Predictable State
-
-↓
-
-Efficient Rendering
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Continuous Improvement
-
-Move logic to the browser only when interaction requires it.
+Use `useId()` for generated ids that must be stable across the boundary — a random
+id will differ between server and client. → `Frontend/hydration`
 
 ---
 
-# Client Component Lifecycle
+# Props and data
 
-Understand Requirements
-
-↓
-
-Identify Interactive Features
-
-↓
-
-Define Client Boundaries
-
-↓
-
-Manage State
-
-↓
-
-Handle Events
-
-↓
-
-Optimize Rendering
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Browser execution should always be intentional.
+- Props from a server component are **serialised into the HTML**. Pass the minimum,
+  and never pass anything the user should not see.
+- Functions cannot cross the boundary, except Server Action references.
+- Server data belongs in a server component or a query cache, not fetched again on
+  mount. Refetching on the client duplicates work and creates a waterfall.
+  → `Frontend/state-management`
+- A client component receiving `children` from a server component does **not**
+  bundle those children — that is the composition escape hatch for heavy content.
 
 ---
 
-# Stage 1 — Responsibility Analysis
+# Keep the bundle honest
 
-Identify
+- Lazy-load heavy interactive components so they are not in the initial payload:
 
-User Interactions
+```tsx
+const Editor = dynamic(() => import("./Editor"), { ssr: false, loading: () => <Skeleton /> });
+```
 
-↓
-
-Local State
-
-↓
-
-Animations
-
-↓
-
-Forms
-
-↓
-
-Browser APIs
-
-↓
-
-Real-Time Updates
-
-↓
-
-Performance Goals
-
-↓
-
-Future Evolution
-
-Only browser-dependent behavior belongs inside Client Components.
+- `ssr: false` for anything that genuinely cannot render on the server (a map, a
+  canvas visualisation) — but it also means nothing renders until the JavaScript
+  arrives, so reserve it.
+- Check what a `"use client"` file actually pulls in with a bundle analyser. A
+  single icon import can drag in an entire library.
+- Prefer platform APIs over dependencies inside client components — every byte is
+  paid by the user, on their device. → `Frontend/performance`
 
 ---
 
-# Stage 2 — Execution Boundaries
+# Anti-patterns
 
-Separate
-
-Interactive Logic
-
-↓
-
-Presentation
-
-↓
-
-Business Logic
-
-↓
-
-Server Responsibilities
-
-↓
-
-Browser APIs
-
-↓
-
-Rendering
-
-↓
-
-Shared Components
-
-↓
-
-Architecture
-
-Execution boundaries should remain explicit.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `"use client"` on a layout or page | The whole subtree ships to the browser | Mark interactive leaves |
+| Marking a file that needs no interactivity | Bytes for nothing | Leave it on the server |
+| A client component wrapping static content | Ships content that could be HTML | Invert: server wraps client |
+| Reading `window` during render | Undefined on the server; hydration error | Effect or `useSyncExternalStore` |
+| `Date`/`Math.random` in render | Server and client differ; mismatch | Render after mount |
+| Random or index-derived ids | Differ across the boundary | `useId()` |
+| Suppressing hydration warnings | Hides a real mismatch | Fix the cause |
+| Refetching server data on mount | Duplicate work; waterfall | Pass it down or use a cache |
+| Passing whole records as props | Serialised into the HTML | Project explicit fields |
+| Heavy component in the initial bundle | Slow time-to-interactive | `dynamic` import |
+| `ssr: false` by default | Nothing renders until JS loads | Only where genuinely required |
+| Not checking what a client file imports | One icon drags in a library | Bundle analysis |
 
 ---
 
-# Stage 3 — State Ownership
-
-Manage
-
-Local State
-
-↓
-
-UI State
-
-↓
-
-Transient State
-
-↓
-
-Form State
-
-↓
-
-Optimistic Updates
-
-↓
-
-Derived Values
-
-↓
-
-Synchronization
-
-↓
-
-Predictability
-
-Keep state as close as possible to where it is used.
-
----
-
-# Stage 4 — Event Handling
-
-Handle
-
-User Input
-
-↓
-
-Pointer Events
-
-↓
-
-Keyboard Events
-
-↓
-
-Touch Events
-
-↓
-
-Accessibility Events
-
-↓
-
-Navigation
-
-↓
-
-Real-Time Interaction
-
-↓
-
-Feedback
-
-Events should produce predictable state transitions.
-
----
-
-# Stage 5 — Component Composition
-
-Compose
-
-Small Components
-
-↓
-
-Reusable Components
-
-↓
-
-Interactive Features
-
-↓
-
-Shared UI
-
-↓
-
-Layouts
-
-↓
-
-Feature Modules
-
-↓
-
-Independent Units
-
-↓
-
-Maintainability
-
-Composition should reduce complexity.
-
----
-
-# Stage 6 — Browser APIs
-
-Integrate
-
-Storage
-
-↓
-
-Clipboard
-
-↓
-
-Notifications
-
-↓
-
-Geolocation
-
-↓
-
-Media
-
-↓
-
-History
-
-↓
-
-Window APIs
-
-↓
-
-Device Features
-
-Browser APIs should remain isolated within Client Components.
-
----
-
-# Stage 7 — Synchronization
-
-Synchronize
-
-Server Data
-
-↓
-
-User State
-
-↓
-
-External Events
-
-↓
-
-Real-Time Updates
-
-↓
-
-Storage
-
-↓
-
-Navigation
-
-↓
-
-Application State
-
-↓
-
-Consistency
-
-Synchronization should remain deterministic.
-
----
-
-# Stage 8 — Rendering
-
-Optimize
-
-Component Boundaries
-
-↓
-
-State Updates
-
-↓
-
-Memoization
-
-↓
-
-Lazy Loading
-
-↓
-
-Code Splitting
-
-↓
-
-Rendering Frequency
-
-↓
-
-Hydration Cost
-
-↓
-
-User Experience
-
-Rendering efficiency begins with good architecture.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Bundle Size
-
-↓
-
-Hydration
-
-↓
-
-Rendering
-
-↓
-
-Assets
-
-↓
-
-Network Requests
-
-↓
-
-Subscriptions
-
-↓
-
-Animations
-
-↓
-
-Memory Usage
-
-Every byte sent to the browser should provide user value.
-
----
-
-# Stage 10 — Accessibility
-
-Ensure
-
-Keyboard Support
-
-↓
-
-Focus Management
-
-↓
-
-Screen Readers
-
-↓
-
-Semantic HTML
-
-↓
-
-Accessible Controls
-
-↓
-
-Error Feedback
-
-↓
-
-Motion Preferences
-
-↓
-
-Inclusive Design
-
-Interactive applications should be usable by everyone.
-
----
-
-# Stage 11 — Error Handling
-
-Handle
-
-Interaction Failures
-
-↓
-
-Validation Errors
-
-↓
-
-Browser Limitations
-
-↓
-
-Network Failures
-
-↓
-
-Recovery
-
-↓
-
-Fallback UI
-
-↓
-
-Logging
-
-↓
-
-Observability
-
-Interaction failures should never trap users.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Feature Components
-
-↓
-
-Shared Components
-
-↓
-
-Hooks
-
-↓
-
-Utilities
-
-↓
-
-Services
-
-↓
-
-Assets
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-Organization should reinforce architectural boundaries.
-
----
-
-# Stage 13 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-Reusable Components
-
-↓
-
-Independent Modules
-
-↓
-
-Large Applications
-
-↓
-
-Design Systems
-
-↓
-
-Future Evolution
-
-↓
-
-Long-Term Maintenance
-
-Client architecture should remain modular.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Execution Boundaries
-
-↓
-
-Component Responsibilities
-
-↓
-
-Interaction Patterns
-
-↓
-
-State Ownership
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Performance Decisions
-
-↓
-
-Future Improvements
-
-Documentation preserves engineering intent.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Component Boundaries
-
-↓
-
-State Management
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Maintainability
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-Review architecture before implementation details.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Large Bundles
-
-↓
-
-Hydration Problems
-
-↓
-
-State Complexity
-
-↓
-
-Rendering Bottlenecks
-
-↓
-
-Architecture Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Operational Risk
-
-↓
-
-Maintenance Cost
-
-Browser complexity grows quickly without architectural discipline.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Interaction Design
-
-↓
-
-Rendering
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-Optimization should preserve simplicity.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Rendering
-
-↓
-
-State Management
-
-↓
-
-Hydration
-
-↓
-
-Error Recovery
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Reliable browser execution creates reliable user experiences.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Architecture Standards
-
-↓
-
-Review Process
-
-↓
-
-Performance Standards
-
-↓
-
-Component Ownership
-
-↓
-
-Documentation
-
-↓
-
-Engineering Discipline
-
-↓
-
-Version Management
-
-↓
-
-Continuous Evolution
-
-Client architecture requires governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Execution Boundaries
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-System Consistency
-
-↓
-
-Software Longevity
-
-Exceptional Client Component architectures remain understandable regardless of application complexity.
-
----
-
-# Client Components Quality Attributes
-
-Evaluate
-
-Performance
-
-Maintainability
-
-Accessibility
-
-Scalability
-
-Predictability
-
-Developer Experience
-
-User Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does this responsibility truly require browser execution?
-
-↓
-
-Can more logic remain on the server?
-
-↓
-
-Is local state minimized?
-
-↓
-
-Are browser APIs isolated?
-
-↓
-
-Is hydration cost justified?
-
-↓
-
-Will future engineers understand these execution boundaries?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Business logic exposed unnecessarily
-
-Hydration failures
-
-Broken interaction architecture
-
-Security boundary violations
-
-Major
-
-Large client bundles
-
-Poor state ownership
-
-Rendering bottlenecks
-
-Weak component boundaries
-
-Medium
-
-Documentation gaps
-
-Weak organization
-
-Naming inconsistencies
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Client Components Checklist
-
-✓ Responsibilities identified
-
-✓ Execution boundaries defined
-
-✓ State ownership established
-
-✓ Event handling designed
-
-✓ Component composition optimized
-
-✓ Browser APIs isolated
-
-✓ Synchronization validated
-
-✓ Rendering optimized
-
-✓ Performance reviewed
-
-✓ Accessibility ensured
-
-✓ Error handling implemented
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Making every component a Client Component
-
-Executing business logic in the browser
-
-Large monolithic interactive components
-
-Excessive local state
-
-Duplicating server logic
-
-Using browser APIs outside Client Components
-
-Ignoring hydration cost
-
-Overusing effects
-
-Premature optimization
-
-Mixing presentation with business logic
-
-Ignoring accessibility
-
-Poor execution boundaries
-
-Treating Client Components as default architecture
-
----
-
-# Definition of Done
-
-A Client Component architecture is considered production-ready when
-
-- Every Client Component exists because browser execution is required for user interaction, local state management, browser APIs, real-time behavior, or rich user experience rather than implementation convenience.
-- Client Components, Server Components, rendering strategies, state ownership, event handling, browser integrations, and hydration behavior work together as a cohesive architecture that minimizes unnecessary client-side execution while preserving responsive interactions.
-- Local state, transient UI state, browser-specific functionality, animations, forms, navigation, and interactive workflows remain isolated within well-defined architectural boundaries that prevent unnecessary coupling with server responsibilities.
-- Rendering performance, bundle size, hydration cost, accessibility, responsiveness, error recovery, and operational reliability are continuously optimized without sacrificing maintainability or developer productivity.
-- Engineering reviews validate execution boundaries, component responsibilities, state architecture, rendering efficiency, accessibility compliance, documentation quality, scalability, and long-term maintainability before production deployment.
-- Documentation preserves interaction architecture through clearly defined responsibilities, state ownership models, execution decisions, known constraints, trade-offs, and future evolution strategies.
-- The resulting architecture demonstrates engineering discipline, architectural clarity, predictable browser behavior, operational reliability, maintainability, scalability, user experience excellence, and long-term software sustainability.
-
-Exceptional Client Component architectures are not measured by how much code executes in the browser.
-
-They are measured by how intentionally browser execution is constrained to interactive responsibilities, how effectively unnecessary client-side complexity is eliminated, how naturally user experiences remain responsive, and how confidently future engineers can extend the application while preserving architectural integrity.
+# Checklist
+
+- [ ] Every `"use client"` file has a named reason: state, handler, browser API or effect
+- [ ] The directive sits at interactive leaves, never at layouts or pages
+- [ ] Static content is not wrapped inside client components
+- [ ] No browser global is read during render
+- [ ] Time, randomness and environment-dependent values render after mount
+- [ ] Generated ids use `useId()`
+- [ ] No hydration warning is suppressed without fixing the cause
+- [ ] Server data is passed down or cached, not refetched on mount
+- [ ] Props crossing the boundary are minimal and explicitly projected
+- [ ] Heavy interactive components are dynamically imported
+- [ ] `ssr: false` is used only where server rendering is genuinely impossible
+- [ ] The client bundle has been analysed for unexpected dependencies

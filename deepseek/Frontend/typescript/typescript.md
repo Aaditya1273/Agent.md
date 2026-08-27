@@ -5,1146 +5,207 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: typescript
+category: Frontend
+description: TypeScript in a frontend codebase — strict configuration, typing the boundary where data enters, discriminated unions, and never reaching for any.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# typescript.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, type system design, code organization, safety guidelines, and long-term best practices for building production-grade software using TypeScript.
+Rules for using TypeScript effectively. Types are only worth their cost if they
+are **true**. A codebase full of `any`, `as` and `!` compiles cleanly and tells you
+nothing.
 
-It applies to
-
-- React Applications
-- Next.js Applications
-- Node.js Services
-- APIs
-- SDKs
-- Libraries
-- Enterprise Systems
-- AI Applications
-- Full-Stack Platforms
-
-TypeScript is not JavaScript with types.
-
-It is an engineering system for expressing intent, preventing invalid states, documenting software contracts, and enabling long-term maintainability through static analysis.
-
-Types describe architecture.
-
-Implementation fulfills it.
+The highest-value rule: **type the boundary where untrusted data enters**, and let
+inference do the rest.
 
 ---
 
-# Core Philosophy
+# Configure strictly, from the start
 
-Understand Requirements
+```json
+{
+  "compilerOptions": {
+    "strict": true,                              // the eight strict flags
+    "noUncheckedIndexedAccess": true,            // arr[0] is T | undefined — it is
+    "exactOptionalPropertyTypes": true,          // `{a?: string}` ≠ `{a: undefined}`
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  }
+}
+```
 
-↓
+| Flag | Catches |
+| --- | --- |
+| `strictNullChecks` (in `strict`) | The largest class of runtime errors |
+| `noUncheckedIndexedAccess` | `array[i]` and `record[key]` assumed present |
+| `exactOptionalPropertyTypes` | Explicitly assigning `undefined` to an optional field |
+| `noFallthroughCasesInSwitch` | Missing `break` |
 
-Design Domain Models
+Adopting strict mode later is far more expensive than starting with it. On an
+existing codebase, enable it for new files (`include` a subdirectory) and migrate
+incrementally rather than turning it on repository-wide in one commit.
 
-↓
-
-Define Type Contracts
-
-↓
-
-Implement Logic
-
-↓
-
-Validate Correctness
-
-↓
-
-Refactor Safely
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Types should make incorrect code difficult to write.
+Run `tsc --noEmit` in CI. A bundler that strips types without checking them
+(esbuild, SWC) will happily ship type errors.
 
 ---
 
-# Primary Objective
+# `any` defeats the point
 
-Every TypeScript codebase should maximize
+`any` disables checking for that value **and everything it flows into**. One `any`
+in a data model silently untypes the components downstream.
 
-Type Safety
+| Instead of `any` | Use |
+| --- | --- |
+| Genuinely unknown input | `unknown`, then narrow |
+| A value with several shapes | A union |
+| A generic container | A type parameter |
+| A third-party module with no types | Write a `.d.ts`, or `unknown` at the boundary |
+| Escaping a hard error | Fix the type, or `@ts-expect-error` with a comment |
 
-+
+```ts
+// unknown forces you to check before use — that is the point
+function handle(input: unknown) {
+  if (typeof input === "string") return input.toUpperCase();
+  throw new TypeError("expected string");
+}
+```
 
-Correctness
+Ban it in lint (`@typescript-eslint/no-explicit-any`). Use `@ts-expect-error` —
+never `@ts-ignore` — because it fails when the underlying error is fixed, so the
+suppression cannot outlive its reason.
 
-+
-
-Maintainability
-
-+
-
-Readability
-
-+
-
-Scalability
-
-+
-
-Developer Experience
-
-+
-
-Predictability
-
-+
-
-Long-Term Sustainability
-
-The compiler should become an engineering partner rather than a syntax checker.
+Assertions (`as`) and non-null (`!`) are unchecked claims. `data as User` compiles
+whatever `data` is. Reserve them for cases where you genuinely know more than the
+compiler, and write down why.
 
 ---
 
-# Engineering Principles
+# Validate what crosses the boundary
 
-Always prioritize
+TypeScript disappears at runtime. An API response typed as `User` is a promise you
+made, not one the server kept.
 
-Explicit Types
+```ts
+// A lie: the response is `any` at runtime
+const user = await res.json() as User;
 
-↓
+// A guarantee: parsed and checked
+const user = UserSchema.parse(await res.json());       // throws on mismatch
+type User = z.infer<typeof UserSchema>;                // one source of truth
+```
 
-Domain Modeling
+Validate at every boundary: API responses, `localStorage`, URL parameters, form
+submissions, environment variables, webhook payloads, and anything from a third
+party.
 
-↓
-
-Immutable Thinking
-
-↓
-
-Type Inference
-
-↓
-
-Reusable Abstractions
-
-↓
-
-Predictable APIs
-
-↓
-
-Compile-Time Safety
-
-↓
-
-Continuous Improvement
-
-Model reality through types before implementing behavior.
+Derive the type from the schema (`z.infer`) so the runtime check and the static
+type cannot drift. Two hand-maintained definitions always diverge.
+→ `Backend/validation`
 
 ---
 
-# TypeScript Development Lifecycle
+# Model with unions, not optional flags
 
-Understand Requirements
+```ts
+// Permits { status: "success", error: Error } — a state that cannot happen
+type State = { status: string; data?: Data; error?: Error };
 
-↓
+// Discriminated union: illegal combinations do not typecheck
+type State =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; data: Data }
+  | { status: "error"; error: Error };
 
-Model Domain
+switch (state.status) {
+  case "success": return state.data;      // narrowed; `.data` is not optional here
+  default: { const _x: never = state; throw new Error("unhandled"); }   // exhaustive
+}
+```
 
-↓
+The `never` assignment makes adding a variant a **compile error** in every switch
+that does not handle it — which is the main reason to use unions at all.
 
-Define Contracts
+Other modelling rules:
 
-↓
-
-Implement Features
-
-↓
-
-Validate Types
-
-↓
-
-Review
-
-↓
-
-Refactor
-
-↓
-
-Continuously Improve
-
-Architecture should emerge from well-designed types.
+- Branded types for identifiers that must not be interchangeable:
+  `type UserId = string & { readonly __brand: "UserId" }` stops a passing an order
+  id where a user id is expected.
+- `readonly` on arrays and props that must not be mutated.
+- `satisfies` to check a literal against a type while keeping its narrow inference.
+- Prefer inference for return types; annotate only public API surfaces where an
+  explicit contract is valuable.
 
 ---
 
-# Stage 1 — Domain Understanding
+# Typing React
 
-Identify
+```tsx
+// Props: an explicit interface; children typed only if accepted
+interface ButtonProps extends React.ComponentPropsWithoutRef<"button"> {
+  variant?: "primary" | "ghost";
+}
 
-Business Rules
+// Events: use the DOM types, not `any`
+const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value);
+```
 
-↓
-
-Entities
-
-↓
-
-Value Objects
-
-↓
-
-Relationships
-
-↓
-
-Constraints
-
-↓
-
-User Workflows
-
-↓
-
-Edge Cases
-
-↓
-
-Future Evolution
-
-Every type should represent a real business concept.
+- Extend `ComponentPropsWithoutRef<"element">` so every native attribute is
+  accepted and typed, instead of re-declaring `className`, `onClick` and the rest.
+- Type state explicitly when the initial value does not determine it:
+  `useState<User | null>(null)`.
+- `useRef<HTMLInputElement>(null)` — the type parameter matters for `.current`.
+- Avoid `React.FC`: it adds nothing now and historically implied `children`.
 
 ---
 
-# Stage 2 — Type Architecture
+# Anti-patterns
 
-Design
-
-Primitive Types
-
-↓
-
-Domain Models
-
-↓
-
-Interfaces
-
-↓
-
-Type Aliases
-
-↓
-
-Generics
-
-↓
-
-Utility Types
-
-↓
-
-Shared Contracts
-
-↓
-
-Module Boundaries
-
-Types define system architecture.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `any` anywhere | Disables checking downstream too | `unknown` and narrow |
+| `as` to silence an error | An unchecked claim that compiles | Fix the type or validate |
+| `!` non-null assertion by habit | Runtime `undefined` errors | Narrow explicitly |
+| `@ts-ignore` | Outlives the problem it hid | `@ts-expect-error` with a reason |
+| Casting an API response to a type | The type is a promise, not a check | Parse with a schema |
+| Separate schema and interface | They drift; the drift favours the client | `z.infer` from the schema |
+| `strict` disabled | Loses most of TypeScript's value | Enable it; migrate incrementally |
+| Types not checked in CI | Bundlers strip without checking | `tsc --noEmit` |
+| Optional flags for a state machine | Impossible states typecheck | Discriminated union |
+| `switch` without exhaustiveness | New variants silently unhandled | `never` in the default case |
+| Interchangeable id types | Passing a user id as an order id compiles | Branded types |
+| Re-declaring native props | Misses attributes; drifts | Extend `ComponentPropsWithoutRef` |
+| `React.FC` | Adds nothing; historical baggage | Type props directly |
+| Enums for string sets | Extra runtime code; awkward interop | Union of string literals |
 
 ---
 
-# Stage 3 — Data Modeling
-
-Model
-
-Entities
-
-↓
-
-Value Objects
-
-↓
-
-Collections
-
-↓
-
-Optional Values
-
-↓
-
-Enumerations
-
-↓
-
-State Transitions
-
-↓
-
-Validation Rules
-
-↓
-
-Domain Constraints
-
-Represent invalid states as impossible whenever practical.
-
----
-
-# Stage 4 — API Contracts
-
-Define
-
-Function Signatures
-
-↓
-
-Parameters
-
-↓
-
-Return Types
-
-↓
-
-Async Results
-
-↓
-
-Error Types
-
-↓
-
-Events
-
-↓
-
-External Interfaces
-
-↓
-
-Shared Contracts
-
-Every public API should have an explicit contract.
-
----
-
-# Stage 5 — Type Safety
-
-Ensure
-
-Strict Compiler Settings
-
-↓
-
-Null Safety
-
-↓
-
-Readonly Data
-
-↓
-
-Exhaustive Checks
-
-↓
-
-Explicit Boundaries
-
-↓
-
-Controlled Assertions
-
-↓
-
-Safe Narrowing
-
-↓
-
-Reliable Refactoring
-
-Compile-time correctness reduces runtime failures.
-
----
-
-# Stage 6 — Generics
-
-Use generics to
-
-Increase Reusability
-
-↓
-
-Preserve Type Information
-
-↓
-
-Reduce Duplication
-
-↓
-
-Model Abstractions
-
-↓
-
-Create Libraries
-
-↓
-
-Build Utilities
-
-↓
-
-Improve APIs
-
-↓
-
-Maintain Flexibility
-
-Generics should improve clarity, not complexity.
-
----
-
-# Stage 7 — Module Organization
-
-Organize
-
-Domain Types
-
-↓
-
-Feature Types
-
-↓
-
-Shared Types
-
-↓
-
-Utilities
-
-↓
-
-Services
-
-↓
-
-Infrastructure
-
-↓
-
-Public APIs
-
-↓
-
-Internal Modules
-
-Structure should reflect architecture.
-
----
-
-# Stage 8 — Error Modeling
-
-Represent
-
-Expected Failures
-
-↓
-
-Validation Errors
-
-↓
-
-Business Errors
-
-↓
-
-Infrastructure Errors
-
-↓
-
-API Responses
-
-↓
-
-Recovery Paths
-
-↓
-
-Error Contracts
-
-↓
-
-Observability
-
-Errors are part of the type system.
-
----
-
-# Stage 9 — State Modeling
-
-Design
-
-Initial State
-
-↓
-
-Loading State
-
-↓
-
-Success State
-
-↓
-
-Failure State
-
-↓
-
-Transitions
-
-↓
-
-Consistency
-
-↓
-
-Predictability
-
-↓
-
-Future Evolution
-
-State transitions should be explicit and type-safe.
-
----
-
-# Stage 10 — Immutability
-
-Encourage
-
-Readonly Objects
-
-↓
-
-Pure Functions
-
-↓
-
-Immutable Updates
-
-↓
-
-Controlled Mutation
-
-↓
-
-Predictable State
-
-↓
-
-Stable References
-
-↓
-
-Safer Concurrency
-
-↓
-
-Reliable Debugging
-
-Immutable systems are easier to reason about.
-
----
-
-# Stage 11 — Performance
-
-Optimize
-
-Compilation
-
-↓
-
-Type Complexity
-
-↓
-
-Inference
-
-↓
-
-Build Speed
-
-↓
-
-Editor Responsiveness
-
-↓
-
-Bundle Impact
-
-↓
-
-Memory Usage
-
-↓
-
-Developer Productivity
-
-Complex types should not reduce maintainability.
-
----
-
-# Stage 12 — Documentation
-
-Document
-
-Domain Models
-
-↓
-
-Public APIs
-
-↓
-
-Shared Types
-
-↓
-
-Architectural Decisions
-
-↓
-
-Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Patterns
-
-↓
-
-Future Improvements
-
-Types document intent.
-
-Documentation explains reasoning.
-
----
-
-# Stage 13 — Testing Strategy
-
-Validate
-
-Business Rules
-
-↓
-
-Type Contracts
-
-↓
-
-Runtime Behavior
-
-↓
-
-Edge Cases
-
-↓
-
-Integration
-
-↓
-
-Regression
-
-↓
-
-Compatibility
-
-↓
-
-Reliability
-
-Test behavior.
-
-Trust the compiler for structural correctness.
-
----
-
-# Stage 14 — Code Organization
-
-Maintain
-
-Feature Boundaries
-
-↓
-
-Reusable Modules
-
-↓
-
-Naming Consistency
-
-↓
-
-Dependency Direction
-
-↓
-
-Domain Separation
-
-↓
-
-Public Interfaces
-
-↓
-
-Internal Implementation
-
-↓
-
-Repository Standards
-
-Organization should simplify evolution.
-
----
-
-# Stage 15 — Scalability
-
-Design for
-
-Growing Teams
-
-↓
-
-Growing Features
-
-↓
-
-Reusable Libraries
-
-↓
-
-Shared Contracts
-
-↓
-
-Independent Modules
-
-↓
-
-API Evolution
-
-↓
-
-Large Codebases
-
-↓
-
-Long-Term Maintenance
-
-Good types scale with the organization.
-
----
-
-# Stage 16 — Review
-
-Review
-
-Type Safety
-
-↓
-
-Domain Accuracy
-
-↓
-
-API Design
-
-↓
-
-Maintainability
-
-↓
-
-Readability
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-↓
-
-Engineering Standards
-
-Types should communicate intent immediately.
-
----
-
-# Stage 17 — Risk Assessment
-
-Evaluate
-
-Unsafe Assertions
-
-↓
-
-Loose Types
-
-↓
-
-Architecture Drift
-
-↓
-
-Duplicated Models
-
-↓
-
-Weak Contracts
-
-↓
-
-Technical Debt
-
-↓
-
-Migration Risks
-
-↓
-
-Maintenance Cost
-
-Weak typing accumulates engineering debt.
-
----
-
-# Stage 18 — Continuous Optimization
-
-Continuously improve
-
-Domain Models
-
-↓
-
-API Contracts
-
-↓
-
-Reusable Types
-
-↓
-
-Developer Experience
-
-↓
-
-Compiler Safety
-
-↓
-
-Architecture
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-Better models create better software.
-
----
-
-# Stage 19 — Production Readiness
-
-Validate
-
-Strict Compilation
-
-↓
-
-Public APIs
-
-↓
-
-Type Consistency
-
-↓
-
-Documentation
-
-↓
-
-Performance
-
-↓
-
-Testing
-
-↓
-
-Architecture
-
-↓
-
-Operational Stability
-
-Production systems depend on reliable contracts.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Type Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Correctness
-
-↓
-
-Developer Experience
-
-↓
-
-Shared Knowledge
-
-↓
-
-Engineering Consistency
-
-↓
-
-Software Quality
-
-↓
-
-System Longevity
-
-Exceptional TypeScript systems remain safe, understandable, and adaptable throughout years of evolution.
-
----
-
-# TypeScript Quality Attributes
-
-Evaluate
-
-Type Safety
-
-Correctness
-
-Maintainability
-
-Readability
-
-Scalability
-
-Predictability
-
-Developer Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every type represent a meaningful domain concept?
-
-↓
-
-Are invalid states prevented whenever practical?
-
-↓
-
-Are public APIs explicitly typed?
-
-↓
-
-Can future engineers understand the domain through the type system?
-
-↓
-
-Are generics improving clarity rather than increasing complexity?
-
-↓
-
-Can the compiler detect common engineering mistakes?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this type architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Unsafe type assertions
-
-Broken domain models
-
-Public APIs using any
-
-Invalid state representation
-
-Major
-
-Weak contracts
-
-Duplicated types
-
-Loose compiler settings
-
-Poor module organization
-
-Medium
-
-Naming inconsistencies
-
-Overly complex generics
-
-Documentation gaps
-
-Minor
-
-Formatting
-
-Comments
-
-Metadata
-
-Repository consistency
-
----
-
-# TypeScript Checklist
-
-✓ Domain understood
-
-✓ Type architecture designed
-
-✓ Business models defined
-
-✓ API contracts explicit
-
-✓ Strict type safety enabled
-
-✓ Generics used appropriately
-
-✓ Modules organized
-
-✓ Errors modeled
-
-✓ State represented safely
-
-✓ Immutability encouraged
-
-✓ Performance reviewed
-
-✓ Documentation updated
-
-✓ Testing completed
-
-✓ Scalability considered
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous improvement practiced
-
-✓ Production readiness validated
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using any without justification
-
-Excessive type assertions
-
-Duplicated domain models
-
-Weak compiler settings
-
-Leaking implementation details
-
-Over-engineered generics
-
-Mutable shared state
-
-Ignoring null safety
-
-Implicit public APIs
-
-Mixing domain and infrastructure models
-
-Treating types as documentation only
-
-Optimizing for fewer types instead of better models
-
-Ignoring architectural boundaries
-
----
-
-# Definition of Done
-
-A TypeScript codebase is considered production-ready when
-
-- Domain models accurately represent business concepts through expressive, maintainable, and type-safe contracts that make invalid states difficult or impossible to represent.
-- Public APIs expose explicit, predictable, and stable interfaces that preserve correctness across modules, applications, and future system evolution.
-- Strict compiler settings, disciplined type modeling, controlled use of generics, safe error representation, and immutable design principles collectively reduce runtime failures through compile-time validation.
-- The type system communicates architectural intent, domain knowledge, system constraints, and engineering decisions clearly enough that experienced engineers can understand the software before reading implementation details.
-- Module organization, shared contracts, dependency boundaries, documentation, and engineering reviews preserve consistency, scalability, maintainability, and long-term software quality.
-- Performance, developer experience, build efficiency, and operational reliability remain balanced without sacrificing type safety or architectural clarity.
-- Engineering reviews continuously validate correctness, consistency, readability, scalability, API design, maintainability, and adherence to established engineering standards.
-- The resulting codebase demonstrates engineering discipline, architectural integrity, predictable behavior, long-term maintainability, and sustainable software evolution.
-
-Exceptional TypeScript systems are not measured by the number of advanced type features they use.
-
-They are measured by how clearly their type system expresses the domain, how effectively it prevents invalid behavior before execution, and how confidently future engineers can evolve the software while preserving architectural correctness.
+# Checklist
+
+- [ ] `strict` is enabled, with `noUncheckedIndexedAccess`
+- [ ] `tsc --noEmit` runs in CI and blocks merges
+- [ ] `no-explicit-any` is a lint error
+- [ ] `@ts-ignore` is banned; `@ts-expect-error` carries a reason
+- [ ] Type assertions and non-null assertions are rare and justified
+- [ ] Every external boundary is parsed with a runtime schema
+- [ ] Static types are derived from those schemas, not written twice
+- [ ] Related state is modelled as a discriminated union
+- [ ] Switches over unions are exhaustive via a `never` check
+- [ ] Identifier types are branded where confusion is possible
+- [ ] Immutable data is marked `readonly`
+- [ ] Component props extend the native element's props
+- [ ] Event handlers use the correct DOM event types
+- [ ] `useState` and `useRef` are explicitly typed where inference is insufficient
+- [ ] Public API surfaces have explicit return types

@@ -5,1158 +5,217 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: monitoring
+category: DevOps
+description: Infrastructure monitoring — what to collect from hosts, clusters and dependencies, SLO-based alerting, dashboards people use, and controlling the bill.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# monitoring.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, implementing, operating, and continuously improving monitoring systems across modern software platforms.
+Rules for monitoring infrastructure: nodes, clusters, databases, queues,
+networking and third-party dependencies. Application instrumentation is
+`Backend/monitoring`.
 
-It applies to
-
-- Cloud Infrastructure
-- Kubernetes
-- Web Applications
-- APIs
-- AI Applications
-- Databases
-- Microservices
-- Distributed Systems
-- Enterprise Platforms
-
-Monitoring is not collecting metrics.
-
-Monitoring is the continuous observation of systems to detect, understand, diagnose, and respond to operational conditions before they impact users or business operations.
-
-Visibility should precede incidents.
-
-Not follow them.
+The distinction that matters: **infrastructure metrics tell you a component is
+unhealthy; only user-facing signals tell you the product is broken.** Alert on the
+second, use the first to diagnose.
 
 ---
 
-# Core Philosophy
+# Collect the layers that fail
 
-Observe Systems
+| Layer | Signals worth collecting |
+| --- | --- |
+| Node | CPU steal, memory pressure, disk usage and inode count, disk I/O wait, network errors |
+| Cluster | Pending pods, node `NotReady`, `OOMKilled` count, evictions, `CrashLoopBackOff` |
+| Database | Connection pool utilisation, replication lag, dead tuples, slow query rate, disk headroom |
+| Queue | Oldest-message age, DLQ depth, consumer count |
+| Cache | Hit ratio, eviction rate, memory utilisation |
+| Load balancer | `5xx` by target, healthy target count, connection errors |
+| TLS / DNS | Certificate expiry, domain expiry, resolution failures |
+| Cloud quota | API rate limits, IP address exhaustion, service quotas |
+| Dependencies | Third-party error rate and latency, from your side |
 
-↓
+Two that are quietly fatal and routinely uncollected:
 
-Collect Signals
+- **Disk and inode exhaustion.** A full disk stops writes, breaks logging, and can
+  corrupt state. Inodes exhaust separately — a directory full of tiny files fills
+  them while `df` still shows free space.
+- **Certificate expiry.** An expired certificate is a total outage with a known
+  date. Alert 30 and 7 days out.
 
-↓
-
-Detect Anomalies
-
-↓
-
-Alert Intelligently
-
-↓
-
-Investigate Quickly
-
-↓
-
-Recover Rapidly
-
-↓
-
-Learn Continuously
-
-↓
-
-Improve Reliability
-
-You cannot improve what you cannot observe.
-
-Monitoring exists to create understanding.
+Also monitor from outside: a synthetic check on the real user path, from another
+network, catches DNS, CDN and certificate failures that internal metrics cannot
+see.
 
 ---
 
-# Primary Objective
+# Alert on symptoms, page on user impact
 
-Every monitoring platform should maximize
+An alert should mean **a user is affected, and you can do something now**. Define
+the SLO first; the alert follows from it.
 
-Visibility
+```yaml
+# Multi-window burn rate: fast burn pages, slow burn opens a ticket
+- alert: CheckoutFastBurn
+  expr: |
+    (1 - sum(rate(sli_good_total{journey="checkout"}[1h]))
+       / sum(rate(sli_total{journey="checkout"}[1h]))) > 14.4 * 0.001
+  for: 2m
+  labels: { severity: page }
+  annotations: { runbook: "https://runbooks.example.com/checkout" }
+```
 
-+
+| Signal | Route to |
+| --- | --- |
+| Users cannot complete a critical journey | Page |
+| Error budget burning fast (14.4× over 1h) | Page |
+| Certificate expires in 7 days | Page |
+| Disk will be full within 4 hours (predicted) | Page |
+| Error budget burning slowly (1× over 3d) | Ticket |
+| A single node unhealthy in a healthy cluster | Ticket |
+| Certificate expires in 30 days | Ticket |
+| Cost anomaly | Ticket |
 
-Reliability
+Every paging alert needs: a **runbook link** with the first three diagnostic steps,
+a clear owner, and a reason it cannot wait until morning. Anything failing those
+is a ticket.
 
-+
+```promql
+# Disk: predict, do not threshold. Four hours of warning is actionable.
+predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 4*3600) < 0
 
-Observability
+# Inodes exhaust independently of bytes — `df -h` still shows free space
+node_filesystem_files_free / node_filesystem_files < 0.1
 
-+
+# Certificates: a scheduled outage with a known date
+probe_ssl_earliest_cert_expiry - time() < 7 * 86400
 
-Accuracy
+# Replication lag, in seconds behind the primary → `Database/replication`
+pg_stat_replication_replay_lag_seconds > 30
+```
 
-+
-
-Availability
-
-+
-
-Automation
-
-+
-
-Operational Awareness
-
-+
-
-Engineering Excellence
-
-Monitoring should enable proactive engineering.
-
-Not reactive firefighting.
-
----
-
-# Engineering Principles
-
-Always prioritize
-
-Meaningful Signals
-
-↓
-
-Reliable Metrics
-
-↓
-
-Actionable Alerts
-
-↓
-
-Fast Detection
-
-↓
-
-Low Noise
-
-↓
-
-Automation
-
-↓
-
-Continuous Learning
-
-↓
-
-Operational Simplicity
-
-Monitoring should reduce uncertainty.
-
-Not create alert fatigue.
+Predict rather than threshold where you can: `predict_linear` on disk usage warns
+four hours ahead, which is actionable; "disk 90% full" on a slowly-growing volume
+is noise, and on a fast-filling one it is already too late.
 
 ---
 
-# Monitoring Lifecycle
+# Dashboards people actually open
 
-Define Objectives
+Build from the questions asked during an incident, not from every available
+metric.
 
-↓
+1. **Service overview** — the four golden signals per service, one screen.
+2. **Dependency health** — every downstream, with error rate and latency.
+3. **Capacity** — saturation of each finite resource: pool, disk, memory, quota.
+4. **Deploy correlation** — deploy markers annotated on the graphs, so "what
+   changed?" is answerable in one glance.
 
-Instrument Systems
+```json
+// Grafana: annotate every panel with deploy markers, so "what changed?"
+// is answered without leaving the dashboard.
+{ "annotations": { "list": [{
+  "name": "Deploys",
+  "datasource": "prometheus",
+  "expr": "changes(kube_deployment_status_observed_generation{deployment=\"api\"}[1m]) > 0",
+  "iconColor": "rgba(255, 96, 96, 1)"
+}]}}
+```
 
-↓
-
-Collect Signals
-
-↓
-
-Analyze
-
-↓
-
-Alert
-
-↓
-
-Investigate
-
-↓
-
-Improve
-
-↓
-
-Continuously Optimize
+Rules: default to the last hour, keep the top row to what matters, and delete
+dashboards nobody opens. A wall of unread graphs trains people to ignore all of
+them.
 
 ---
 
-# Stage 1 — Monitoring Strategy
+# Cost and retention
 
-Understand
+Observability spend grows superlinearly with traffic, and metric cardinality is
+the usual cause.
 
-Business Objectives
-
-↓
-
-Service Level Objectives
-
-↓
-
-Critical Systems
-
-↓
-
-Availability Requirements
-
-↓
-
-Operational Risks
-
-↓
-
-User Experience
-
-↓
-
-Business Metrics
-
-↓
-
-Success Criteria
-
-Monitoring begins with business priorities.
+- **Cardinality kills.** A label with a pod name, request id or user id multiplies
+  series by that value's range. Audit label sets; keep high-cardinality data in
+  logs and traces where it belongs. → `Backend/logging`
+- Retention by tier: high resolution for days, downsampled for months, aggregates
+  for years. Nobody queries second-resolution data from March.
+- Sample high-volume success paths; never sample errors.
+- Alert on the observability bill itself — a cardinality explosion shipped on a
+  Friday is discovered on the invoice otherwise.
 
 ---
 
-# Stage 2 — System Instrumentation
+# Operational hygiene
 
-Instrument
+- Monitoring must not share a failure domain with what it monitors. An alerting
+  system hosted in the cluster it watches goes down with it.
+- Have a **dead-man's switch**: a heartbeat alert that fires when monitoring stops
+  reporting. Silence is indistinguishable from health otherwise.
+- Test alerts when you write them — trigger the condition and confirm the page
+  arrives at the right person.
+- Review alerts monthly: delete those nobody acted on, and add one for anything an
+  incident revealed you were blind to.
+- Define escalation: who is paged, after how long unacknowledged, and to whom it
+  escalates. → `DevOps/disaster-recovery`
 
-Applications
-
-↓
-
-Infrastructure
-
-↓
-
-Databases
-
-↓
-
-Containers
-
-↓
-
-Networks
-
-↓
-
-Message Queues
-
-↓
-
-External Services
-
-↓
-
-Business Processes
-
-Every critical component should emit telemetry.
+| Component | Exporter / source |
+| --- | --- |
+| Nodes | `node_exporter` — `node_filesystem_avail_bytes`, `node_memory_MemAvailable_bytes` |
+| Kubernetes | `kube-state-metrics` — `kube_pod_container_status_restarts_total` |
+| Postgres | `postgres_exporter` — `pg_stat_replication`, `pg_stat_database` |
+| Redis | `redis_exporter` — `redis_evicted_keys_total`, `redis_memory_used_bytes` |
+| Blackbox / TLS | `blackbox_exporter` — `probe_success`, `probe_ssl_earliest_cert_expiry` |
+| Load balancer | Cloud provider metrics — `HTTPCode_Target_5XX_Count`, `HealthyHostCount` |
+| Queues | Broker metrics — `ApproximateAgeOfOldestMessage` → `Backend/queues` |
 
 ---
 
-# Stage 3 — Metrics Collection
+# Anti-patterns
 
-Collect
-
-Infrastructure Metrics
-
-↓
-
-Application Metrics
-
-↓
-
-Business Metrics
-
-↓
-
-Resource Utilization
-
-↓
-
-Latency
-
-↓
-
-Error Rates
-
-↓
-
-Availability
-
-↓
-
-Capacity
-
-Metrics should explain system health.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Alerting on CPU without user impact | Pages for something nobody notices | Alert on symptoms |
+| Static thresholds | Page at 3am for a blip; miss slow burns | Multi-window burn rate |
+| No SLO behind an alert | The threshold is a guess | Define the objective first |
+| Alerts without runbooks | Responder starts from nothing | Link the first steps |
+| Alerts nobody acts on | Erodes trust in every alert | Monthly review and deletion |
+| No disk or inode monitoring | Silent, total failure | Predictive alerts on both |
+| No certificate expiry alert | Scheduled outage with a known date | 30 and 7 days |
+| No external synthetic check | DNS, CDN and TLS failures invisible internally | Probe from outside |
+| Monitoring inside the monitored cluster | Fails exactly when needed | Separate failure domain |
+| No dead-man's switch | Silence looks like health | Heartbeat alert |
+| Alerts never tested | Discovered broken during an incident | Trigger and verify |
+| High-cardinality metric labels | Cardinality explosion; huge bill | Ids in logs and traces |
+| Uniform infinite retention | Cost with no consumer | Tiered retention |
+| Dashboards of everything | Nobody reads them | Build from incident questions |
+| No deploy annotations | "What changed?" takes ten minutes | Annotate deploys |
+| No escalation policy | Unacknowledged pages go nowhere | Defined escalation chain |
 
 ---
 
-# Stage 4 — Logging
-
-Capture
-
-Application Logs
-
-↓
-
-Infrastructure Logs
-
-↓
-
-Audit Logs
-
-↓
-
-Security Events
-
-↓
-
-Deployment Events
-
-↓
-
-Error Logs
-
-↓
-
-Operational Events
-
-↓
-
-Diagnostic Information
-
-Logs explain what happened.
-
----
-
-# Stage 5 — Distributed Tracing
-
-Trace
-
-User Requests
-
-↓
-
-Service Calls
-
-↓
-
-Dependencies
-
-↓
-
-Latency
-
-↓
-
-Failures
-
-↓
-
-External Services
-
-↓
-
-Database Operations
-
-↓
-
-Execution Flow
-
-Tracing explains why latency exists.
-
----
-
-# Stage 6 — Dashboards
-
-Visualize
-
-System Health
-
-↓
-
-Performance
-
-↓
-
-Availability
-
-↓
-
-Traffic
-
-↓
-
-Errors
-
-↓
-
-Business Metrics
-
-↓
-
-Capacity
-
-↓
-
-Operational Status
-
-Dashboards should answer operational questions immediately.
-
----
-
-# Stage 7 — Alerting
-
-Configure
-
-Availability Alerts
-
-↓
-
-Performance Alerts
-
-↓
-
-Security Alerts
-
-↓
-
-Infrastructure Alerts
-
-↓
-
-Capacity Alerts
-
-↓
-
-Business Alerts
-
-↓
-
-Deployment Alerts
-
-↓
-
-Incident Notifications
-
-Alerts should require action.
-
-Not attention.
-
----
-
-# Stage 8 — Incident Detection
-
-Detect
-
-Failures
-
-↓
-
-Anomalies
-
-↓
-
-Performance Degradation
-
-↓
-
-Capacity Issues
-
-↓
-
-Security Events
-
-↓
-
-Infrastructure Problems
-
-↓
-
-Business Impact
-
-↓
-
-Operational Risks
-
-Detection speed determines recovery speed.
-
----
-
-# Stage 9 — Performance Monitoring
-
-Measure
-
-Latency
-
-↓
-
-Response Time
-
-↓
-
-Throughput
-
-↓
-
-Resource Utilization
-
-↓
-
-Queue Length
-
-↓
-
-Database Performance
-
-↓
-
-API Health
-
-↓
-
-User Experience
-
-Performance should be continuously measured.
-
----
-
-# Stage 10 — Infrastructure Monitoring
-
-Observe
-
-Servers
-
-↓
-
-Containers
-
-↓
-
-Kubernetes
-
-↓
-
-Networks
-
-↓
-
-Storage
-
-↓
-
-Load Balancers
-
-↓
-
-DNS
-
-↓
-
-Cloud Resources
-
-Infrastructure should explain its health.
-
----
-
-# Stage 11 — Reliability Monitoring
-
-Validate
-
-Availability
-
-↓
-
-Health Checks
-
-↓
-
-Recovery
-
-↓
-
-Redundancy
-
-↓
-
-Replication
-
-↓
-
-Dependencies
-
-↓
-
-Service Status
-
-↓
-
-Operational Stability
-
-Reliable systems require reliable visibility.
-
----
-
-# Stage 12 — Capacity Monitoring
-
-Monitor
-
-CPU
-
-↓
-
-Memory
-
-↓
-
-Storage
-
-↓
-
-Bandwidth
-
-↓
-
-Connections
-
-↓
-
-Scaling
-
-↓
-
-Growth Trends
-
-↓
-
-Forecasting
-
-Capacity planning begins with measurement.
-
----
-
-# Stage 13 — Security Monitoring
-
-Observe
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Access Logs
-
-↓
-
-Threat Detection
-
-↓
-
-Policy Violations
-
-↓
-
-Anomalies
-
-↓
-
-Compliance
-
-↓
-
-Incident Response
-
-Security events deserve continuous visibility.
-
----
-
-# Stage 14 — Automation
-
-Automate
-
-Alert Routing
-
-↓
-
-Incident Creation
-
-↓
-
-Escalation
-
-↓
-
-Recovery
-
-↓
-
-Reporting
-
-↓
-
-Health Validation
-
-↓
-
-Monitoring Deployment
-
-↓
-
-Operational Workflows
-
-Automation accelerates operational response.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Monitoring Strategy
-
-↓
-
-Dashboards
-
-↓
-
-Metrics
-
-↓
-
-Alert Policies
-
-↓
-
-Incident Procedures
-
-↓
-
-Escalation Paths
-
-↓
-
-Operational Decisions
-
-↓
-
-Future Evolution
-
-Documentation preserves operational knowledge.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Dashboard History
-
-↓
-
-Alert Evolution
-
-↓
-
-Metric Definitions
-
-↓
-
-Instrumentation Changes
-
-↓
-
-Review History
-
-↓
-
-Policy Updates
-
-↓
-
-Configuration Changes
-
-↓
-
-Compatibility
-
-Monitoring evolves with systems.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Coverage
-
-↓
-
-Alert Quality
-
-↓
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Automation
-
-↓
-
-Business Alignment
-
-↓
-
-Operational Simplicity
-
-Monitoring deserves continuous engineering review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Blind Spots
-
-↓
-
-Missing Metrics
-
-↓
-
-Alert Fatigue
-
-↓
-
-False Positives
-
-↓
-
-False Negatives
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Impact
-
-Invisible failures are the most dangerous failures.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Instrumentation
-
-↓
-
-Metrics
-
-↓
-
-Dashboards
-
-↓
-
-Alerting
-
-↓
-
-Automation
-
-↓
-
-Performance
-
-↓
-
-Documentation
-
-↓
-
-Engineering Maturity
-
-Healthy monitoring systems evolve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Visibility
-
-↓
-
-Reliability
-
-↓
-
-Automation
-
-↓
-
-Observability
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional monitoring platforms become trusted sources of truth.
-
----
-
-# Monitoring Quality Attributes
-
-Evaluate
-
-Visibility
-
-Reliability
-
-Accuracy
-
-Availability
-
-Observability
-
-Scalability
-
-Automation
-
-Maintainability
-
----
-
-# Monitoring Questions
-
-Before production ask
-
-Can every critical service be observed?
-
-↓
-
-Can failures be detected before users report them?
-
-↓
-
-Are alerts actionable?
-
-↓
-
-Can incidents be diagnosed quickly?
-
-↓
-
-Can monitoring scale with infrastructure?
-
-↓
-
-Are dashboards useful during incidents?
-
-↓
-
-Would experienced Site Reliability Engineers confidently approve this monitoring strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Complete monitoring failure
-
-Undetected production outage
-
-Critical alert failure
-
-Loss of operational visibility
-
-Security event undetected
-
-Major
-
-Alert failures
-
-Dashboard failures
-
-Metric gaps
-
-Infrastructure blind spots
-
-Delayed incident detection
-
-Medium
-
-Dashboard improvements
-
-Alert tuning
-
-Performance optimization
-
-Documentation gaps
-
-Minor
-
-Naming consistency
-
-Dashboard organization
-
-Metadata
-
-Formatting
-
----
-
-# Monitoring Checklist
-
-✓ Monitoring strategy defined
-
-✓ Systems instrumented
-
-✓ Metrics collected
-
-✓ Logging configured
-
-✓ Distributed tracing enabled
-
-✓ Dashboards created
-
-✓ Alerting implemented
-
-✓ Incident detection validated
-
-✓ Performance monitored
-
-✓ Infrastructure monitored
-
-✓ Reliability verified
-
-✓ Capacity monitored
-
-✓ Security monitored
-
-✓ Automation implemented
-
-✓ Documentation completed
-
-✓ Version history maintained
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Monitoring everything equally
-
-Ignoring business metrics
-
-Alerting on every metric
-
-Creating noisy dashboards
-
-Ignoring alert fatigue
-
-Skipping distributed tracing
-
-Missing infrastructure monitoring
-
-Ignoring capacity planning
-
-Manual incident detection
-
-Treating logs as monitoring
-
-Creating dashboards nobody uses
-
-Optimizing dashboard appearance before usefulness
-
-Monitoring systems without validating alerts
-
----
-
-# Definition of Done
-
-A monitoring platform is considered production-ready when
-
-- Every critical application, infrastructure component, dependency, database, network, and business service continuously emits meaningful telemetry that accurately reflects operational health.
-- Monitoring architecture combines metrics, logs, distributed traces, health checks, events, and business indicators into a unified operational view that supports rapid diagnosis and informed decision-making.
-- Dashboards present actionable information for engineers, operators, business stakeholders, and incident responders through clear visualization of system health, service performance, availability, resource utilization, and business outcomes.
-- Alerting policies prioritize actionable incidents by minimizing false positives, reducing alert fatigue, enforcing intelligent routing, supporting escalation workflows, and enabling rapid operational response.
-- Performance monitoring continuously measures latency, throughput, resource utilization, scalability, infrastructure efficiency, dependency health, and end-user experience across all production environments.
-- Capacity monitoring proactively identifies infrastructure growth trends, resource exhaustion risks, scaling requirements, and long-term planning opportunities before service degradation occurs.
-- Security monitoring continuously detects authentication failures, authorization anomalies, policy violations, suspicious activity, infrastructure threats, and compliance deviations while supporting timely incident response.
-- Documentation preserves monitoring architecture, telemetry standards, dashboard definitions, alert policies, escalation procedures, operational workflows, instrumentation practices, and future platform evolution.
-- Engineering reviews continuously validate monitoring coverage, signal quality, operational usefulness, scalability, maintainability, automation quality, reliability, and alignment with business objectives.
-- The monitoring platform consistently demonstrates comprehensive visibility, actionable intelligence, engineering discipline, operational resilience, observability maturity, maintainability, and long-term sustainability.
-
-Exceptional monitoring platforms rarely receive praise during normal operation.
-
-Engineers understand system behavior before customers notice problems, incidents are detected within minutes instead of hours, dashboards answer operational questions immediately, alerts consistently lead to meaningful action rather than unnecessary noise, and the entire engineering organization develops confidence because every critical system can be observed, understood, and improved through disciplined operational visibility.
+# Checklist
+
+- [ ] Node, cluster, database, queue, cache and load-balancer signals are collected
+- [ ] Disk usage **and** inode usage are monitored with predictive alerts
+- [ ] Certificate and domain expiry alert at 30 and 7 days
+- [ ] Third-party dependency error rate and latency are measured from your side
+- [ ] Synthetic checks run against the real user path from outside the network
+- [ ] An SLO exists for each critical user journey
+- [ ] Paging alerts fire on multi-window burn rate, not static thresholds
+- [ ] Every paging alert is user-affecting, actionable and has a runbook
+- [ ] Non-urgent conditions create tickets, not pages
+- [ ] Alerts are tested when written and reviewed monthly
+- [ ] A dead-man's switch detects monitoring failure
+- [ ] Monitoring runs outside the failure domain it observes
+- [ ] Metric label cardinality is bounded and audited
+- [ ] Retention is tiered by resolution and age
+- [ ] Observability cost is monitored and alerted on
+- [ ] Dashboards answer specific incident questions and show deploy markers
+- [ ] An escalation policy defines who is paged and when it escalates

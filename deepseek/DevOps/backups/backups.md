@@ -5,1152 +5,228 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: backups
+category: DevOps
+description: Backing up infrastructure and state — what is actually stateful, immutability against ransomware, cross-account isolation, and restore drills.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# backups.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, managing, validating, securing, and continuously improving backup systems across modern software platforms.
+Rules for backing up everything that is not the database. Database backups are
+`Database/backup`; this covers object storage, cluster state, secrets,
+configuration and the accounts that hold them.
 
-It applies to
-
-- Databases
-- Cloud Infrastructure
-- Kubernetes
-- Virtual Machines
-- Object Storage
-- File Systems
-- Enterprise Platforms
-- SaaS Applications
-- AI Platforms
-
-Backups are not archives.
-
-Backups are recoverable copies of critical data and infrastructure that preserve business continuity during failures, corruption, accidental deletion, ransomware incidents, operational mistakes, and catastrophic disasters.
-
-A backup is valuable only when it can be restored.
+The definition that governs everything: **a backup is something you have
+restored.** Anything else is a file of unknown quality.
 
 ---
 
-# Core Philosophy
+# Inventory the state first
 
-Identify Critical Data
+Most teams can name the database and stop. The gaps are what break a recovery.
 
-↓
+| Asset | Backed up by | Common gap |
+| --- | --- | --- |
+| Databases | PITR + base backups | → `Database/backup` |
+| Object storage (uploads) | Versioning + cross-region replication | Assumed durable; deletion still propagates |
+| Secrets and keys | Secret-manager backup, escrow | KMS key deleted → every backup unreadable |
+| Cluster state | Git (declarative), etcd snapshots | Manual `kubectl` changes exist nowhere |
+| CI/CD configuration | Git | Repository settings, secrets, runners are not in git |
+| DNS zones | Zone export | Held only in a provider console |
+| Certificates | Reissued, or backed up | Private keys not in any backup |
+| Container registry | Registry replication | Base images deleted upstream |
+| Message queues | Usually not backed up | In-flight jobs lost — decide deliberately |
+| Third-party SaaS data | Provider export | No export path discovered during an incident |
 
-Protect Continuously
+Automate the discovery where you can: `aws resourcegroupstaggingapi get-resources`,
+`terraform state list`, and `kubectl get all,secret,cm -A` each reveal state that
+never made it into the plan.
 
-↓
+Write the inventory down and re-derive it each quarter. State appears without
+anyone deciding to add it.
 
-Store Securely
+Concretely, the assets that most often turn out to be unrecoverable are the ones
+nobody provisioned with code: a `Secret` created with `kubectl create secret`, a
+DNS record added in a console, a `SecurityGroup` rule opened during an incident, a
+GitHub repository setting, a `KMS` key alias, and a webhook endpoint registered
+with a payment provider.
 
-↓
-
-Validate Regularly
-
-↓
-
-Recover Predictably
-
-↓
-
-Monitor Continuously
-
-↓
-
-Improve Continuously
-
-↓
-
-Maintain Business Continuity
-
-Successful recovery begins long before data is lost.
-
----
-
-# Primary Objective
-
-Every backup strategy should maximize
-
-Recoverability
-
-+
-
-Data Integrity
-
-+
-
-Reliability
-
-+
-
-Security
-
-+
-
-Automation
-
-+
-
-Availability
-
-+
-
-Compliance
-
-+
-
-Operational Excellence
-
-Backups exist to restore business operations.
-
-Not simply preserve files.
+**Anything created by hand is not backed up.** That is the strongest argument for
+declarative infrastructure: if it is in git, it is recoverable.
+→ `DevOps/environments`
 
 ---
 
-# Engineering Principles
+# Isolate the copies
 
-Always prioritize
+Backups in the same account as production are deleted by the same compromised
+credential that deleted production. This is the ransomware playbook, and it works.
 
-Recoverability
+```
+production account ──► backup account (separate credentials, separate root)
+                          └─ Object Lock, COMPLIANCE mode, 35-day retention
+```
 
-↓
+- A **separate account or subscription**, with its own root credentials and no
+  cross-trust that allows deletion.
+- **Immutability**: `s3:ObjectLockMode=COMPLIANCE`, Azure immutable blob policy, or
+  the equivalent. In compliance mode not even the account root can delete inside
+  the retention window — that is the property you are buying.
+- Write access one way only: production can write backups; it cannot delete them.
+- Encrypt at rest with a key held **outside** the backup system. Storing the
+  decryption key beside the backup is a circular dependency discovered at restore
+  time.
+- MFA-delete on the bucket where the platform supports it.
 
-Automation
+```hcl
+# Terraform: the backup bucket, in the backup account. COMPLIANCE mode means
+# not even the account root can delete inside the retention window.
+resource "aws_s3_bucket" "backups" { bucket = "acme-backups-prod" }
 
-↓
+resource "aws_s3_bucket_object_lock_configuration" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  rule { default_retention { mode = "COMPLIANCE", days = 35 } }
+}
 
-Redundancy
+resource "aws_s3_bucket_versioning" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  versioning_configuration { status = "Enabled" }   # required for Object Lock
+}
 
-↓
+resource "aws_s3_bucket_lifecycle_configuration" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  rule {
+    id     = "expire-noncurrent"
+    status = "Enabled"
+    noncurrent_version_expiration { noncurrent_days = 90 }
+  }
+}
+```
 
-Encryption
+Object Lock cannot be enabled on an existing bucket in most providers — it is set
+at creation. Discovering that during an incident response is too late.
 
-↓
-
-Integrity Verification
-
-↓
-
-Geographic Separation
-
-↓
-
-Continuous Validation
-
-↓
-
-Continuous Improvement
-
-Backups should be treated as production infrastructure.
-
----
-
-# Backup Lifecycle
-
-Identify Data
-
-↓
-
-Create Backups
-
-↓
-
-Verify Integrity
-
-↓
-
-Replicate
-
-↓
-
-Store Securely
-
-↓
-
-Monitor
-
-↓
-
-Restore
-
-↓
-
-Continuously Improve
+`3-2-1-1`: three copies, two media types, one off-site, one immutable.
 
 ---
 
-# Stage 1 — Data Classification
+# Object storage is not a backup
 
-Identify
+Durability (`99.999999999%`, "eleven nines") protects against hardware failure and
+media decay. It does not protect against a `DELETE` — yours, an attacker's, or a buggy cleanup job.
 
-Business-Critical Data
+- Enable **versioning**, so an overwrite or delete is recoverable.
+- Add a lifecycle rule to expire noncurrent versions, or storage grows without
+  bound.
+- Cross-region replication for regional failure — but note it replicates deletes
+  unless configured otherwise.
+- Delete markers plus versioning is the recovery path; test it:
 
-↓
+```bash
+# Recover a deleted object: remove the delete marker, do not re-upload.
+aws s3api list-object-versions --bucket uploads --prefix "tenants/acme/" \
+  --query 'DeleteMarkers[?IsLatest==`true`].{K:Key,V:VersionId}' --output text \
+| while read -r key version; do
+    aws s3api delete-object --bucket uploads --key "$key" --version-id "$version"
+  done
+```
 
-Databases
-
-↓
-
-Application Files
-
-↓
-
-Configuration
-
-↓
-
-Secrets
-
-↓
-
-Infrastructure State
-
-↓
-
-Audit Records
-
-↓
-
-Operational Metadata
-
-Not all data requires identical protection.
+Similarly, **replication is not a backup**: a `DROP TABLE` reaches the replica in
+milliseconds. → `Database/replication`
 
 ---
 
-# Stage 2 — Backup Strategy
+# Test the restore, not the backup
 
-Define
+An untested backup has an unknown and empirically high failure rate.
 
-Backup Scope
+Run a full restore drill quarterly into an isolated environment, and record:
 
-↓
+- [ ] Wall-clock time from decision to a serving system — this is your real RTO
+- [ ] The most recent restorable point — this is your real RPO
+- [ ] Whether the procedure was executable by someone who did not write it
+- [ ] Whether every dependency was recoverable, including secrets and DNS
+- [ ] What was missing from the inventory
 
-Backup Frequency
+The drill's output is a corrected runbook. A restore that only one person can
+perform, from memory, is not a recovery capability. → `DevOps/disaster-recovery`
 
-↓
-
-Recovery Objectives
-
-↓
-
-Retention Policies
-
-↓
-
-Versioning
-
-↓
-
-Storage Locations
-
-↓
-
-Recovery Procedures
-
-↓
-
-Compliance Requirements
-
-Strategy determines recovery success.
+**Never** treat a backup as verified because the job exited zero. Verify the
+restore.
 
 ---
 
-# Stage 3 — Backup Types
+# Monitor absence, not failure
 
-Select
+A job that stops running emits no failures at all. This is how teams discover,
+mid-incident, that backups stopped three months ago.
 
-Full Backups
+| Alert on | Threshold |
+| --- | --- |
+| Age of the last successful backup | > 1.25 × the interval |
+| Backup size deviation from trend | > 30% — a sudden drop means an empty backup |
+| Replication lag to the backup account | Above the RPO |
+| Restore-drill recency | > 100 days |
+| Object Lock retention configuration drift | Any change |
 
-↓
+| Signal | Source |
+| --- | --- |
+| `backup_last_success_timestamp_seconds` | Emitted by the backup job itself |
+| `backup_size_bytes` | Compared against a rolling trend |
+| `aws_s3_bucket_size_bytes` | Growth means lifecycle rules stopped working |
+| `ReplicationLatency` (S3 CRR) | Cross-region replication falling behind |
+| `pg_stat_archiver.failed_count` | WAL archiving broken → `Database/backup` |
+| `restore_drill_last_success_timestamp_seconds` | Written by the drill script |
+| Object Lock configuration drift | `aws s3api get-object-lock-configuration` in CI |
 
-Incremental Backups
-
-↓
-
-Differential Backups
-
-↓
-
-Snapshots
-
-↓
-
-Replication
-
-↓
-
-Immutable Copies
-
-↓
-
-Version History
-
-↓
-
-Recovery Images
-
-Different workloads require different backup strategies.
+Also monitor the **cost** of backup storage: a lifecycle rule that stops expiring
+noncurrent versions shows up as a bill before it shows up anywhere else.
 
 ---
 
-# Stage 4 — Data Protection
+# Anti-patterns
 
-Protect
-
-Application Data
-
-↓
-
-Databases
-
-↓
-
-Object Storage
-
-↓
-
-File Systems
-
-↓
-
-Configuration
-
-↓
-
-Certificates
-
-↓
-
-Secrets
-
-↓
-
-Infrastructure Definitions
-
-Every recoverable asset should be protected.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Only the database is backed up | Secrets, DNS, uploads unrecoverable | Inventory all state |
+| Hand-created infrastructure | Exists in no backup | Declarative, in git |
+| Backups in the production account | One credential loses both | Separate account |
+| No immutability | Ransomware deletes the backups too | Object Lock for the retention window |
+| Encryption key in the backup system | Circular dependency at restore | External KMS |
+| Durability mistaken for backup | Does not protect against deletion | Versioning plus replication |
+| Replication treated as backup | Deletes replicate instantly | Independent PITR copies |
+| Versioning without lifecycle rules | Storage grows without bound | Expire noncurrent versions |
+| Never restoring | Unknown, high failure rate | Quarterly drills |
+| Alerting only on job failure | A job that stops is silent | Alert on backup age |
+| Undocumented restore procedure | Only one person can recover | Written, drilled runbook |
+| RPO/RTO never stated | No basis for any decision | Write both numbers first |
+| Queue state assumed backed up | In-flight work silently lost | Decide and document |
+| No SaaS export path | Discovered during the incident | Test the export |
 
 ---
 
-# Stage 5 — Storage Architecture
-
-Store
-
-Primary Backup Storage
-
-↓
-
-Secondary Storage
-
-↓
-
-Offsite Storage
-
-↓
-
-Cross-Region Storage
-
-↓
-
-Immutable Storage
-
-↓
-
-Cold Storage
-
-↓
-
-Archive Storage
-
-↓
-
-Recovery Storage
-
-Storage should survive infrastructure failure.
-
----
-
-# Stage 6 — Encryption
-
-Secure
-
-Data at Rest
-
-↓
-
-Data in Transit
-
-↓
-
-Encryption Keys
-
-↓
-
-Key Rotation
-
-↓
-
-Access Policies
-
-↓
-
-Integrity Protection
-
-↓
-
-Compliance
-
-↓
-
-Auditability
-
-Backups should never reduce security.
-
----
-
-# Stage 7 — Replication
-
-Replicate
-
-Local Copies
-
-↓
-
-Regional Copies
-
-↓
-
-Cross-Region Copies
-
-↓
-
-Cross-Cloud Copies
-
-↓
-
-Offline Copies
-
-↓
-
-Immutable Copies
-
-↓
-
-Version History
-
-↓
-
-Recovery Readiness
-
-Redundancy protects against unexpected failures.
-
----
-
-# Stage 8 — Validation
-
-Verify
-
-Backup Completion
-
-↓
-
-Integrity
-
-↓
-
-Consistency
-
-↓
-
-Recoverability
-
-↓
-
-Version Accuracy
-
-↓
-
-Metadata
-
-↓
-
-Dependencies
-
-↓
-
-Operational Readiness
-
-Every backup should be trusted.
-
-Trust requires validation.
-
----
-
-# Stage 9 — Restore Testing
-
-Test
-
-File Recovery
-
-↓
-
-Database Recovery
-
-↓
-
-Infrastructure Recovery
-
-↓
-
-Application Recovery
-
-↓
-
-Regional Recovery
-
-↓
-
-Disaster Recovery
-
-↓
-
-Business Continuity
-
-↓
-
-Recovery Objectives
-
-Untested backups are assumptions.
-
----
-
-# Stage 10 — Monitoring
-
-Observe
-
-Backup Status
-
-↓
-
-Storage Capacity
-
-↓
-
-Failures
-
-↓
-
-Integrity
-
-↓
-
-Retention
-
-↓
-
-Replication
-
-↓
-
-Recovery Tests
-
-↓
-
-Operational Health
-
-Backups should continuously prove their readiness.
-
----
-
-# Stage 11 — Reliability
-
-Ensure
-
-Consistent Execution
-
-↓
-
-Redundant Storage
-
-↓
-
-Integrity Verification
-
-↓
-
-Recovery Validation
-
-↓
-
-High Availability
-
-↓
-
-Operational Stability
-
-↓
-
-Predictable Recovery
-
-↓
-
-Business Continuity
-
-Reliable backups create reliable recovery.
-
----
-
-# Stage 12 — Performance
-
-Optimize
-
-Backup Duration
-
-↓
-
-Recovery Speed
-
-↓
-
-Storage Efficiency
-
-↓
-
-Compression
-
-↓
-
-Deduplication
-
-↓
-
-Bandwidth Usage
-
-↓
-
-Infrastructure Cost
-
-↓
-
-Operational Efficiency
-
-Efficient backups reduce operational impact.
-
----
-
-# Stage 13 — Compliance
-
-Support
-
-Retention Policies
-
-↓
-
-Legal Requirements
-
-↓
-
-Audit Evidence
-
-↓
-
-Data Governance
-
-↓
-
-Privacy Regulations
-
-↓
-
-Encryption Standards
-
-↓
-
-Access Reviews
-
-↓
-
-Operational Reporting
-
-Compliance depends on trustworthy backups.
-
----
-
-# Stage 14 — Automation
-
-Automate
-
-Backup Creation
-
-↓
-
-Verification
-
-↓
-
-Replication
-
-↓
-
-Retention
-
-↓
-
-Recovery Testing
-
-↓
-
-Monitoring
-
-↓
-
-Notifications
-
-↓
-
-Operational Workflows
-
-Automation removes operational inconsistency.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Backup Strategy
-
-↓
-
-Recovery Procedures
-
-↓
-
-Retention Policies
-
-↓
-
-Storage Architecture
-
-↓
-
-Security Controls
-
-↓
-
-Recovery Objectives
-
-↓
-
-Operational Decisions
-
-↓
-
-Future Evolution
-
-Documentation preserves recovery knowledge.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Backup History
-
-↓
-
-Retention Evolution
-
-↓
-
-Recovery Records
-
-↓
-
-Storage Changes
-
-↓
-
-Review History
-
-↓
-
-Policy Updates
-
-↓
-
-Infrastructure Changes
-
-↓
-
-Compatibility
-
-Backup systems evolve with infrastructure.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Coverage
-
-↓
-
-Recoverability
-
-↓
-
-Security
-
-↓
-
-Reliability
-
-↓
-
-Performance
-
-↓
-
-Compliance
-
-↓
-
-Automation
-
-↓
-
-Business Alignment
-
-Backup strategies deserve continuous engineering review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Backup Failure
-
-↓
-
-Storage Failure
-
-↓
-
-Recovery Failure
-
-↓
-
-Integrity Risks
-
-↓
-
-Security Risks
-
-↓
-
-Compliance Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Impact
-
-The greatest backup risk is assuming recovery will work.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Recovery Speed
-
-↓
-
-Automation
-
-↓
-
-Storage Efficiency
-
-↓
-
-Validation
-
-↓
-
-Security
-
-↓
-
-Documentation
-
-↓
-
-Operational Readiness
-
-↓
-
-Engineering Maturity
-
-Healthy backup systems evolve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Recoverability
-
-↓
-
-Reliability
-
-↓
-
-Security
-
-↓
-
-Automation
-
-↓
-
-Compliance
-
-↓
-
-Operational Excellence
-
-↓
-
-Business Continuity
-
-↓
-
-Engineering Excellence
-
-Exceptional backup systems create organizational confidence.
-
----
-
-# Backup Quality Attributes
-
-Evaluate
-
-Recoverability
-
-Reliability
-
-Integrity
-
-Security
-
-Automation
-
-Compliance
-
-Scalability
-
-Maintainability
-
----
-
-# Backup Questions
-
-Before production ask
-
-Can every critical dataset be restored successfully?
-
-↓
-
-Are backups encrypted and geographically separated?
-
-↓
-
-Are recovery objectives consistently achievable?
-
-↓
-
-Are restore procedures tested regularly?
-
-↓
-
-Can backup failures be detected automatically?
-
-↓
-
-Can business operations continue after catastrophic data loss?
-
-↓
-
-Would experienced Site Reliability Engineers confidently approve this backup strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Irrecoverable data loss
-
-Backup corruption
-
-Failed recovery
-
-Compromised backup security
-
-Business continuity failure
-
-Major
-
-Backup failures
-
-Replication failures
-
-Retention violations
-
-Storage failures
-
-Restore test failures
-
-Medium
-
-Performance optimization
-
-Automation improvements
-
-Documentation gaps
-
-Storage optimization
-
-Minor
-
-Naming consistency
-
-Policy organization
-
-Metadata
-
-Formatting
-
----
-
-# Backup Checklist
-
-✓ Critical data identified
-
-✓ Backup strategy defined
-
-✓ Backup types selected
-
-✓ Data protection implemented
-
-✓ Storage architecture designed
-
-✓ Encryption enabled
-
-✓ Replication configured
-
-✓ Backup validation completed
-
-✓ Restore testing performed
-
-✓ Monitoring enabled
-
-✓ Reliability verified
-
-✓ Performance optimized
-
-✓ Compliance supported
-
-✓ Automation implemented
-
-✓ Documentation completed
-
-✓ Version history maintained
-
-✓ Reviews performed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Treating snapshots as complete backups
-
-Never testing restores
-
-Keeping every backup in one location
-
-Disabling encryption
-
-Ignoring backup failures
-
-Using a single backup copy
-
-Keeping unlimited backups forever
-
-Deleting backups too aggressively
-
-Ignoring recovery objectives
-
-Manual backup procedures
-
-Skipping integrity verification
-
-Treating backups as archives
-
-Optimizing storage costs before recoverability
-
----
-
-# Definition of Done
-
-A backup platform is considered production-ready when
-
-- Every business-critical dataset, infrastructure configuration, application state, operational record, and security artifact is protected through automated, versioned, encrypted, and validated backup processes.
-- Backup architecture intentionally balances recovery objectives, storage efficiency, redundancy, retention requirements, compliance obligations, operational simplicity, and long-term business continuity.
-- Multiple backup strategies—including full, incremental, differential, snapshots, replication, and immutable storage—are selected according to workload characteristics and recovery requirements.
-- Storage architecture provides geographically distributed, redundant, encrypted, version-controlled, and integrity-verified backup repositories that remain resilient against infrastructure failures, cyberattacks, accidental deletion, and regional disasters.
-- Restore procedures are continuously validated through automated recovery testing that confirms data integrity, application functionality, infrastructure recovery, dependency consistency, and operational readiness.
-- Monitoring continuously verifies backup completion, storage capacity, integrity validation, replication health, retention compliance, recovery testing, operational status, and infrastructure risks.
-- Security consistently protects backup data through encryption, access controls, key management, immutable storage, audit logging, compliance enforcement, and continuous integrity verification.
-- Documentation preserves backup architecture, recovery procedures, retention strategies, operational workflows, testing history, engineering decisions, compliance requirements, and future platform evolution.
-- Engineering reviews continuously validate recoverability, reliability, maintainability, automation quality, operational efficiency, compliance readiness, scalability, and business alignment.
-- The backup platform consistently demonstrates trustworthy recovery capabilities, engineering discipline, operational resilience, maintainability, automation maturity, data integrity, and long-term organizational confidence.
-
-Exceptional backup platforms are almost never discussed during normal operations.
-
-Data remains continuously protected, recovery procedures are regularly validated instead of merely documented, infrastructure failures become recoverable engineering events rather than business catastrophes, compliance requirements are satisfied through disciplined operational practices, and organizations maintain confidence because every critical system can be restored accurately, predictably, and within established recovery objectives.
+# Checklist
+
+- [ ] A written inventory lists every stateful asset and how it is backed up
+- [ ] The inventory is reviewed quarterly
+- [ ] All infrastructure is declarative and in version control
+- [ ] RPO and RTO are stated per asset class
+- [ ] Backups live in a separate account with separate credentials
+- [ ] At least one copy is immutable for its full retention window
+- [ ] Production can write backups but cannot delete them
+- [ ] Backups are encrypted with keys held outside the backup system
+- [ ] Object storage has versioning plus lifecycle expiry of noncurrent versions
+- [ ] Cross-region replication is configured where regional failure matters
+- [ ] Secrets, DNS zones and cluster state are all recoverable
+- [ ] A full restore drill runs at least quarterly and is timed
+- [ ] The drill is performed by someone who did not write the procedure
+- [ ] Alerts fire on backup **age**, not only on job failure
+- [ ] Backup size deviation and configuration drift are alerted on
+- [ ] Backup storage cost is monitored

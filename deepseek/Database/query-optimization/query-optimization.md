@@ -5,1149 +5,185 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: query-optimization
+category: Database
+description: Making slow queries fast — reading execution plans, eliminating N+1, and the rewrites that change complexity rather than shaving constants.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# query-optimization.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, analyzing, optimizing, and maintaining high-performance database queries.
+Rules for diagnosing and fixing slow queries. Index selection is
+`Database/indexes`; this package is about finding the problem and rewriting it.
 
-It applies to
-
-- PostgreSQL
-- MySQL
-- MariaDB
-- SQL Server
-- Oracle
-- CockroachDB
-- SQLite
-- Distributed SQL Databases
-
-Query optimization is not making SQL shorter.
-
-Query optimization is designing database interactions that deliver correct business results with the minimum possible computational cost.
-
-Fast queries improve systems.
-
-Predictable queries build reliable systems.
+The discipline: **measure, read the plan, change one thing, measure again.**
+Guessing at query performance is unreliable even for people who do it daily,
+because the planner's choice depends on data distribution you cannot see.
 
 ---
 
-# Core Philosophy
+# Find the real problem first
 
-Understand the Business
+```sql
+-- Rank by total time, not by the slowest single call. A 20ms query run
+-- 100,000 times costs far more than a 3s report run once.
+SELECT calls,
+       round(total_exec_time::numeric, 0) AS total_ms,
+       round(mean_exec_time::numeric, 2)  AS mean_ms,
+       rows, query
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 20;
+```
 
-↓
+Then read the plan for the worst offender:
 
-Understand the Data
+```sql
+EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+SELECT … ;
+```
 
-↓
+What to look for, in order:
 
-Understand the Query
+| Signal | Meaning |
+| --- | --- |
+| `Seq Scan` on a large table | Missing or unusable index |
+| `Rows Removed by Filter: 400000` | Reading far more than returned |
+| Estimated rows ≫ or ≪ actual | Stale statistics — run `ANALYZE` |
+| `Nested Loop` with a large outer | Often an N+1 in disguise |
+| `Sort` with `external merge Disk` | `work_mem` too small for the sort |
+| `Heap Fetches` high on an index-only scan | Table needs `VACUUM` |
+| `Buffers: read` ≫ `hit` | Working set does not fit in cache |
 
-↓
-
-Measure Performance
-
-↓
-
-Optimize Intentionally
-
-↓
-
-Validate Correctness
-
-↓
-
-Monitor Continuously
-
-↓
-
-Continuously Improve
-
-Never optimize what has not been measured.
-
-Never sacrifice correctness for speed.
-
----
-
-# Primary Objective
-
-Every database query should maximize
-
-Correctness
-
-+
-
-Efficiency
-
-+
-
-Predictability
-
-+
-
-Scalability
-
-+
-
-Maintainability
-
-+
-
-Resource Efficiency
-
-+
-
-Observability
-
-+
-
-Reliability
-
-The fastest incorrect query is still incorrect.
+**`ANALYZE` actually runs the query.** Never use it on a mutating statement
+outside a transaction you roll back.
 
 ---
 
-# Engineering Principles
+# N+1: the most common cause
 
-Always prioritize
+One query for the list, then one per row. Invisible at 10 rows, fatal at 1,000.
 
-Correct Results
+```js
+// N+1 — 1 + N round trips, each with full latency
+const orders = await db.order.findMany({ where: { tenantId } });
+for (const o of orders) {
+  o.customer = await db.customer.findUnique({ where: { id: o.customerId } });
+}
 
-↓
+// Fixed — one round trip, the join happens in the database
+const orders = await db.order.findMany({
+  where: { tenantId },
+  include: { customer: true },
+});
+```
 
-Simple Queries
+Where an ORM cannot express it, batch by key:
 
-↓
+```sql
+SELECT * FROM customers WHERE id = ANY($1);   -- one query, array of ids
+```
 
-Efficient Execution
-
-↓
-
-Minimal Resource Usage
-
-↓
-
-Predictable Performance
-
-↓
-
-Operational Visibility
-
-↓
-
-Continuous Measurement
-
-↓
-
-Continuous Optimization
-
-Optimization should improve measurable outcomes.
+Detect it by counting queries per request in tests, not by reading code. A
+`queryCount` assertion in an integration test catches the regression the moment
+somebody adds a lazy relation.
 
 ---
 
-# Query Optimization Lifecycle
+# Rewrites that change complexity
 
-Understand Requirements
+Shaving constants rarely matters. These change the shape of the work:
 
-↓
+```sql
+-- 1. Filter before joining, not after
+SELECT * FROM orders o
+JOIN customers c ON c.id = o.customer_id
+WHERE o.created_at > now() - interval '7 days';    -- planner pushes this down
 
-Analyze Query
+-- 2. EXISTS instead of IN with a subquery — stops at the first match
+SELECT * FROM customers c
+WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);
 
-↓
+-- 3. Keyset pagination instead of OFFSET — constant time at any page
+SELECT * FROM orders
+WHERE (created_at, id) < ($1, $2)                 -- cursor from the last row
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
 
-Measure Performance
+-- 4. Aggregate in the database, not in the application
+SELECT tenant_id, count(*), sum(total) FROM orders GROUP BY tenant_id;
+```
 
-↓
+`OFFSET 100000` makes the database produce and discard 100,000 rows. Keyset
+pagination is the single highest-value rewrite for any large list.
 
-Identify Bottlenecks
-
-↓
-
-Optimize
-
-↓
-
-Validate
-
-↓
-
-Monitor
-
-↓
-
-Continuously Improve
+**Never** `SELECT *` when you need three columns — it defeats index-only scans and
+moves bytes nobody reads.
 
 ---
 
-# Stage 1 — Business Understanding
+# Where the time actually goes
 
-Understand
+| Symptom | Cause |
+| --- | --- |
+| Fast in `psql`, slow in the app | Round trips (N+1), or connection pool wait |
+| Slow only sometimes | Plan flip from stale statistics, or cache miss |
+| Slow only in production | Data volume; test against production-shaped data |
+| CPU flat, latency high | Pool exhaustion or lock waits, not query cost |
+| Gradually slower over weeks | Table bloat, or an index no longer fitting in memory |
 
-Business Goal
-
-↓
-
-Expected Result
-
-↓
-
-User Workflow
-
-↓
-
-Critical Operations
-
-↓
-
-Latency Requirements
-
-↓
-
-Data Volume
-
-↓
-
-Growth Expectations
-
-↓
-
-Success Criteria
-
-Every optimization begins with understanding the business request.
+Check `pg_stat_activity` for `idle in transaction` and `pg_locks` for waits before
+concluding a query is slow. Frequently it is not the query — it is waiting for a
+connection. → `Database/transactions`
 
 ---
 
-# Stage 2 — Query Analysis
+# Caching is the last resort
 
-Analyze
+Cache after the query is correct and indexed, never instead.
 
-SELECT
-
-↓
-
-WHERE
-
-↓
-
-JOIN
-
-↓
-
-GROUP BY
-
-↓
-
-ORDER BY
-
-↓
-
-HAVING
-
-↓
-
-LIMIT
-
-↓
-
-Subqueries
-
-Understand every operation before changing it.
+- A cache in front of an unindexed query hides the problem until the cache misses,
+  usually under the load that caused you to add it.
+- Cache **derived, expensive, rarely-changing** results — not primary key lookups
+  that are already sub-millisecond.
+- Every cache needs an invalidation story before it is added.
+  → `Performance/caching`
 
 ---
 
-# Stage 3 — Execution Plans
+# Anti-patterns
 
-Review
-
-Execution Plan
-
-↓
-
-Estimated Cost
-
-↓
-
-Actual Cost
-
-↓
-
-Table Scans
-
-↓
-
-Index Scans
-
-↓
-
-Join Strategy
-
-↓
-
-Sort Operations
-
-↓
-
-Parallel Execution
-
-Execution plans explain database behavior.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Optimising without a plan | Time spent on the wrong query | `pg_stat_statements`, then `EXPLAIN ANALYZE` |
+| Ranking by slowest call | Misses the frequent cheap query | Rank by total time |
+| Loop of single-row queries | N+1; latency multiplied | Join or batch with `ANY` |
+| `OFFSET` for deep pages | Produces and discards every skipped row | Keyset pagination |
+| `SELECT *` | Defeats index-only scans; moves dead bytes | Select the columns needed |
+| Aggregating in application code | Moves every row across the wire | `GROUP BY` in SQL |
+| `EXPLAIN` without `ANALYZE` | Estimates, not measurements | Always `ANALYZE, BUFFERS` |
+| Caching a slow query | Hides it until the cache misses | Index first |
+| Testing against tiny data | Plans differ entirely at scale | Production-shaped volume |
+| Adding an index per slow query | Write cost accretes | Composite indexes; drop unused |
 
 ---
 
-# Stage 4 — Index Utilization
-
-Verify
-
-Primary Indexes
-
-↓
-
-Composite Indexes
-
-↓
-
-Covering Indexes
-
-↓
-
-Foreign Keys
-
-↓
-
-Search Columns
-
-↓
-
-Sort Columns
-
-↓
-
-Join Columns
-
-↓
-
-Index Selectivity
-
-Indexes should support query patterns.
-
----
-
-# Stage 5 — Filtering
-
-Optimize
-
-WHERE Clauses
-
-↓
-
-Predicate Order
-
-↓
-
-Selective Conditions
-
-↓
-
-Range Queries
-
-↓
-
-Equality Matching
-
-↓
-
-Partition Pruning
-
-↓
-
-Early Filtering
-
-↓
-
-Minimal Data Access
-
-Read only the required data.
-
----
-
-# Stage 6 — Join Optimization
-
-Evaluate
-
-Join Order
-
-↓
-
-Join Types
-
-↓
-
-Indexed Joins
-
-↓
-
-Nested Loops
-
-↓
-
-Hash Joins
-
-↓
-
-Merge Joins
-
-↓
-
-Cardinality
-
-↓
-
-Relationship Design
-
-Joins should reflect business relationships.
-
----
-
-# Stage 7 — Aggregation
-
-Optimize
-
-COUNT
-
-↓
-
-SUM
-
-↓
-
-AVG
-
-↓
-
-MIN
-
-↓
-
-MAX
-
-↓
-
-GROUP BY
-
-↓
-
-HAVING
-
-↓
-
-Window Functions
-
-Aggregation should minimize unnecessary computation.
-
----
-
-# Stage 8 — Sorting
-
-Reduce cost through
-
-Indexed Sorting
-
-↓
-
-Minimal Sorting
-
-↓
-
-LIMIT Optimization
-
-↓
-
-Memory Usage
-
-↓
-
-Temporary Storage
-
-↓
-
-Stable Ordering
-
-↓
-
-Predictable Execution
-
-↓
-
-Resource Efficiency
-
-Sorting should use indexes whenever possible.
-
----
-
-# Stage 9 — Data Volume
-
-Reduce
-
-Returned Rows
-
-↓
-
-Returned Columns
-
-↓
-
-Duplicate Reads
-
-↓
-
-Redundant Computation
-
-↓
-
-Unnecessary Joins
-
-↓
-
-Repeated Queries
-
-↓
-
-Network Usage
-
-↓
-
-Memory Consumption
-
-Transfer only what is needed.
-
----
-
-# Stage 10 — Query Complexity
-
-Simplify
-
-Nested Queries
-
-↓
-
-Subqueries
-
-↓
-
-Common Table Expressions
-
-↓
-
-Expressions
-
-↓
-
-Conditional Logic
-
-↓
-
-Functions
-
-↓
-
-Business Logic
-
-↓
-
-Maintainability
-
-Simple queries are easier to optimize.
-
----
-
-# Stage 11 — Resource Efficiency
-
-Measure
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Disk Reads
-
-↓
-
-Disk Writes
-
-↓
-
-Network Usage
-
-↓
-
-Concurrency
-
-↓
-
-Cache Usage
-
-↓
-
-Infrastructure Cost
-
-Efficient queries improve entire systems.
-
----
-
-# Stage 12 — Concurrency
-
-Consider
-
-Locking
-
-↓
-
-Transaction Scope
-
-↓
-
-Deadlocks
-
-↓
-
-Contention
-
-↓
-
-Isolation
-
-↓
-
-Read Consistency
-
-↓
-
-Write Conflicts
-
-↓
-
-Scalability
-
-Optimized queries reduce contention.
-
----
-
-# Stage 13 — Scalability
-
-Prepare for
-
-Growing Tables
-
-↓
-
-Growing Users
-
-↓
-
-Growing Traffic
-
-↓
-
-Partitioning
-
-↓
-
-Replication
-
-↓
-
-Distributed Queries
-
-↓
-
-Infrastructure Growth
-
-↓
-
-Future Workloads
-
-Queries should remain predictable as data grows.
-
----
-
-# Stage 14 — Observability
-
-Monitor
-
-Slow Queries
-
-↓
-
-Execution Time
-
-↓
-
-Resource Usage
-
-↓
-
-Frequency
-
-↓
-
-Failure Rate
-
-↓
-
-Timeouts
-
-↓
-
-Lock Waits
-
-↓
-
-Database Health
-
-Performance should never become invisible.
-
----
-
-# Stage 15 — Testing
-
-Validate
-
-Correctness
-
-↓
-
-Performance
-
-↓
-
-Concurrency
-
-↓
-
-Large Datasets
-
-↓
-
-Edge Cases
-
-↓
-
-Regression
-
-↓
-
-Recovery
-
-↓
-
-Production Readiness
-
-Optimization without testing creates risk.
-
----
-
-# Stage 16 — Documentation
-
-Document
-
-Business Purpose
-
-↓
-
-Optimization Decisions
-
-↓
-
-Indexes
-
-↓
-
-Execution Plans
-
-↓
-
-Trade-offs
-
-↓
-
-Known Limitations
-
-↓
-
-Architecture Decisions
-
-↓
-
-Future Improvements
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Correctness
-
-↓
-
-Performance
-
-↓
-
-Readability
-
-↓
-
-Maintainability
-
-↓
-
-Resource Usage
-
-↓
-
-Scalability
-
-↓
-
-Operational Simplicity
-
-↓
-
-Business Alignment
-
-Every critical query deserves review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Full Table Scans
-
-↓
-
-Missing Indexes
-
-↓
-
-Slow Joins
-
-↓
-
-Memory Exhaustion
-
-↓
-
-Temporary Tables
-
-↓
-
-Lock Contention
-
-↓
-
-Scaling Risks
-
-↓
-
-Operational Risks
-
-Understand performance risks before production.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Indexes
-
-↓
-
-Execution Plans
-
-↓
-
-Query Structure
-
-↓
-
-Resource Usage
-
-↓
-
-Monitoring
-
-↓
-
-Automation
-
-↓
-
-Documentation
-
-↓
-
-Developer Experience
-
-Performance is never permanently optimized.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Correctness
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Observability
-
-↓
-
-Reliability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Maturity
-
-Great query optimization evolves with the business.
-
----
-
-# Query Optimization Quality Attributes
-
-Evaluate
-
-Correctness
-
-Performance
-
-Efficiency
-
-Scalability
-
-Maintainability
-
-Reliability
-
-Observability
-
-Operational Simplicity
-
----
-
-# Query Optimization Questions
-
-Before production ask
-
-Does the query return exactly the required business result?
-
-↓
-
-Can the execution plan be explained confidently?
-
-↓
-
-Are indexes supporting every critical operation?
-
-↓
-
-Is unnecessary data being processed?
-
-↓
-
-Will performance remain acceptable as data grows?
-
-↓
-
-Is monitoring available for this query?
-
-↓
-
-Would experienced database engineers confidently approve this optimization?
-
----
-
-# Severity Levels
-
-Critical
-
-Incorrect query results
-
-Full table scans on critical workloads
-
-Missing indexes causing production failures
-
-Data inconsistency
-
-Major
-
-Slow joins
-
-Large temporary tables
-
-Poor execution plans
-
-High resource consumption
-
-Timeouts
-
-Medium
-
-Query simplification
-
-Index improvements
-
-Sorting optimization
-
-Documentation gaps
-
-Minor
-
-Formatting
-
-Alias consistency
-
-Readability
-
-Comment improvements
-
----
-
-# Query Optimization Checklist
-
-✓ Business requirements understood
-
-✓ Query analyzed
-
-✓ Execution plan reviewed
-
-✓ Indexes validated
-
-✓ Filtering optimized
-
-✓ Joins optimized
-
-✓ Aggregations reviewed
-
-✓ Sorting optimized
-
-✓ Data volume minimized
-
-✓ Query complexity reduced
-
-✓ Resource usage measured
-
-✓ Concurrency reviewed
-
-✓ Scalability validated
-
-✓ Monitoring enabled
-
-✓ Testing completed
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-SELECT *
-
-Returning unnecessary columns
-
-Returning unnecessary rows
-
-Ignoring execution plans
-
-Optimizing without measurement
-
-Nested queries without justification
-
-Missing indexes
-
-Duplicate queries
-
-Repeated database calls
-
-Complex business logic inside SQL
-
-Premature optimization
-
-Treating readability as optional
-
-Ignoring future growth
-
----
-
-# Definition of Done
-
-A query optimization strategy is considered production-ready when
-
-- Every query consistently returns correct business results while minimizing computational cost, storage access, memory consumption, and network overhead.
-- Execution plans demonstrate efficient use of indexes, optimal join strategies, partition pruning where applicable, and predictable resource utilization.
-- Filtering, sorting, aggregation, joins, pagination, and query structure are intentionally designed around actual workload characteristics rather than assumptions.
-- Performance remains predictable under increasing data volume, concurrent users, evolving workloads, and infrastructure growth without requiring architectural redesign.
-- Resource utilization balances CPU, memory, storage I/O, network bandwidth, cache efficiency, and transaction concurrency to maximize overall system throughput.
-- Monitoring continuously identifies slow queries, execution regressions, locking behavior, resource consumption, timeout risks, and optimization opportunities.
-- Documentation preserves business intent, optimization decisions, execution plans, indexing strategy, architectural trade-offs, and future maintenance guidance.
-- Every optimization is validated through performance testing, correctness verification, regression analysis, and production readiness reviews before deployment.
-- Engineering teams can confidently understand, maintain, extend, and optimize database queries without introducing hidden complexity or operational risk.
-- The query optimization architecture consistently demonstrates correctness, efficiency, scalability, maintainability, observability, operational excellence, and long-term engineering maturity.
-
-Exceptional query optimization is rarely recognized by users.
-
-Applications simply respond instantly, infrastructure scales predictably, databases remain efficient under growing workloads, engineers understand why every query performs well, and performance becomes a deliberate outcome of thoughtful architecture rather than accidental optimization.
+# Checklist
+
+- [ ] Slow queries are identified by total time from `pg_stat_statements`
+- [ ] Every fix is preceded by `EXPLAIN (ANALYZE, BUFFERS)`
+- [ ] `ANALYZE` has been run so estimates are trustworthy
+- [ ] Queries per request are asserted in tests to catch N+1 regressions
+- [ ] Relations are loaded with a join or a batched `ANY`, never in a loop
+- [ ] Deep pagination uses a keyset cursor, not `OFFSET`
+- [ ] Only required columns are selected
+- [ ] Aggregation happens in the database
+- [ ] Pool waits and lock waits are ruled out before blaming the query
+- [ ] Caching is added only after the query is correct and indexed
+- [ ] Performance is verified against production-scale data

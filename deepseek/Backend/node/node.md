@@ -5,816 +5,191 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: node
+category: Backend
+description: Node.js server rules — the event loop, async correctness, streams and backpressure, process configuration, and the supply chain.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# node.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, implement, review, optimize, and maintain Node.js backend applications.
+Rules specific to running Node.js as a backend. Node's model — one thread running
+an event loop — is the source of both its throughput and every performance
+surprise it produces.
 
-Node.js is not simply a JavaScript runtime.
-
-It is an event-driven, asynchronous execution environment designed to build scalable network services, APIs, real-time systems, workers, automation platforms, and distributed applications.
-
-The objective is to produce backend systems that are reliable, scalable, maintainable, observable, secure, and efficient under production workloads.
-
-Every architectural decision should reduce complexity while improving long-term maintainability.
+Framework-level concerns are `Backend/express`; this is the runtime.
 
 ---
 
-# Core Philosophy
+# Never block the event loop
 
-Understand Requirements
+One thread serves every request. A synchronous operation stops **all** of them.
 
-↓
+```js
+// Blocks every concurrent request for the duration
+const data = fs.readFileSync("./large.json");
+const hash = crypto.pbkdf2Sync(pw, salt, 600_000, 32, "sha512");
 
-Understand Runtime
+// Non-blocking
+const data = await fs.promises.readFile("./large.json");
+const hash = await promisify(crypto.pbkdf2)(pw, salt, 600_000, 32, "sha512");
+```
 
-↓
+Common blockers, in order of how often they appear in production:
 
-Design Architecture
+| Operation | Cost |
+| --- | --- |
+| `JSON.parse` on a multi-MB payload | Tens to hundreds of ms, synchronous |
+| Synchronous crypto (`pbkdf2Sync`, `scryptSync`) | Hundreds of ms by design |
+| `readFileSync` in a request path | Disk latency, blocking |
+| A regex with catastrophic backtracking | Unbounded — a ReDoS vector |
+| A large `Array.sort` or `for` loop | Milliseconds per 100k elements |
+| `zlib` sync variants | Proportional to payload size |
 
-↓
+Startup is the exception: `readFileSync` at module load is fine, because nothing is
+being served yet.
 
-Write Simple Code
-
-↓
-
-Optimize Performance
-
-↓
-
-Observe Behavior
-
-↓
-
-Improve Continuously
-
-↓
-
-Approve
-
-Node.js should simplify concurrency.
-
-Never complicate architecture.
+For genuinely CPU-bound work use `worker_threads` or a separate service. Adding
+concurrency to a blocked event loop does nothing. Monitor event-loop delay
+(`perf_hooks.monitorEventLoopDelay`) — a p99 above ~50 ms means something is
+blocking. → `Backend/monitoring`
 
 ---
 
-# Primary Objective
+# Async correctness
 
-Every backend implementation should answer one question.
+```js
+// Sequential — 3× slower than necessary when the calls are independent
+const a = await getA(); const b = await getB(); const c = await getC();
 
-"Can this system continue operating reliably as traffic, features, developers, and infrastructure grow?"
+// Concurrent, and it does not lose an error when one rejects
+const [a, b, c] = await Promise.all([getA(), getB(), getC()]);
+```
 
-If the answer is uncertain,
-
-the architecture requires improvement.
-
----
-
-# Engineering Principles
-
-Every implementation should maximize
-
-Correctness
-
-↓
-
-Simplicity
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Security
-
-↓
-
-Developer Experience
-
-Readable systems outperform clever systems.
+- `Promise.all` rejects on the first failure; `Promise.allSettled` when you need
+  every result. Use `Promise.all` unless partial success is meaningful.
+- **Never** use `forEach` with an async callback — it does not await, so the
+  function returns before the work finishes and errors are unhandled. Use
+  `for…of` for sequential, `Promise.all(map(...))` for concurrent.
+- Bound concurrent fan-out (`p-limit`, a semaphore). `Promise.all` over 10,000
+  items opens 10,000 sockets.
+- An unawaited promise that rejects becomes an `unhandledRejection`, which
+  terminates the process by default in current Node. Await it or attach a handler.
+- Wrap `EventEmitter` callbacks: an exception thrown inside one is not caught by
+  the surrounding `try`.
 
 ---
 
-# Development Workflow
+# Streams and backpressure
 
-Understand Requirements
+Reading a large file or response body into memory works in testing and OOMs in
+production.
 
-↓
+```js
+// Buffers the whole file into memory
+res.send(await fs.promises.readFile(path));
 
-Design Modules
+// Streams it, and `pipeline` propagates errors and destroys sockets correctly
+await pipeline(fs.createReadStream(path), res);
+```
 
-↓
+`pipeline` (not `.pipe()`) handles error propagation and cleanup — a `.pipe()`
+chain leaks file descriptors when the destination errors.
 
-Implement Features
-
-↓
-
-Validate Inputs
-
-↓
-
-Handle Errors
-
-↓
-
-Observe Behavior
-
-↓
-
-Optimize
-
-↓
-
-Approve
+Backpressure is the reason streams exist: if you ignore the return value of
+`write()`, a fast producer will fill memory until the process dies. `pipeline`
+handles it for you.
 
 ---
 
-# Stage 1 — Problem Understanding
+# Process configuration
 
-Before writing code determine
+```dockerfile
+ENV NODE_ENV=production
+# Set the heap below the container limit, or the OOM killer arrives before GC does
+ENV NODE_OPTIONS="--max-old-space-size=768"
+```
 
-Business objective
+| Setting | Why |
+| --- | --- |
+| `NODE_ENV=production` | Frameworks skip development-only work; error pages stop leaking traces |
+| `--max-old-space-size` | Default heap ignores cgroup limits; set it ~75% of the container limit |
+| `UV_THREADPOOL_SIZE` | Default 4 threads serve fs, dns and crypto — raise if those queue |
+| Process manager | One process per core (Kubernetes replicas, not `cluster`, in containers) |
+| `--enable-source-maps` | Readable stack traces from compiled TypeScript |
 
-↓
+Handle `SIGTERM`: stop accepting connections, drain in-flight requests with a
+bounded timeout, close the database pool, exit. Without it every deploy severs
+live requests. → `DevOps/deployment`
 
-Expected traffic
-
-↓
-
-Expected latency
-
-↓
-
-Data sources
-
-↓
-
-External services
-
-↓
-
-Failure scenarios
-
-↓
-
-Scaling requirements
-
-Never optimize before understanding the problem.
+`unhandledRejection` and `uncaughtException` should log and exit — after an
+uncaught exception the process state is unknown. → `Backend/error-handling`
 
 ---
 
-# Stage 2 — Architecture
+# Dependencies
 
-Organize the application into clear boundaries.
+Node's supply chain is the largest of any ecosystem, and it is a real attack path.
 
-Presentation
-
-↓
-
-Application
-
-↓
-
-Domain
-
-↓
-
-Infrastructure
-
-↓
-
-External Services
-
-Every module should have a single responsibility.
+- **Commit the lockfile** and install with `npm ci`, never `npm install`, in CI
+  and in Docker builds.
+- Pin the Node version in `.nvmrc` and `engines`, and run the same major in CI as
+  in production.
+- Audit in CI (`npm audit --audit-level=high`, Dependabot, Snyk) and treat a
+  critical finding as a build failure.
+- Prefer the standard library. `node:crypto`, `node:test`, `fetch`, `AbortSignal`
+  and `structuredClone` are built in — a dependency for what a few lines can do is
+  a permanent liability.
+- Use `--ignore-scripts` where feasible; postinstall scripts are the most common
+  malicious-package vector.
+- Never run the process as root in a container; use a non-root user and a
+  read-only filesystem. → `DevOps/docker`
 
 ---
 
-# Stage 3 — Project Structure
+# Anti-patterns
 
-Prefer modular organization.
-
-Example
-
-src/
-
-config/
-
-controllers/
-
-services/
-
-repositories/
-
-middleware/
-
-routes/
-
-models/
-
-utils/
-
-jobs/
-
-workers/
-
-events/
-
-tests/
-
-Structure should scale with the team.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Sync I/O or crypto in a request path | Blocks every concurrent request | Async variants |
+| Adding concurrency to CPU-bound work | The event loop is still one thread | `worker_threads` or a separate service |
+| `forEach` with an async callback | Does not await; errors unhandled | `for…of` or `Promise.all` |
+| Sequential independent awaits | Latency adds up needlessly | `Promise.all` |
+| Unbounded `Promise.all` fan-out | Thousands of sockets at once | Concurrency limiter |
+| Floating promises | Process-terminating unhandled rejection | Await or handle |
+| `.pipe()` without error handling | Leaked descriptors on failure | `pipeline` |
+| Reading large files into memory | OOM at production sizes | Stream |
+| No `--max-old-space-size` | OOM killer before GC runs | Set below the container limit |
+| Missing `NODE_ENV=production` | Development error pages leak traces | Set it explicitly |
+| No `SIGTERM` handler | Every deploy severs live requests | Graceful shutdown |
+| Continuing after `uncaughtException` | Unknown process state | Log and exit |
+| `npm install` in CI | Ignores the lockfile; irreproducible builds | `npm ci` |
+| Running as root in a container | Container escape has full privileges | Non-root user |
+| A dependency for a one-liner | Supply-chain surface for nothing | Standard library |
 
 ---
 
-# Stage 4 — Event Loop Awareness
-
-Understand
-
-Call Stack
-
-↓
-
-Microtasks
-
-↓
-
-Macrotasks
-
-↓
-
-Event Loop
-
-↓
-
-Worker Threads
-
-↓
-
-Async Operations
-
-Never block the event loop.
-
-Blocking code reduces scalability.
-
----
-
-# Stage 5 — Asynchronous Design
-
-Prefer
-
-Promises
-
-Async/Await
-
-Streaming
-
-Events
-
-Queues
-
-Background Jobs
-
-Avoid
-
-Deep callback chains
-
-Synchronous blocking operations
-
-Async code should remain readable.
-
----
-
-# Stage 6 — Module Design
-
-Each module should
-
-Solve one problem
-
-Expose a clear interface
-
-Hide implementation
-
-Avoid circular dependencies
-
-Remain independently testable
-
-Modules should communicate through contracts.
-
----
-
-# Stage 7 — Configuration
-
-Configuration belongs outside code.
-
-Examples
-
-Environment variables
-
-Secrets manager
-
-Configuration files
-
-Feature flags
-
-Never hardcode
-
-Passwords
-
-Tokens
-
-URLs
-
-API Keys
-
----
-
-# Stage 8 — Dependency Management
-
-Review
-
-Dependency necessity
-
-Maintenance
-
-Security
-
-License
-
-Community support
-
-Update frequency
-
-Every dependency increases maintenance cost.
-
----
-
-# Stage 9 — Error Handling
-
-Errors should be
-
-Expected
-
-↓
-
-Handled
-
-↓
-
-Logged
-
-↓
-
-Recovered
-
-↓
-
-Reported
-
-Unexpected failures should never crash the application silently.
-
----
-
-# Stage 10 — Resource Management
-
-Review
-
-Memory
-
-CPU
-
-Network
-
-Database connections
-
-File handles
-
-Timers
-
-Clean resources immediately after use.
-
----
-
-# Stage 11 — Performance
-
-Evaluate
-
-Event loop delay
-
-Memory usage
-
-CPU utilization
-
-Garbage collection
-
-Database latency
-
-Network latency
-
-Performance should be measured.
-
-Never assumed.
-
----
-
-# Stage 12 — Concurrency
-
-Use
-
-Worker Threads
-
-Background Jobs
-
-Queues
-
-Clusters
-
-Horizontal Scaling
-
-Choose concurrency based on workload.
-
----
-
-# Stage 13 — Security
-
-Review
-
-Input validation
-
-Secrets
-
-Dependencies
-
-Authentication
-
-Authorization
-
-Rate limiting
-
-Headers
-
-Security begins before deployment.
-
----
-
-# Stage 14 — Observability
-
-Every application should expose
-
-Structured logs
-
-Metrics
-
-Health checks
-
-Tracing
-
-Request IDs
-
-Performance metrics
-
-Visibility reduces debugging time.
-
----
-
-# Stage 15 — Testing
-
-Implement
-
-Unit Tests
-
-Integration Tests
-
-Contract Tests
-
-Load Tests
-
-Failure Tests
-
-Regression Tests
-
-Testing validates behavior.
-
-Not implementation.
-
----
-
-# Stage 16 — Scalability
-
-Review
-
-Stateless services
-
-Horizontal scaling
-
-Caching
-
-Queues
-
-Connection pooling
-
-Database optimization
-
-Scalable systems avoid single points of failure.
-
----
-
-# Stage 17 — Reliability
-
-Implement
-
-Graceful shutdown
-
-Retries
-
-Timeouts
-
-Circuit breakers
-
-Health checks
-
-Fallbacks
-
-Reliable systems expect failures.
-
----
-
-# Stage 18 — Maintainability
-
-Evaluate
-
-Naming
-
-Consistency
-
-Documentation
-
-Complexity
-
-Coupling
-
-Code duplication
-
-Future developers should understand the code quickly.
-
----
-
-# Stage 19 — Production Readiness
-
-Verify
-
-Environment configuration
-
-Monitoring
-
-Logging
-
-Backups
-
-Security
-
-Deployment
-
-Rollback
-
-Alerting
-
-A feature is incomplete until it is production ready.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review regularly
-
-Performance
-
-Dependencies
-
-Security
-
-Architecture
-
-Developer feedback
-
-Technical debt
-
-Production incidents
-
-Good systems evolve continuously.
-
----
-
-# Node.js Quality Attributes
-
-Evaluate
-
-Correctness
-
-Reliability
-
-Performance
-
-Scalability
-
-Maintainability
-
-Security
-
-Observability
-
-Developer Experience
-
----
-
-# Engineering Questions
-
-Before approval ask
-
-Can this application handle expected traffic?
-
-↓
-
-Does anything block the event loop?
-
-↓
-
-Are modules independent?
-
-↓
-
-Can failures be recovered automatically?
-
-↓
-
-Can another engineer understand the architecture quickly?
-
-↓
-
-Will scaling require architectural redesign?
-
-↓
-
-Would this implementation survive production workloads?
-
----
-
-# Severity Levels
-
-Critical
-
-Event loop blocking
-
-Memory leaks
-
-Security vulnerability
-
-Data corruption
-
-Application crashes
-
-Major
-
-Poor architecture
-
-Missing monitoring
-
-Weak error handling
-
-Performance bottlenecks
-
-Medium
-
-Naming inconsistencies
-
-Module coupling
-
-Documentation improvements
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Comments
-
-Examples
-
-Refactoring suggestions
-
-Future enhancements
-
----
-
-# Node.js Checklist
-
-✓ Modular architecture
-
-✓ Event loop respected
-
-✓ Async operations optimized
-
-✓ Configuration externalized
-
-✓ Dependencies reviewed
-
-✓ Error handling implemented
-
-✓ Resource cleanup verified
-
-✓ Security reviewed
-
-✓ Logging enabled
-
-✓ Monitoring enabled
-
-✓ Health checks implemented
-
-✓ Performance measured
-
-✓ Scalability validated
-
-✓ Testing completed
-
-✓ Production ready
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Blocking the event loop
-
-Business logic inside routes
-
-Massive service classes
-
-Circular dependencies
-
-Hardcoded configuration
-
-Ignoring promise rejections
-
-Memory leaks
-
-Global mutable state
-
-Large utility files
-
-Silent failures
-
-Overengineering
-
-Premature optimization
-
----
-
-# Definition of Done
-
-Node.js engineering review is complete when
-
-- The application follows a modular architecture with clear responsibilities.
-- The event loop remains responsive under expected workloads.
-- Asynchronous operations are implemented using modern, maintainable patterns.
-- Configuration, secrets, and infrastructure concerns remain external to application logic.
-- Errors are handled consistently with appropriate logging and recovery strategies.
-- Performance, reliability, and observability are validated through monitoring and testing.
-- Security practices protect data, dependencies, and runtime behavior.
-- The application can scale horizontally without significant architectural changes.
-- Documentation accurately reflects system behavior and operational requirements.
-- The implementation is ready for long-term production use and continuous evolution.
-
-Exceptional Node.js systems are not measured by how much code they contain.
-
-They are measured by how predictably they perform, how easily they evolve, and how confidently engineers can operate them in production.
+# Checklist
+
+- [ ] No synchronous I/O, crypto or compression in request paths
+- [ ] CPU-bound work runs in worker threads or a separate service
+- [ ] Event-loop delay is monitored and alerted on
+- [ ] Independent async work uses `Promise.all`, with bounded fan-out
+- [ ] No async callbacks passed to `forEach`
+- [ ] No floating promises; rejections are handled
+- [ ] Large payloads are streamed with `pipeline`, not buffered
+- [ ] `NODE_ENV=production` is set in production images
+- [ ] Heap size is set below the container memory limit
+- [ ] `UV_THREADPOOL_SIZE` is tuned if fs/dns/crypto work queues
+- [ ] `SIGTERM` triggers a graceful drain and clean exit
+- [ ] `unhandledRejection` and `uncaughtException` log and exit
+- [ ] The lockfile is committed and CI installs with `npm ci`
+- [ ] The Node version is pinned and matches between CI and production
+- [ ] Dependency audits run in CI and fail on high-severity findings
+- [ ] The container runs as a non-root user

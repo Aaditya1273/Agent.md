@@ -5,1137 +5,187 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: images
+category: Performance
+description: Image delivery — modern formats, responsive sizes, reserved space, lazy loading, and the LCP image that must never be deferred.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# images.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, image delivery methodologies, resource optimization strategies, visual asset management practices, rendering efficiency standards, and long-term best practices for delivering images efficiently while preserving quality, accessibility, maintainability, scalability, and user experience.
+Rules for delivering images. Images are usually the largest bytes on a page, the
+LCP element, and the main cause of layout shift — so they affect all three Core
+Web Vitals at once.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- Dashboards
-- Progressive Web Applications
-- Mobile Web
-- E-Commerce Platforms
-- Documentation Sites
-- Interactive Applications
-
-Images are not decorative files.
-
-Images are engineering resources that consume bandwidth, memory, storage, rendering time, processing power, and user attention.
-
-Every image should deliver measurable value while consuming the minimum resources necessary.
+Four levers, in order of impact: **format**, **dimensions**, **loading priority**,
+**reserved space**.
 
 ---
 
-# Core Philosophy
+# Format and compression
 
-Understand User Needs
+| Format | Use for | Relative size |
+| --- | --- | --- |
+| **AVIF** | Photographs, complex images | ~50% of JPEG |
+| **WebP** | General fallback | ~70% of JPEG |
+| JPEG | Legacy fallback only | Baseline |
+| **SVG** | Icons, logos, diagrams | Tiny, resolution-independent |
+| PNG | Only when lossless raster is required | Large |
+| **WebP/AVIF animated** | Replaces GIF | ~10% of GIF |
 
-↓
+```html
+<picture>
+  <source srcset="hero.avif" type="image/avif" />
+  <source srcset="hero.webp" type="image/webp" />
+  <img src="hero.jpg" width="1200" height="630" alt="…" fetchpriority="high" />
+</picture>
+```
 
-Understand Visual Purpose
-
-↓
-
-Deliver Only Required Images
-
-↓
-
-Optimize Resource Usage
-
-↓
-
-Preserve Visual Quality
-
-↓
-
-Measure User Experience
-
-↓
-
-Validate Performance
-
-↓
-
-Continuously Improve
-
-Images should maximize communication while minimizing resource consumption.
+- **Never ship GIF for animation.** An animated WebP or a muted, looping,
+  `playsinline` MP4 is a fraction of the size.
+- Quality 75–85 is visually indistinguishable from 100 for most photographs at
+  roughly half the bytes.
+- Strip metadata (EXIF) — it adds kilobytes and can leak GPS coordinates from
+  user uploads. That is a privacy issue, not only a size one.
+- SVGs are XML and can contain scripts: sanitise any user-supplied SVG before
+  serving it inline. → `Security/xss`
 
 ---
 
-# Primary Objective
+# Serve the right size
 
-Every image strategy should maximize
+A 3000px image displayed at 400px wastes roughly 98% of its bytes — and mobile
+users pay for it.
 
-Visual Quality
+```html
+<img src="photo-800.avif"
+     srcset="photo-400.avif 400w, photo-800.avif 800w, photo-1600.avif 1600w"
+     sizes="(max-width: 768px) 100vw, 800px"
+     width="800" height="600" alt="…" />
+```
 
-+
+`sizes` is the part that is usually wrong or missing. Without it the browser
+assumes `100vw` and downloads the largest candidate — so `srcset` alone does not
+help. `sizes` must describe the image's **rendered** width at each breakpoint.
 
-Responsiveness
+Generate variants at build time or through an image service (Cloudinary, imgix,
+Next.js Image, Cloudflare Images). Do not resize in the browser; the full-size
+bytes have already been downloaded.
 
-+
-
-Efficiency
-
-+
-
-Accessibility
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Reliability
-
-+
-
-Long-Term Sustainability
-
-Images should improve user experience without becoming performance bottlenecks.
+Serve at the device pixel ratio the display needs, not blindly at 2× — the
+difference above 2× is imperceptible and doubles the bytes again.
 
 ---
 
-# Engineering Principles
+# Priority: the LCP image is special
 
-Always prioritize
+```html
+<!-- Above the fold: load it first, never lazily -->
+<img src="hero.avif" width="1200" height="630" alt="…"
+     fetchpriority="high" decoding="async" />
 
-User Value
+<!-- Below the fold -->
+<img src="card.avif" width="400" height="300" alt="…" loading="lazy" />
+```
 
-↓
-
-Minimal Resource Usage
-
-↓
-
-Progressive Delivery
-
-↓
-
-Accessibility
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Every image should justify its existence.
+- `loading="lazy"` on the LCP image **delays the metric it defines**. This is the
+  most common self-inflicted LCP regression, and it usually arrives via a blanket
+  "lazy-load all images" change.
+- `fetchpriority="high"` on the LCP image so it is not queued behind other
+  requests.
+- A hero image inside a JavaScript carousel is not discoverable by the preload
+  scanner — either render the first slide in HTML or `preload` it explicitly.
+- Background images in CSS are discovered late, after the stylesheet parses. Do
+  not use one for the LCP element.
 
 ---
 
-# Image Engineering Lifecycle
+# Reserve the space
 
-Understand User Journey
+```html
+<img src="…" width="800" height="600" />        <!-- intrinsic ratio reserved -->
+```
 
-↓
+```css
+img { max-width: 100%; height: auto; aspect-ratio: attr(width) / attr(height); }
+```
 
-Identify Visual Requirements
+Always set `width` and `height` (or `aspect-ratio`). Without them the browser does
+not know the image's shape until it downloads, so the layout jumps when it
+arrives — the primary cause of poor CLS.
 
-↓
+This applies to responsive images too: the attributes provide the **ratio**; CSS
+controls the rendered size.
 
-Select Image Strategy
-
-↓
-
-Optimize Delivery
-
-↓
-
-Render Efficiently
-
-↓
-
-Validate Experience
-
-↓
-
-Measure Performance
-
-↓
-
-Continuously Improve
-
-Images should be engineered—not simply uploaded.
+Avoid layout-shifting placeholders. A low-quality image placeholder (LQIP) or a
+dominant-colour block at the correct aspect ratio is better than empty space, and
+does not shift when replaced.
 
 ---
 
-# Stage 1 — User Experience Analysis
+# Delivery
 
-Understand
-
-User Goals
-
-↓
-
-Business Objectives
-
-↓
-
-Content Priority
-
-↓
-
-Visual Context
-
-↓
-
-Navigation Flow
-
-↓
-
-Interaction Patterns
-
-↓
-
-Device Diversity
-
-↓
-
-Future Growth
-
-Image strategy begins with user needs.
+- Serve from a CDN with long-lived, immutable caching on content-hashed URLs.
+  → `Performance/caching`
+- Use an image service that negotiates format on `Accept` so a browser supporting
+  AVIF gets AVIF without duplicated markup.
+- **Restrict which origins your optimiser will fetch** — an open image proxy is
+  free compute for anyone who finds it, and a common source of surprise bills.
+  → `DevOps/vercel`
+- Cap upload size and validate type by **magic bytes**, not by extension or
+  `Content-Type`. → `Backend/validation`
+- Process user uploads out of band, in a job, with bounded memory — decoding a
+  hostile image can allocate far more than its file size.
+  → `Backend/background-jobs`
 
 ---
 
-# Stage 2 — Image Analysis
+# Anti-patterns
 
-Identify
-
-Content Images
-
-↓
-
-Product Images
-
-↓
-
-Illustrations
-
-↓
-
-Icons
-
-↓
-
-Background Images
-
-↓
-
-Media Assets
-
-↓
-
-Generated Images
-
-↓
-
-Decorative Resources
-
-Every image has an engineering cost.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| JPEG/PNG only | Twice the bytes of AVIF | `<picture>` with modern formats |
+| Animated GIF | 10× an equivalent video | Animated WebP or MP4 |
+| One size for all viewports | Mobile downloads desktop images | `srcset` with `sizes` |
+| `srcset` without `sizes` | Browser assumes `100vw`; largest downloaded | Always provide `sizes` |
+| Resizing in CSS only | Full-size bytes already downloaded | Serve the right size |
+| Missing `width`/`height` | Layout shift; poor CLS | Always set them |
+| Lazy-loading the LCP image | Delays the metric it defines | `fetchpriority="high"` |
+| Blanket lazy-loading | Catches the hero image | Exclude above-the-fold |
+| LCP image as a CSS background | Discovered late | Use `<img>` or preload |
+| Hero inside a JS carousel | Invisible to the preload scanner | Render the first slide in HTML |
+| Quality 100 | Double the bytes, no visible gain | 75–85 |
+| EXIF retained on user uploads | Bytes, and GPS location leaks | Strip metadata |
+| Unsanitised user SVG | Script execution | Sanitise or serve as an image only |
+| Open image-optimisation proxy | Free compute for strangers | Restrict source origins |
+| Upload type from extension | Trivially spoofed | Magic-byte detection |
+| Synchronous upload processing | Memory spikes; blocked requests | Background job with limits |
+| No CDN | Every image crosses the ocean | Edge delivery with immutable caching |
 
 ---
 
-# Stage 3 — Business Value Evaluation
-
-Determine
-
-Critical Images
-
-↓
-
-Supporting Images
-
-↓
-
-Optional Images
-
-↓
-
-Decorative Images
-
-↓
-
-Marketing Assets
-
-↓
-
-Interactive Graphics
-
-↓
-
-Future Assets
-
-↓
-
-Unused Images
-
-Visual assets should provide measurable value.
-
----
-
-# Stage 4 — Delivery Strategy
-
-Define
-
-Initial Images
-
-↓
-
-Deferred Images
-
-↓
-
-Responsive Images
-
-↓
-
-Conditional Images
-
-↓
-
-Cached Images
-
-↓
-
-Shared Assets
-
-↓
-
-Fallback Images
-
-↓
-
-Recovery Strategy
-
-Image delivery should match user demand.
-
----
-
-# Stage 5 — Resource Optimization
-
-Optimize
-
-Resolution
-
-↓
-
-Compression
-
-↓
-
-Dimensions
-
-↓
-
-Aspect Ratio
-
-↓
-
-Quality
-
-↓
-
-Storage
-
-↓
-
-Transfer Size
-
-↓
-
-Rendering Cost
-
-Optimization should preserve meaning while reducing waste.
-
----
-
-# Stage 6 — Rendering Strategy
-
-Render
-
-Visible Images
-
-↓
-
-Interactive Images
-
-↓
-
-Background Images
-
-↓
-
-Animated Assets
-
-↓
-
-Responsive Layouts
-
-↓
-
-Loading Feedback
-
-↓
-
-Visual Stability
-
-↓
-
-Accessibility
-
-Rendering should remain predictable and efficient.
-
----
-
-# Stage 7 — Accessibility
-
-Validate
-
-Alternative Text
-
-↓
-
-Semantic Purpose
-
-↓
-
-Visual Clarity
-
-↓
-
-Contrast
-
-↓
-
-Meaning Preservation
-
-↓
-
-Assistive Technology
-
-↓
-
-Keyboard Navigation
-
-↓
-
-Inclusive Experience
-
-Every meaningful image should remain accessible.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Transfer Size
-
-↓
-
-Loading Time
-
-↓
-
-Rendering Time
-
-↓
-
-Memory Usage
-
-↓
-
-CPU Usage
-
-↓
-
-Caching Efficiency
-
-↓
-
-Interaction Responsiveness
-
-↓
-
-User Experience
-
-Image optimization should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Oversized Images
-
-↓
-
-Duplicate Assets
-
-↓
-
-Unused Resources
-
-↓
-
-Rendering Delays
-
-↓
-
-Compression Opportunities
-
-↓
-
-Caching Improvements
-
-↓
-
-Delivery Bottlenecks
-
-↓
-
-Memory Waste
-
-Optimization should eliminate unnecessary visual cost.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Asset Organization
-
-↓
-
-Image Ownership
-
-↓
-
-Delivery Architecture
-
-↓
-
-Caching Strategy
-
-↓
-
-Dependency Relationships
-
-↓
-
-Storage Strategy
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Architecture determines long-term efficiency.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Asset Libraries
-
-↓
-
-Large Applications
-
-↓
-
-High Traffic
-
-↓
-
-Multiple Devices
-
-↓
-
-International Delivery
-
-↓
-
-Shared Resources
-
-↓
-
-Future Expansion
-
-↓
-
-Operational Stability
-
-Image architecture should scale naturally.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Loading Behavior
-
-↓
-
-Fallback Images
-
-↓
-
-Error Recovery
-
-↓
-
-Network Failures
-
-↓
-
-Missing Assets
-
-↓
-
-Rendering Consistency
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Image delivery should remain reliable.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Image Standards
-
-↓
-
-Delivery Strategy
-
-↓
-
-Optimization Decisions
-
-↓
-
-Engineering Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Accessibility Requirements
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Broken Images
-
-↓
-
-Oversized Assets
-
-↓
-
-Performance Regression
-
-↓
-
-Memory Growth
-
-↓
-
-Accessibility Gaps
-
-↓
-
-Storage Waste
-
-↓
-
-Operational Risks
-
-↓
-
-Technical Debt
-
-Image risks should remain continuously visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Visual Quality
-
-↓
-
-Performance
-
-↓
-
-Storage
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Accessibility
-
-↓
-
-Architecture
-
-↓
-
-Future Evolution
-
-Every image optimization introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Image Quality
-
-↓
-
-Performance
-
-↓
-
-Accessibility
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-Image optimization requires measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Image Summary
-
-↓
-
-Performance Metrics
-
-↓
-
-Optimization Results
-
-↓
-
-Accessibility Review
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Engineering reports preserve optimization knowledge.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Delivery
-
-↓
-
-Caching
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Maintainability
-
-Images should remain reliable under production workloads.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Image Standards
-
-↓
-
-Performance Reviews
-
-↓
-
-Architecture Reviews
-
-↓
-
-Accessibility Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Engineering Discipline
-
-Image quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Image Efficiency
-
-↓
-
-Visual Experience
-
-↓
-
-Architecture
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional software communicates visually while consuming only the resources required to deliver meaningful user value.
-
----
-
-# Image Quality Attributes
-
-Evaluate
-
-Visual Quality
-
-Responsiveness
-
-Efficiency
-
-Accessibility
-
-Maintainability
-
-Scalability
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every image provide measurable value?
-
-↓
-
-Can image resources be reduced without harming user experience?
-
-↓
-
-Is image delivery proportional to user demand?
-
-↓
-
-Does the image architecture support long-term scalability?
-
-↓
-
-Will future engineers understand these image decisions?
-
-↓
-
-Does the strategy improve actual user experience instead of benchmark metrics?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this image strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken image delivery
-
-Missing critical assets
-
-Application instability
-
-Accessibility failure
-
-Major
-
-Oversized images
-
-Rendering delays
-
-Storage inefficiency
-
-Performance degradation
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Image Checklist
-
-✓ User requirements analyzed
-
-✓ Image assets identified
-
-✓ Business value evaluated
-
-✓ Delivery strategy defined
-
-✓ Resources optimized
-
-✓ Rendering validated
-
-✓ Accessibility verified
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Uploading oversized images
-
-Using high-quality assets without justification
-
-Duplicate image storage
-
-Ignoring accessibility
-
-Blocking rendering with unnecessary images
-
-Using decorative images without value
-
-Ignoring responsive delivery
-
-Treating compression as the only optimization
-
-Growing image libraries without governance
-
-Ignoring caching opportunities
-
-Optimizing without measurement
-
-Treating images as static resources instead of engineering assets
-
----
-
-# Definition of Done
-
-An image optimization strategy is considered complete when
-
-- Images deliver meaningful visual value while minimizing network transfer, storage requirements, memory consumption, rendering cost, processing overhead, and operational complexity without compromising correctness, accessibility, maintainability, or architectural integrity.
-- Image delivery is proportional to user demand through evidence-based engineering decisions that optimize resource utilization, visual quality, rendering efficiency, caching behavior, scalability, and long-term operational sustainability.
-- Image architecture supports responsive delivery, predictable rendering, accessibility, reliability, maintainability, future application growth, and operational excellence without introducing unnecessary technical debt or engineering complexity.
-- Engineering reviews validate image quality, delivery efficiency, accessibility, architectural consistency, performance characteristics, documentation quality, scalability, maintainability, production readiness, and long-term sustainability before deployment.
-- Documentation clearly explains image standards, optimization decisions, engineering rationale, accessibility requirements, architectural trade-offs, validation evidence, governance expectations, known constraints, and future improvement opportunities.
-- Image engineering decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than isolated optimization techniques.
-- The resulting application demonstrates engineering discipline, efficient visual communication, responsive user experience, accessibility, architectural clarity, operational excellence, maintainability, predictable scalability, and long-term software sustainability.
-
-Exceptional image optimization is not measured by the smallest possible image files.
-
-It is measured by delivering the right visual information, at the right quality, at the right time, using the minimum engineering resources necessary to create an exceptional user experience while preserving long-term maintainability and architectural excellence.
+# Checklist
+
+- [ ] Images are served as AVIF or WebP with a fallback
+- [ ] Icons and logos are SVG
+- [ ] No animated GIFs are served
+- [ ] Quality settings are 75–85, not 100
+- [ ] Metadata is stripped from generated and uploaded images
+- [ ] `srcset` provides multiple widths and `sizes` describes rendered width
+- [ ] Variants are generated at build time or by an image service
+- [ ] Every image sets `width` and `height` or an explicit aspect ratio
+- [ ] The LCP image is not lazy-loaded and carries `fetchpriority="high"`
+- [ ] The LCP element is a real `<img>` discoverable by the preload scanner
+- [ ] Below-the-fold images use `loading="lazy"`
+- [ ] Placeholders preserve the aspect ratio and do not shift
+- [ ] Images are served from a CDN with immutable caching on hashed URLs
+- [ ] The image optimiser only fetches from allowlisted origins
+- [ ] Uploads are size-capped and type-checked by content
+- [ ] User uploads are processed in a background job with bounded memory
+- [ ] User-supplied SVGs are sanitised

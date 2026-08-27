@@ -5,790 +5,219 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: graphql
+category: API
+description: GraphQL schema and server rules — bounding query cost, killing N+1 with dataloaders, per-field authorization, and errors clients can act on.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# graphql.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, review, consume, document, and optimize GraphQL APIs.
+Rules for building a GraphQL API. GraphQL moves query construction from the server
+to the client. That is the feature and the entire risk surface: the client now
+decides how expensive a request is, and how deep it goes.
 
-GraphQL is not simply an alternative to REST.
-
-GraphQL is a strongly typed query language and runtime that enables clients to request exactly the data they need through a unified schema.
-
-The objective is to design GraphQL APIs that maximize flexibility, maintainability, scalability, type safety, performance, and developer experience.
-
-Every schema should represent the business domain—not backend implementation details.
+Every rule here follows from that. Choose GraphQL when clients genuinely need
+varied shapes; if every consumer fetches the same thing, REST is less machinery.
+→ `API/rest`
 
 ---
 
-# Core Philosophy
+# Bound the cost of a query
 
-Understand Domain
+A public GraphQL endpoint without cost controls is an open denial-of-service
+target. All four controls below are needed — none is sufficient alone.
 
-↓
+```graphql
+# Without depth limiting, this recurses until the server dies
+query { user { friends { friends { friends { friends { id } } } } } }
+```
 
-Design Schema
+| Control | Typical value | Tool |
+| --- | --- | --- |
+| Maximum depth | 10–15 | `graphql-depth-limit` |
+| Query complexity budget | Per-operation score | `graphql-query-complexity` |
+| Maximum aliases / breadth | 100 | Custom validation rule |
+| Timeout | 10s | Server config |
+| Persisted queries | Allowlist only | `graphql-codegen` + APQ |
 
-↓
+**Persisted (allowlisted) queries are the strongest control.** The client sends a
+hash; the server executes only queries it has seen at build time. Arbitrary
+queries become impossible. Use this for first-party clients; keep cost limits for
+any genuinely public endpoint.
 
-Model Relationships
+Assign complexity weights by real cost — a paginated list costs `limit ×
+child cost`, not `1`:
 
-↓
+```ts
+@Field(() => [Order], { complexity: ({ args, childComplexity }) =>
+  args.first * childComplexity })
+```
 
-Implement Resolvers
-
-↓
-
-Optimize Queries
-
-↓
-
-Secure Operations
-
-↓
-
-Validate Contracts
-
-↓
-
-Approve
-
-The schema is the product.
-
-Resolvers are implementation details.
+**Never** expose introspection on a public production endpoint. It hands an
+attacker the complete schema, including fields you forgot were reachable.
 
 ---
 
-# Primary Objective
+# N+1 is structural, not accidental
 
-Every GraphQL API should answer one question.
+Resolvers run per field per object. A list of 100 orders each resolving `customer`
+issues 100 queries — the resolver has no idea it is in a list.
 
-"Can a client retrieve exactly what it needs with one predictable, type-safe query?"
+```ts
+// One batched query per tick, deduplicated by key
+const customerLoader = new DataLoader(async (ids: readonly string[]) => {
+  const rows = await db.customer.findMany({ where: { id: { in: [...ids] } } });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id) ?? null);   // must return in input order
+});
+```
 
-If the answer is uncertain,
+Three rules that are easy to get wrong:
 
-the schema requires redesign.
+1. **Create loaders per request**, in the context factory. A module-scope
+   DataLoader caches across users and leaks data between them.
+2. **Return results in input order**, one entry per key, `null` for misses.
+   Returning the raw query result mismatches keys silently.
+3. **Batch relations, not just entities.** A one-to-many needs a loader keyed by
+   the parent id that groups the result.
 
----
-
-# GraphQL Principles
-
-Every API should maximize
-
-Type Safety
-
-↓
-
-Flexibility
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-↓
-
-Discoverability
-
-↓
-
-Scalability
-
-↓
-
-Developer Experience
-
-↓
-
-Maintainability
-
-GraphQL should reduce over-fetching and under-fetching.
-
-Never increase complexity unnecessarily.
+Assert resolver query counts in tests — this regresses every time someone adds a
+field. → `Database/query-optimization`
 
 ---
 
-# GraphQL Workflow
+# Authorization is per field
 
-Understand Domain
+There is no endpoint to guard. A single query can traverse from a public field
+into a sensitive one, so authorization belongs in the resolver or the type layer.
 
-↓
+```ts
+Order: {
+  costBasisCents: (order, _args, ctx) => {
+    if (!ctx.can("order:read_financials", order.tenantId)) return null;
+    return order.costBasisCents;
+  },
+}
+```
 
-Identify Entities
-
-↓
-
-Design Schema
-
-↓
-
-Define Queries
-
-↓
-
-Define Mutations
-
-↓
-
-Define Relationships
-
-↓
-
-Implement Resolvers
-
-↓
-
-Optimize
-
-↓
-
-Approve
+- Check on the **object being resolved**, not on the root argument. A nested path
+  reaches objects the top-level check never saw.
+- Default to deny: a field with no explicit policy should fail review.
+- Never rely on the client not asking for a field.
+- Depth-limit and cost controls are not authorization — they limit volume, not
+  access. → `Security/authorization`
 
 ---
 
-# Stage 1 — Domain Understanding
+# Schema design
 
-Before designing determine
+```graphql
+type Order implements Node {
+  id: ID!
+  status: OrderStatus!
+  totalCents: Int!
+  currency: String!
+  items(first: Int = 20, after: String): OrderItemConnection!
+}
 
-What problem exists?
+union CreateOrderResult = CreateOrderSuccess | ValidationFailed | InsufficientFunds
+```
 
-↓
+| Rule | Why |
+| --- | --- |
+| Non-null (`!`) only where truly guaranteed | A null in a non-null field **nulls the whole parent** |
+| Enums, not free strings | Validated by the schema, self-documenting |
+| Connections for lists | Pagination is impossible to retrofit → `API/pagination` |
+| Result unions for mutations | Expected failures are typed, not exceptions |
+| One input object per mutation | Adding a field stays non-breaking |
+| Global `ID` opaque and namespaced | Prevents cross-type id confusion |
 
-What entities exist?
+The non-null propagation rule surprises people: if a `String!` resolver returns
+`null`, GraphQL nulls the parent object, and if that is also non-null, it
+propagates upward — potentially nulling the entire `data` payload. Be
+conservative with `!`.
 
-↓
+**Never** version a GraphQL schema with `/v2`. Deprecate fields in place:
 
-How do entities relate?
-
-↓
-
-What operations exist?
-
-↓
-
-What information do clients require?
-
-The schema should model business concepts.
-
-Never database tables.
-
----
-
-# Stage 2 — Schema Design
-
-Schemas should be
-
-Simple
-
-Readable
-
-Consistent
-
-Strongly Typed
-
-Business Focused
-
-Extensible
-
-The schema becomes the public contract.
-
-Treat it carefully.
+```graphql
+amount: Int! @deprecated(reason: "Use totalCents. Removed after 2026-09-01.")
+```
 
 ---
 
-# Stage 3 — Type Design
+# Errors
 
-Prefer
+GraphQL returns `200` with a top-level `errors` array. Clients need more
+structure than a message string.
 
-Meaningful object types
+```json
+{ "errors": [{
+    "message": "Insufficient funds",
+    "path": ["createOrder"],
+    "extensions": { "code": "INSUFFICIENT_FUNDS", "requestId": "req_01J8Z" }
+}] }
+```
 
-Reusable enums
-
-Dedicated input objects
-
-Interfaces
-
-Unions
-
-Scalars
-
-Avoid
-
-Generic JSON blobs
-
-Unstructured objects
-
-Duplicated types
-
-Weak typing
-
-Types should communicate intent.
+- Put a stable machine code in `extensions.code`. Clients branch on the code.
+- Model **expected** failures (validation, business rules) as result unions in the
+  schema; reserve the `errors` array for genuinely exceptional conditions.
+- Mask internal errors in production — `maskedErrors: true` in Yoga, or a
+  `formatError` hook. A stack trace in `extensions` is an information leak.
+- Include a `requestId` in every response.
 
 ---
 
-# Stage 4 — Query Design
+# Operations
 
-Queries retrieve information.
-
-Examples
-
-Query
-
-user
-
-users
-
-project
-
-projects
-
-article
-
-search
-
-Query names should describe resources.
-
-Not actions.
+- **Disable introspection and the GraphiQL playground** in production.
+- Log per-operation name, complexity score and duration — not the raw query
+  string, which contains user data.
+- `@defer`/`@stream` change response framing; confirm every client supports the
+  incremental delivery protocol before enabling them.
+- Caching is per-field, not per-URL. HTTP caches are useless here; use persisted
+  queries plus a response cache keyed on the operation hash and the viewer.
 
 ---
 
-# Stage 5 — Mutation Design
+# Anti-patterns
 
-Mutations modify state.
-
-Examples
-
-createUser
-
-updateProfile
-
-deleteProject
-
-publishArticle
-
-approveOrder
-
-Mutations should describe business operations.
-
----
-
-# Stage 6 — Subscription Design
-
-Use subscriptions only when necessary.
-
-Examples
-
-Live Chat
-
-Notifications
-
-Stock Prices
-
-Live Dashboard
-
-Game Events
-
-Avoid subscriptions for static data.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No depth or complexity limit | Recursive query kills the server | Depth + complexity + timeout |
+| Introspection enabled publicly | Full schema handed to attackers | Disable in production |
+| Resolvers without DataLoader | N+1 on every list field | Per-request loaders |
+| Module-scope DataLoader | Caches across users; data leaks | Create in the context factory |
+| Loader returning unordered results | Silent key/value mismatch | Map back into input order |
+| Authorization only at the root | Nested paths bypass it | Check on each resolved object |
+| Everything non-null | One null nulls the whole response | `!` only where guaranteed |
+| Lists without connections | Pagination cannot be retrofitted | Connection pattern from the start |
+| Business failures thrown as errors | Untyped, unhandleable by clients | Result unions |
+| `/v2` endpoint | Doubles the schema | `@deprecated` in place |
+| Raw query strings in logs | Logs user data | Log operation name and hash |
+| Unmasked errors in production | Stack traces leak internals | `maskedErrors` / `formatError` |
 
 ---
 
-# Stage 7 — Input Objects
-
-Every complex mutation should use
-
-Input Objects
-
-Good
-
-CreateUserInput
-
-UpdateProjectInput
-
-PublishPostInput
-
-Avoid
-
-20 individual parameters
-
-Input objects improve versioning.
-
----
-
-# Stage 8 — Relationships
-
-Model relationships naturally.
-
-Example
-
-User
-
-↓
-
-Projects
-
-↓
-
-Tasks
-
-↓
-
-Comments
-
-Relationships should represent the business.
-
-Not database joins.
-
----
-
-# Stage 9 — Resolver Design
-
-Resolvers should
-
-Remain small
-
-Contain minimal business logic
-
-Delegate to services
-
-Avoid duplicated logic
-
-Avoid N+1 queries
-
-Resolvers coordinate.
-
-Services implement logic.
-
----
-
-# Stage 10 — Performance
-
-Review
-
-Resolver execution
-
-Nested queries
-
-N+1 problems
-
-Batch loading
-
-Caching
-
-Lazy loading
-
-Query complexity
-
-Performance begins with resolver design.
-
----
-
-# Stage 11 — DataLoader
-
-Use batching whenever appropriate.
-
-Review
-
-Database batching
-
-Caching
-
-Request-scoped cache
-
-Relationship loading
-
-Duplicate requests
-
-DataLoader should eliminate unnecessary database access.
-
----
-
-# Stage 12 — Query Complexity
-
-Limit
-
-Depth
-
-Cost
-
-Execution time
-
-Node count
-
-Field count
-
-GraphQL should never allow unlimited complexity.
-
----
-
-# Stage 13 — Pagination
-
-Large collections should support
-
-Cursor Pagination
-
-Edges
-
-Nodes
-
-PageInfo
-
-hasNextPage
-
-endCursor
-
-Cursor pagination is preferred.
-
----
-
-# Stage 14 — Error Handling
-
-Errors should contain
-
-Readable message
-
-Machine-readable code
-
-Path
-
-Extensions
-
-Correlation ID
-
-Never expose internal implementation.
-
----
-
-# Stage 15 — Authentication
-
-Support
-
-Bearer Tokens
-
-OAuth
-
-JWT
-
-Sessions
-
-API Keys
-
-Authentication identifies clients.
-
----
-
-# Stage 16 — Authorization
-
-Review
-
-Field permissions
-
-Object permissions
-
-Role validation
-
-Ownership validation
-
-Business permissions
-
-Authorization belongs at every resolver.
-
----
-
-# Stage 17 — Security
-
-Inspect
-
-Query depth
-
-Rate limiting
-
-Complexity analysis
-
-Input validation
-
-Injection prevention
-
-Secret handling
-
-Disable introspection where appropriate
-
-Security should protect every operation.
-
----
-
-# Stage 18 — Versioning
-
-GraphQL should evolve.
-
-Prefer
-
-Deprecation
-
-New fields
-
-Backward compatibility
-
-Schema evolution
-
-Avoid
-
-Breaking changes
-
-Multiple schema versions
-
-Evolution should be gradual.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Types
-
-Fields
-
-Arguments
-
-Examples
-
-Authentication
-
-Errors
-
-Deprecation
-
-Descriptions
-
-Self-documenting schemas improve developer experience.
-
----
-
-# Stage 20 — Schema Consistency
-
-Review
-
-Naming
-
-Descriptions
-
-Input patterns
-
-Mutation style
-
-Error style
-
-Pagination
-
-Field organization
-
-Consistency makes APIs predictable.
-
----
-
-# GraphQL Quality Attributes
-
-Evaluate
-
-Correctness
-
-Type Safety
-
-Consistency
-
-Performance
-
-Scalability
-
-Maintainability
-
-Security
-
-Discoverability
-
-Developer Experience
-
----
-
-# GraphQL Questions
-
-Before approval ask
-
-Does every type represent the business?
-
-↓
-
-Are queries intuitive?
-
-↓
-
-Are mutations predictable?
-
-↓
-
-Can clients retrieve only required data?
-
-↓
-
-Are resolvers efficient?
-
-↓
-
-Can the schema evolve safely?
-
-↓
-
-Would another engineer immediately understand it?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken schema
-
-Authentication failure
-
-Authorization bypass
-
-Unbounded query complexity
-
-Major
-
-N+1 queries
-
-Weak typing
-
-Poor schema design
-
-Missing validation
-
-Medium
-
-Naming inconsistencies
-
-Documentation gaps
-
-Minor performance issues
-
-Minor
-
-Descriptions
-
-Formatting
-
-Examples
-
-Suggestion
-
-Future improvements
-
-Schema simplification
-
-Performance opportunities
-
----
-
-# GraphQL Checklist
-
-✓ Strong schema
-
-✓ Meaningful types
-
-✓ Clear queries
-
-✓ Predictable mutations
-
-✓ Efficient resolvers
-
-✓ DataLoader implemented
-
-✓ Cursor pagination
-
-✓ Authentication reviewed
-
-✓ Authorization verified
-
-✓ Query complexity limited
-
-✓ Documentation complete
-
-✓ Security reviewed
-
-✓ Performance optimized
-
-✓ Consistent naming
-
-✓ Developer-friendly schema
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Generic JSON fields
-
-Massive root queries
-
-Massive mutations
-
-Business logic inside resolvers
-
-Unlimited nesting
-
-Unlimited query depth
-
-Ignoring N+1 queries
-
-Weak typing
-
-Duplicate schemas
-
-Breaking schema evolution
-
-Over-fetching through poor resolver design
-
-Treating GraphQL as REST over POST
-
----
-
-# Definition of Done
-
-GraphQL API review is complete when
-
-- The schema accurately models the business domain.
-- Types are expressive, reusable, and strongly typed.
-- Queries and mutations are intuitive and predictable.
-- Relationships are represented naturally.
-- Resolvers remain lightweight and efficient.
-- Query complexity and security controls are enforced.
-- Pagination follows cursor-based best practices.
-- Documentation enables rapid integration.
-- The schema evolves without unnecessary breaking changes.
-- The implementation provides a scalable, maintainable, and developer-friendly GraphQL experience.
-
-Exceptional GraphQL APIs are not measured by the number of fields they expose.
-
-They are measured by how effortlessly clients can obtain exactly the data they need through a clear, stable, and thoughtfully designed schema.
+# Checklist
+
+- [ ] Query depth, complexity, breadth and timeout limits are all enforced
+- [ ] Complexity weights reflect real cost, including pagination multipliers
+- [ ] First-party clients use persisted/allowlisted queries
+- [ ] Introspection and the playground are disabled in production
+- [ ] Every relation field resolves through a per-request DataLoader
+- [ ] Loaders return one result per key, in input order
+- [ ] Resolver query counts are asserted in tests
+- [ ] Authorization is checked on each resolved object, defaulting to deny
+- [ ] Non-null is used only where the value is genuinely guaranteed
+- [ ] All list fields use the connection pattern
+- [ ] Expected failures are typed as result unions
+- [ ] Errors carry a stable `extensions.code` and a `requestId`
+- [ ] Internal errors are masked in production
+- [ ] Deprecation uses `@deprecated` with a removal date, not a new endpoint

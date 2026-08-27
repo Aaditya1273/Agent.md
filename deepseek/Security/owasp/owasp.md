@@ -5,1137 +5,182 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: owasp
+category: Security
+description: The OWASP Top 10 as an engineering checklist — each category named, what it looks like in code, and the control that actually prevents it.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# owasp.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, secure software development methodologies, risk assessment frameworks, vulnerability prevention strategies, defensive engineering practices, and long-term best practices aligned with modern application security principles inspired by the OWASP philosophy.
+A working pass over the OWASP Top 10 (2021 edition) categories. Each entry names
+the risk, shows what it looks like in real code, and points at the control.
 
-It applies to
-
-- Web Applications
-- APIs
-- SaaS Platforms
-- Enterprise Applications
-- Mobile Backends
-- Cloud Applications
-- Microservices
-- Developer Platforms
-- Production Software
-
-Application security is not adding security after development.
-
-Application security is the engineering discipline of systematically designing, building, testing, deploying, and maintaining software that continuously minimizes attack surfaces, prevents vulnerabilities, protects sensitive information, preserves business integrity, and maintains user trust throughout the software lifecycle.
-
-Every engineering decision affects security.
+This is a triage map, not a substitute for the deep packages. Where a category
+has one, follow the link — `A03` alone spans `Security/sql-injection`,
+`Security/xss` and `Security/command-injection`.
 
 ---
 
-# Core Philosophy
+# A01 — Broken Access Control
 
-Understand Assets
+The most common category, and the one with the highest real-world impact.
 
-↓
+An authenticated user reaches an object that is not theirs by changing an
+identifier. Route-level checks do not prevent it; the query must be scoped.
 
-Understand Threats
+```js
+// Broken — the route is guarded, the row is not
+const invoice = await db.invoice.findUnique({ where: { id: req.params.id } });
 
-↓
+// Fixed — ownership is part of the lookup
+const invoice = await db.invoice.findFirst({
+  where: { id: req.params.id, organisationId: req.user.organisationId },
+});
+```
 
-Reduce Attack Surface
+Controls: deny by default; scope every query; return `404` not `403`; never accept
+`role` or tenant id from the client. → `Security/authorization`
 
-↓
+# A02 — Cryptographic Failures
 
-Protect Sensitive Data
+Sensitive data exposed through weak or absent cryptography.
 
-↓
+Controls: TLS everywhere with HSTS; `argon2id` for passwords, never `md5`/`sha1`;
+AES-GCM or ChaCha20-Poly1305 for data, never ECB; keys in a KMS; never invent a
+scheme. → `Security/encryption`, `Security/https`
 
-Validate Every Request
+# A03 — Injection
 
-↓
+Untrusted data parsed as code. SQL, OS commands, LDAP, XPath, template engines
+and XSS all sit here.
 
-Monitor Security
+Controls: parameterised queries; argument arrays instead of shells; contextual
+output encoding; allow-list any dynamic identifier.
+→ `Security/sql-injection`, `Security/command-injection`, `Security/xss`
 
-↓
+# A04 — Insecure Design
 
-Respond Rapidly
+A flaw in what was specified, not how it was built. No amount of correct
+implementation fixes a design that permits unlimited password resets or trusts a
+client-supplied price.
 
-↓
+Controls: threat model before building; define abuse cases alongside use cases;
+enforce business limits server-side; assume every client is hostile.
 
-Continuously Improve
+# A05 — Security Misconfiguration
 
-Security should be engineered into software rather than inspected after deployment.
+Defaults left in place, debug enabled in production, verbose errors, unnecessary
+features exposed.
+
+```
+# Wrong — a stack trace tells an attacker your framework, version and paths
+NODE_ENV=development
+```
+
+Controls: harden defaults; disable directory listing; strip stack traces from
+responses; remove sample apps and default accounts; review headers.
+→ `Security/headers`
+
+# A06 — Vulnerable and Outdated Components
+
+The dependency with a known CVE that nobody upgraded.
+
+```bash
+npm audit --omit=dev          # fail the build on high and critical
+```
+
+Controls: an SBOM; automated dependency updates; audit in CI; remove unused
+dependencies; track upstream advisories.
+
+# A07 — Identification and Authentication Failures
+
+Credential stuffing, weak recovery, session fixation, missing MFA.
+
+Controls: breach-screen passwords; rate limit per account and per IP; rotate the
+session identifier on login; identical responses for unknown accounts; offer
+WebAuthn. → `Security/authentication`, `Security/passwords`
+
+# A08 — Software and Data Integrity Failures
+
+Trusting code or data whose provenance is unverified — unsigned updates,
+untrusted CI plugins, insecure deserialization.
+
+```js
+// Never deserialize untrusted input into live objects
+const data = JSON.parse(body);        // data, inert
+// not: eval(body), or a deserializer that reconstructs arbitrary classes
+```
+
+Controls: lockfiles with integrity hashes; pin CI actions by commit SHA; sign
+artifacts; never deserialize untrusted input into executable objects.
+
+# A09 — Security Logging and Monitoring Failures
+
+The breach nobody noticed. Median dwell time is measured in months precisely
+because this control is missing.
+
+Controls: log authentication outcomes, authorisation denials and privilege
+changes with subject, object and action; ship logs off-host; alert on anomalies;
+never log secrets, tokens or passwords. → `Security/audit-log`
+
+# A10 — Server-Side Request Forgery
+
+The server fetches a URL an attacker chose, reaching internal services the
+attacker cannot.
+
+```js
+// The classic target: cloud instance metadata
+// http://169.254.169.254/latest/meta-data/iam/security-credentials/
+```
+
+Controls: allow-list destination hosts; resolve DNS and check the resulting IP
+against private ranges — including `169.254.169.254`, `127.0.0.0/8`, `10/8`,
+`172.16/12`, `192.168/16`; block redirects or re-validate each hop; require IMDSv2.
 
 ---
 
-# Primary Objective
+# Using this list
 
-Every security decision should maximize
-
-Confidentiality
-
-+
-
-Integrity
-
-+
-
-Availability
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Observability
-
-+
-
-Resilience
-
-+
-
-Long-Term Sustainability
-
-Security should improve system resilience without unnecessary complexity.
+- Treat it as **coverage**, not a ranking of your specific risk. Your threat model
+  decides priority.
+- The Top 10 is a **floor**. Passing it is not a security programme.
+- Map each category to a **test**, not a document. `A01` becomes a test that user
+  B cannot read user A's invoice.
 
 ---
 
-# Engineering Principles
+# Anti-patterns
 
-Always prioritize
-
-Secure by Design
-
-↓
-
-Least Privilege
-
-↓
-
-Defense in Depth
-
-↓
-
-Fail Securely
-
-↓
-
-Input Validation
-
-↓
-
-Output Protection
-
-↓
-
-Continuous Verification
-
-↓
-
-Continuous Improvement
-
-Security should become part of normal engineering rather than a separate activity.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Treating the list as a compliance checkbox | Categories are broad; ticking is not testing | One test per category |
+| Route-level access checks only | `A01` — IDOR via identifier change | Scope the query |
+| `md5` or `sha1` for passwords | `A02` — GPU-fast | `argon2id` |
+| Sanitising input instead of parameterising | `A03` — bypasses exist for every filter | Bind values |
+| Debug mode or stack traces in production | `A05` — leaks framework, version, paths | Generic errors |
+| Ignoring `npm audit` output | `A06` — known CVEs stay shipped | Fail the build |
+| Deserializing untrusted input | `A08` — remote code execution | `JSON.parse` only |
+| No log of authorisation denials | `A09` — attacks go unseen | Log subject, object, action |
+| Fetching a user-supplied URL unchecked | `A10` — SSRF to instance metadata | Allow-list plus IP checks |
 
 ---
 
-# Secure Engineering Lifecycle
-
-Identify Assets
-
-↓
-
-Identify Threats
-
-↓
-
-Assess Risks
-
-↓
-
-Design Defenses
-
-↓
-
-Implement Securely
-
-↓
-
-Validate Security
-
-↓
-
-Monitor Continuously
-
-↓
-
-Continuously Improve
-
-Every release should improve the overall security posture.
-
----
-
-# Stage 1 — Asset Identification
-
-Identify
-
-Business Assets
-
-↓
-
-Sensitive Data
-
-↓
-
-User Information
-
-↓
-
-Credentials
-
-↓
-
-Infrastructure
-
-↓
-
-APIs
-
-↓
-
-Services
-
-↓
-
-Operational Systems
-
-Protection begins with understanding what is valuable.
-
----
-
-# Stage 2 — Threat Analysis
-
-Identify
-
-External Attackers
-
-↓
-
-Internal Threats
-
-↓
-
-Supply Chain Risks
-
-↓
-
-Automation
-
-↓
-
-Credential Abuse
-
-↓
-
-Misconfiguration
-
-↓
-
-Human Error
-
-↓
-
-Emerging Threats
-
-Threats continuously evolve.
-
----
-
-# Stage 3 — Risk Assessment
-
-Evaluate
-
-Likelihood
-
-↓
-
-Impact
-
-↓
-
-Exposure
-
-↓
-
-Attack Surface
-
-↓
-
-Business Risk
-
-↓
-
-Operational Risk
-
-↓
-
-Compliance Risk
-
-↓
-
-Recovery Cost
-
-Risk determines engineering priorities.
-
----
-
-# Stage 4 — Attack Surface Analysis
-
-Analyze
-
-Endpoints
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Data Storage
-
-↓
-
-Data Transmission
-
-↓
-
-Infrastructure
-
-↓
-
-Third-Party Dependencies
-
-↓
-
-Administrative Interfaces
-
-Smaller attack surfaces are easier to defend.
-
----
-
-# Stage 5 — Security Architecture
-
-Design
-
-Identity
-
-↓
-
-Access Control
-
-↓
-
-Network Protection
-
-↓
-
-Application Protection
-
-↓
-
-Data Protection
-
-↓
-
-Secrets Management
-
-↓
-
-Monitoring
-
-↓
-
-Incident Response
-
-Security architecture should remain understandable and maintainable.
-
----
-
-# Stage 6 — Secure Implementation
-
-Implement
-
-Input Validation
-
-↓
-
-Output Encoding
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Encryption
-
-↓
-
-Secure Configuration
-
-↓
-
-Dependency Management
-
-↓
-
-Error Handling
-
-Implementation determines practical security.
-
----
-
-# Stage 7 — Security Validation
-
-Validate
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Data Protection
-
-↓
-
-Configuration
-
-↓
-
-Input Handling
-
-↓
-
-Session Management
-
-↓
-
-Business Logic
-
-↓
-
-Engineering Quality
-
-Security requires continuous validation.
-
----
-
-# Stage 8 — Security Measurement
-
-Measure
-
-Detected Vulnerabilities
-
-↓
-
-Risk Reduction
-
-↓
-
-Patch Time
-
-↓
-
-Attack Surface
-
-↓
-
-Configuration Quality
-
-↓
-
-Dependency Health
-
-↓
-
-Operational Stability
-
-↓
-
-Incident Frequency
-
-Security should remain measurable.
-
----
-
-# Stage 9 — Vulnerability Analysis
-
-Identify
-
-Injection Risks
-
-↓
-
-Authentication Weaknesses
-
-↓
-
-Authorization Failures
-
-↓
-
-Sensitive Data Exposure
-
-↓
-
-Configuration Errors
-
-↓
-
-Dependency Risks
-
-↓
-
-Logic Flaws
-
-↓
-
-Operational Weaknesses
-
-Understanding vulnerabilities enables prevention.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Trust Boundaries
-
-↓
-
-Security Boundaries
-
-↓
-
-Identity Flow
-
-↓
-
-Data Flow
-
-↓
-
-Privilege Boundaries
-
-↓
-
-Isolation
-
-↓
-
-Maintainability
-
-↓
-
-Future Growth
-
-Architecture determines long-term security.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Services
-
-↓
-
-Distributed Systems
-
-↓
-
-Cloud Infrastructure
-
-↓
-
-Operational Growth
-
-↓
-
-High Availability
-
-↓
-
-Performance
-
-↓
-
-Future Expansion
-
-Security should scale alongside software.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Availability
-
-↓
-
-Recovery
-
-↓
-
-Resilience
-
-↓
-
-Incident Response
-
-↓
-
-Fault Tolerance
-
-↓
-
-Backup Strategy
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-Secure systems remain dependable under attack.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Threat Model
-
-↓
-
-Architecture
-
-↓
-
-Security Decisions
-
-↓
-
-Risk Analysis
-
-↓
-
-Controls
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Procedures
-
-↓
-
-Engineering Standards
-
-Documentation preserves security knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Continuously Identify
-
-New Vulnerabilities
-
-↓
-
-Configuration Drift
-
-↓
-
-Dependency Changes
-
-↓
-
-Emerging Threats
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Business Risks
-
-↓
-
-Technical Debt
-
-Security risks never remain static.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Usability
-
-↓
-
-Performance
-
-↓
-
-Complexity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Developer Experience
-
-↓
-
-Future Evolution
-
-Every security control introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Configuration
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Risk Reduction
-
-↓
-
-Engineering Quality
-
-Secure engineering requires objective validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Security Summary
-
-↓
-
-Risk Assessment
-
-↓
-
-Threat Analysis
-
-↓
-
-Control Coverage
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports support informed engineering decisions.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Configuration
-
-↓
-
-Secrets
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Recovery
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Security should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Security Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Security requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Security Architecture
-
-↓
-
-Engineering Practices
-
-↓
-
-Threat Detection
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Resilience
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional software continuously reduces risk while preserving engineering simplicity, operational excellence, and long-term resilience.
-
----
-
-# Security Quality Attributes
-
-Evaluate
-
-Confidentiality
-
-Integrity
-
-Availability
-
-Reliability
-
-Resilience
-
-Maintainability
-
-Observability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Have valuable assets been identified?
-
-↓
-
-Has every trust boundary been analyzed?
-
-↓
-
-Can attack surfaces be reduced further?
-
-↓
-
-Is every security decision supported by measurable risk reduction?
-
-↓
-
-Will future engineers understand these security decisions?
-
-↓
-
-Can the architecture withstand future threats?
-
-↓
-
-Would experienced Security Engineers, Staff Engineers, Principal Engineers, Security Architects, and Engineering Leadership confidently approve this security architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Remote compromise
-
-Privilege escalation
-
-Sensitive data exposure
-
-Complete system compromise
-
-Major
-
-Authentication weaknesses
-
-Authorization failures
-
-Configuration vulnerabilities
-
-Dependency risks
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Security Checklist
-
-✓ Assets identified
-
-✓ Threats analyzed
-
-✓ Risks assessed
-
-✓ Attack surface reviewed
-
-✓ Security architecture designed
-
-✓ Secure implementation completed
-
-✓ Security validated
-
-✓ Security measured
-
-✓ Vulnerabilities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks reassessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Adding security after development
-
-Trusting user input
-
-Implicit trust between services
-
-Excessive privileges
-
-Security through obscurity
-
-Hardcoded secrets
-
-Ignoring dependency risks
-
-Ignoring logging
-
-Weak monitoring
-
-Ignoring threat modeling
-
-Treating compliance as security
-
-Optimizing convenience over resilience
-
----
-
-# Definition of Done
-
-A security architecture is considered complete when
-
-- Assets, trust boundaries, attack surfaces, threats, vulnerabilities, operational risks, and recovery requirements have been systematically identified and evaluated using evidence-based engineering methodologies.
-- Authentication, authorization, data protection, secure configuration, dependency management, secrets handling, monitoring, logging, and operational controls have been implemented according to secure engineering principles rather than reactive vulnerability remediation.
-- Security architecture supports scalable growth, operational resilience, maintainable engineering practices, reliable incident response, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate security controls, architectural consistency, implementation quality, documentation completeness, maintainability, scalability, production readiness, operational resilience, and long-term engineering sustainability before deployment.
-- Documentation clearly explains threat models, engineering rationale, architectural decisions, security controls, trade-offs, validation evidence, governance expectations, operational procedures, and future security improvements.
-- Security decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving software systems, infrastructure platforms, and future technologies.
-- The resulting software demonstrates engineering discipline, reduced attack surface, resilient architecture, predictable security behavior, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional application security is not measured by the number of vulnerabilities that are fixed after deployment.
-
-It is measured by how systematically software prevents vulnerabilities from being introduced, minimizes attack opportunities, preserves user trust, withstands evolving threats, and continuously delivers secure, reliable, and maintainable systems throughout the lifetime of the software.
+# Checklist
+
+- [ ] Every data access is scoped by owner or tenant in the query (A01)
+- [ ] Passwords use `argon2id`; transport is TLS with HSTS (A02)
+- [ ] All queries parameterised; all output contextually encoded (A03)
+- [ ] Abuse cases defined and business limits enforced server-side (A04)
+- [ ] Debug disabled, stack traces stripped, defaults hardened (A05)
+- [ ] Dependency audit runs in CI and fails on high or critical (A06)
+- [ ] Breach screening, rate limiting and session rotation in place (A07)
+- [ ] Lockfiles with integrity hashes; CI actions pinned by SHA (A08)
+- [ ] Auth outcomes and authorisation denials logged and shipped off-host (A09)
+- [ ] Outbound fetches allow-listed and checked against private IP ranges (A10)

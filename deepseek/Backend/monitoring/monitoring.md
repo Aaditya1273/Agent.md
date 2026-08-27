@@ -5,1022 +5,231 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: monitoring
+category: Backend
+description: Metrics, traces and alerts for a backend service — the four golden signals, SLOs and error budgets, cardinality control, and alerts that mean act now.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# monitoring.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, implement, review, optimize, and maintain Monitoring systems.
+Rules for instrumenting a service so that you can tell whether it is healthy, and
+find out why when it is not.
 
-Monitoring is not simply collecting metrics.
+Two different questions, two different tools:
 
-Monitoring is the continuous observation of applications, infrastructure, services, databases, networks, and business processes to detect problems early, measure system health, support incident response, and improve operational reliability.
+- **Is it broken?** Metrics and alerts. Low cardinality, cheap, always on.
+- **Why is it broken?** Traces and logs. High cardinality, expensive, sampled.
 
-The objective is to build monitoring systems that provide complete visibility into system behavior, enable rapid detection of failures, reduce downtime, and support data-driven operational decisions.
-
-If you cannot observe a system,
-
-you cannot reliably operate it.
-
----
-
-# Core Philosophy
-
-Collect Signals
-
-↓
-
-Measure Health
-
-↓
-
-Detect Anomalies
-
-↓
-
-Alert Operators
-
-↓
-
-Investigate Issues
-
-↓
-
-Resolve Incidents
-
-↓
-
-Improve Reliability
-
-↓
-
-Approve
-
-Monitoring should identify problems before users do.
+Instrumenting for the first and hoping it answers the second is the most common
+mistake. → `Backend/logging`
 
 ---
 
-# Primary Objective
+# Measure the four golden signals
 
-Every monitoring system should answer one question.
+| Signal | Metric | Alert on |
+| --- | --- | --- |
+| Latency | Histogram of request duration by route and status | p99 breaching the SLO |
+| Traffic | Requests per second by route | Sudden absence — a dead service reports zero errors |
+| Errors | `5xx` rate as a fraction of total | Ratio, never absolute count |
+| Saturation | CPU, memory, connection pool, queue depth | Approaching a hard limit |
 
-"Can engineers detect, understand, and resolve production issues before they significantly impact users or business operations?"
+```ts
+const httpDuration = new Histogram({
+  name: "http_request_duration_seconds",
+  help: "Request duration",
+  labelNames: ["method", "route", "status"],   // route TEMPLATE, bounded set
+  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+});
+```
 
-If the answer is uncertain,
+**Measure a histogram, not an average.** An average hides the tail entirely: a
+p50 of 40 ms and a p99 of 9 s average out to something that looks fine while 1% of
+users cannot use the product.
 
-the monitoring strategy requires improvement.
+Buckets must be chosen for your SLO — you cannot compute a p99 accurately if all
+your data lands in one bucket.
 
----
-
-# Monitoring Principles
-
-Every implementation should maximize
-
-Visibility
-
-↓
-
-Reliability
-
-↓
-
-Observability
-
-↓
-
-Accuracy
-
-↓
-
-Scalability
-
-↓
-
-Automation
-
-↓
-
-Operational Excellence
-
-↓
-
-Developer Experience
-
-Monitoring should produce actionable insight.
-
-Not dashboards that nobody uses.
+Saturation is the leading indicator. A database connection pool at 95% utilisation
+is an outage in a few minutes; latency has not moved yet.
 
 ---
 
-# Monitoring Workflow
+# Control cardinality
 
-Collect Signals
+A time series exists for every unique label combination. Cardinality is
+multiplicative, and it is what makes monitoring bills explode and queries time out.
 
-↓
+```ts
+// 1 series per route — correct
+{ route: "/orders/:id" }
 
-Aggregate Data
+// 1 series per order — millions of series, and the collector falls over
+{ route: `/orders/${id}` }
+```
 
-↓
+**Never** use as a metric label: user id, order id, email, session id, full URL
+path, raw error message, or a timestamp. Those are log fields and trace
+attributes, where high cardinality is the point.
 
-Analyze Trends
-
-↓
-
-Detect Anomalies
-
-↓
-
-Generate Alerts
-
-↓
-
-Investigate
-
-↓
-
-Improve System
-
-↓
-
-Approve
+Keep total series per service in the thousands, not millions. Audit label sets in
+review — a new label multiplies every existing series.
 
 ---
 
-# Stage 1 — Monitoring Scope
+# Instrument what the business cares about
 
-Identify monitored systems.
+Infrastructure metrics tell you a host is unhealthy. Business metrics tell you the
+product is broken, which is the thing users notice.
 
-Applications
+- `payments_captured_total`, `signups_completed_total`, `orders_created_total`
+- Queue depth and oldest-message age per queue → `Backend/queues`
+- Job success/failure counts and durations by job type
+- Dependency call rate, error rate and latency, per dependency
+- Cache hit ratio
 
-↓
-
-APIs
-
-↓
-
-Workers
-
-↓
-
-Queues
-
-↓
-
-Databases
-
-↓
-
-Caches
-
-↓
-
-Networks
-
-↓
-
-Infrastructure
-
-↓
-
-Cloud Resources
-
-↓
-
-External Services
-
-↓
-
-Business Processes
-
-Everything critical should be monitored.
+A deploy that breaks checkout while every host stays green is a routine outage.
+The business metric is what catches it.
 
 ---
 
-# Stage 2 — Signal Types
+# Traces
 
-Collect
+Distributed tracing is the only practical way to answer "where did the 4 seconds
+go" across services.
 
-Metrics
+- Use **OpenTelemetry**. Vendor-neutral, and every backend consumes it.
+- Auto-instrument HTTP, database and queue clients; add manual spans for
+  significant internal work.
+- Propagate W3C `traceparent` across every service and queue boundary — a trace
+  that stops at the first hop is nearly useless.
+- Put high-cardinality identifiers on **span attributes** (`user.id`, `order.id`),
+  which is exactly where they belong.
+- Sample **tail-based** where available: keep 100% of errors and slow requests,
+  a small fraction of fast successes.
+- Record the `trace_id` in logs so the two link.
 
-↓
+```ts
+// OpenTelemetry: auto-instrument the edges, add spans for real work
+const sdk = new NodeSDK({
+  resource: resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: "orders-api",
+    [ATTR_SERVICE_VERSION]: process.env.GIT_SHA,
+    [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: process.env.ENV,
+  }),
+  traceExporter: new OTLPTraceExporter({ url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT }),
+  instrumentations: [getNodeAutoInstrumentations()],
+});
+sdk.start();
 
-Logs
+await tracer.startActiveSpan("order.price", async (span) => {
+  span.setAttribute("order.id", orderId);        // high cardinality belongs here
+  span.setAttribute("tenant.id", tenantId);
+  try { return await price(order); }
+  catch (err) { span.recordException(err); span.setStatus({ code: SpanStatusCode.ERROR }); throw err; }
+  finally { span.end(); }
+});
+```
 
-↓
-
-Distributed Traces
-
-↓
-
-Events
-
-↓
-
-Health Checks
-
-↓
-
-Business Metrics
-
-Each signal explains different aspects of system behavior.
-
----
-
-# Stage 3 — Application Monitoring
-
-Monitor
-
-Request rate
-
-↓
-
-Response time
-
-↓
-
-Error rate
-
-↓
-
-Throughput
-
-↓
-
-Availability
-
-↓
-
-Concurrent requests
-
-↓
-
-Memory usage
-
-↓
-
-CPU usage
-
-Application health should always be measurable.
+| Environment variable | Purpose |
+| --- | --- |
+| `OTEL_SERVICE_NAME` | Groups every signal under one service |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector address |
+| `OTEL_TRACES_SAMPLER` / `_ARG` | `parentbased_traceidratio`, `0.05` |
+| `OTEL_RESOURCE_ATTRIBUTES` | `service.version`, `deployment.environment.name` |
+| `OTEL_PROPAGATORS` | `tracecontext,baggage` — W3C by default |
 
 ---
 
-# Stage 4 — Infrastructure Monitoring
+# SLOs and alerts
 
-Review
+Define the objective before the alert. An alert with no SLO behind it is a
+threshold someone guessed.
 
-CPU
+```yaml
+# 99.9% of checkout requests succeed within 500ms over 28 days.
+# Error budget: 0.1% ≈ 40 minutes per month.
+```
 
-↓
+Alert on **burn rate**, not on instantaneous thresholds:
 
-Memory
+| Window | Burn rate | Meaning | Route to |
+| --- | --- | --- | --- |
+| 1h | 14.4× | Budget gone in 2 days | Page |
+| 6h | 6× | Budget gone in 5 days | Page |
+| 3d | 1× | On track to exhaust | Ticket |
 
-↓
+This is what removes the 3am page for a two-minute blip while still catching a
+slow burn that a static threshold never trips.
 
-Disk usage
+Every paging alert must satisfy all four:
 
-↓
+1. A **user is affected** — not a proxy metric.
+2. It is **actionable** — there is something the responder can do now.
+3. It is **urgent** — it cannot wait until morning.
+4. It links to a **runbook** with the first three diagnostic steps.
 
-Disk I/O
-
-↓
-
-Network traffic
-
-↓
-
-Container health
-
-↓
-
-Node health
-
-↓
-
-Cloud resources
-
-Infrastructure failures often become application failures.
+Anything failing one of these is a ticket or a dashboard, not a page. Review
+alerts monthly and delete the ones nobody acted on — an alert nobody trusts makes
+every other alert weaker. → `DevOps/monitoring`
 
 ---
 
-# Stage 5 — Database Monitoring
+# Health checks
 
-Track
+Separate the two, because they mean different things to the orchestrator:
 
-Query latency
-
-↓
-
-Slow queries
-
-↓
-
-Connection count
-
-↓
-
-Replication health
-
-↓
-
-Lock contention
-
-↓
-
-Storage growth
-
-↓
-
-Transaction failures
-
-Healthy applications require healthy databases.
+- **Liveness** — is the process wedged? Must not check dependencies. A liveness
+  check that fails when the database is down makes Kubernetes restart every pod
+  during a database incident, turning a degradation into a full outage.
+- **Readiness** — can it serve traffic now? May check the database and required
+  dependencies, and should fail during startup and graceful shutdown.
 
 ---
 
-# Stage 6 — Queue & Worker Monitoring
+# Anti-patterns
 
-Monitor
-
-Queue depth
-
-↓
-
-Consumer lag
-
-↓
-
-Worker health
-
-↓
-
-Retry count
-
-↓
-
-Dead Letter Queue
-
-↓
-
-Job duration
-
-↓
-
-Success rate
-
-Background systems require independent visibility.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Averages instead of percentiles | Hides the tail entirely | Histograms, p95/p99 |
+| Unbounded metric labels | Cardinality explosion; collector fails | Route templates; ids on spans |
+| Alerting on absolute error counts | Meaningless as traffic changes | Alert on ratio |
+| Static thresholds | Pages at 3am for a blip; misses slow burns | Multi-window burn rate |
+| No traffic-absence alert | A dead service reports zero errors | Alert on unexpected zero |
+| Only infrastructure metrics | Green hosts, broken checkout | Business metrics |
+| No SLO | Thresholds are guesses | Define objective and budget first |
+| Alerts without runbooks | Responder starts from nothing at 3am | Link the first three steps |
+| Alerts nobody acts on | Erodes trust in every alert | Monthly review and deletion |
+| Liveness probe checking the database | Mass restarts during a dependency outage | Liveness is process-local |
+| No trace context propagation | Traces stop at the first hop | W3C `traceparent` everywhere |
+| Head-based sampling only | Loses the errors you needed | Tail-based, keep all errors |
+| Metrics derived from log lines | Expensive; breaks under sampling | Emit counters directly |
+| Dashboards nobody opens | Effort with no consumer | Build from the on-call's questions |
 
 ---
 
-# Stage 7 — Business Monitoring
-
-Measure
-
-User registrations
-
-↓
-
-Orders
-
-↓
-
-Revenue
-
-↓
-
-Payments
-
-↓
-
-Subscriptions
-
-↓
-
-Feature adoption
-
-↓
-
-Conversion rate
-
-↓
-
-Business KPIs
-
-Technical health does not guarantee business health.
-
----
-
-# Stage 8 — Health Checks
-
-Implement
-
-Startup checks
-
-↓
-
-Readiness checks
-
-↓
-
-Liveness checks
-
-↓
-
-Dependency checks
-
-↓
-
-Database connectivity
-
-↓
-
-External service availability
-
-Health checks should reflect actual service health.
-
----
-
-# Stage 9 — Alerting
-
-Alerts should be
-
-Accurate
-
-↓
-
-Actionable
-
-↓
-
-Prioritized
-
-↓
-
-Relevant
-
-↓
-
-Timely
-
-↓
-
-Automatically routed
-
-Avoid alert fatigue.
-
-Every alert should require action.
-
----
-
-# Stage 10 — Alert Severity
-
-Classify alerts.
-
-Critical
-
-Immediate business impact.
-
-↓
-
-High
-
-Major degradation.
-
-↓
-
-Medium
-
-Reduced performance.
-
-↓
-
-Low
-
-Operational improvement.
-
-Severity should reflect user impact.
-
----
-
-# Stage 11 — Thresholds
-
-Define thresholds using
-
-Historical baselines
-
-↓
-
-Business expectations
-
-↓
-
-Capacity planning
-
-↓
-
-Error budgets
-
-↓
-
-Service Level Objectives
-
-Thresholds should evolve over time.
-
----
-
-# Stage 12 — Dashboards
-
-Dashboards should provide
-
-System overview
-
-↓
-
-Service health
-
-↓
-
-Business metrics
-
-↓
-
-Infrastructure status
-
-↓
-
-Error trends
-
-↓
-
-Capacity
-
-↓
-
-Incident timeline
-
-Dashboards should answer operational questions quickly.
-
----
-
-# Stage 13 — Distributed Tracing
-
-Support
-
-Trace ID
-
-↓
-
-Span ID
-
-↓
-
-Request flow
-
-↓
-
-Service dependencies
-
-↓
-
-Latency analysis
-
-↓
-
-Error propagation
-
-Distributed systems require distributed visibility.
-
----
-
-# Stage 14 — Incident Detection
-
-Detect
-
-Outages
-
-↓
-
-Performance degradation
-
-↓
-
-Traffic anomalies
-
-↓
-
-Security events
-
-↓
-
-Infrastructure failures
-
-↓
-
-Dependency failures
-
-↓
-
-Capacity exhaustion
-
-Monitoring should shorten detection time.
-
----
-
-# Stage 15 — Capacity Monitoring
-
-Track
-
-CPU trends
-
-↓
-
-Memory growth
-
-↓
-
-Disk utilization
-
-↓
-
-Traffic growth
-
-↓
-
-Database storage
-
-↓
-
-Queue growth
-
-↓
-
-Cost trends
-
-Capacity planning prevents outages.
-
----
-
-# Stage 16 — Security Monitoring
-
-Observe
-
-Authentication failures
-
-↓
-
-Authorization failures
-
-↓
-
-Suspicious activity
-
-↓
-
-API abuse
-
-↓
-
-Secret access
-
-↓
-
-Privilege escalation
-
-↓
-
-Configuration changes
-
-Security events require continuous monitoring.
-
----
-
-# Stage 17 — Reliability Metrics
-
-Measure
-
-Availability
-
-↓
-
-MTTR
-
-↓
-
-MTTD
-
-↓
-
-Incident frequency
-
-↓
-
-Failure rate
-
-↓
-
-SLA compliance
-
-↓
-
-SLO compliance
-
-Reliability should be measurable.
-
----
-
-# Stage 18 — Testing
-
-Verify
-
-Metric collection
-
-↓
-
-Alert triggering
-
-↓
-
-Dashboard accuracy
-
-↓
-
-Tracing
-
-↓
-
-Health checks
-
-↓
-
-Failure simulation
-
-↓
-
-Recovery verification
-
-Monitoring should be tested regularly.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Metrics
-
-↓
-
-Alerts
-
-↓
-
-Dashboards
-
-↓
-
-Thresholds
-
-↓
-
-Runbooks
-
-↓
-
-Escalation policies
-
-↓
-
-Incident procedures
-
-Documentation accelerates incident response.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-False positives
-
-↓
-
-Missed incidents
-
-↓
-
-Alert quality
-
-↓
-
-Dashboard usefulness
-
-↓
-
-System growth
-
-↓
-
-Operational feedback
-
-↓
-
-Business evolution
-
-Monitoring should improve continuously.
-
----
-
-# Monitoring Quality Attributes
-
-Evaluate
-
-Visibility
-
-Reliability
-
-Accuracy
-
-Scalability
-
-Performance
-
-Observability
-
-Maintainability
-
-Operational Excellence
-
----
-
-# Monitoring Questions
-
-Before approval ask
-
-Can production failures be detected immediately?
-
-↓
-
-Can engineers identify root causes quickly?
-
-↓
-
-Are alerts actionable?
-
-↓
-
-Can business health be monitored alongside technical health?
-
-↓
-
-Can every critical service be observed?
-
-↓
-
-Can monitoring scale with infrastructure?
-
-↓
-
-Would another operations team confidently manage production using this monitoring system?
-
----
-
-# Severity Levels
-
-Critical
-
-Undetected outage
-
-Missing critical alerts
-
-Monitoring blind spots
-
-Lost telemetry
-
-Major
-
-Poor dashboards
-
-Missing business metrics
-
-Weak infrastructure visibility
-
-Alert fatigue
-
-Medium
-
-Threshold tuning
-
-Dashboard improvements
-
-Additional metrics
-
-Minor
-
-Naming improvements
-
-Documentation updates
-
-Visualization enhancements
-
-Future optimization
-
----
-
-# Monitoring Checklist
-
-✓ Critical systems identified
-
-✓ Metrics collected
-
-✓ Logs integrated
-
-✓ Distributed tracing implemented
-
-✓ Health checks configured
-
-✓ Infrastructure monitored
-
-✓ Database monitored
-
-✓ Queue monitoring enabled
-
-✓ Business metrics collected
-
-✓ Alerts configured
-
-✓ Dashboards implemented
-
-✓ Security monitoring enabled
-
-✓ Capacity monitoring configured
-
-✓ Testing completed
-
-✓ Documentation complete
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Monitoring only infrastructure
-
-Ignoring business metrics
-
-Too many alerts
-
-Too few alerts
-
-Manual monitoring
-
-Dashboards without owners
-
-Ignoring false positives
-
-Missing health checks
-
-No distributed tracing
-
-No alert prioritization
-
-Collecting unused metrics
-
-Monitoring without runbooks
-
-Assuming logs replace monitoring
-
----
-
-# Definition of Done
-
-Monitoring review is complete when
-
-- Applications, infrastructure, databases, queues, workers, external services, and business processes are continuously monitored.
-- Metrics, logs, traces, health checks, and business indicators provide complete operational visibility.
-- Alerts are accurate, actionable, prioritized, and routed to the appropriate responders.
-- Dashboards present meaningful operational, technical, and business health information.
-- Capacity monitoring supports proactive scaling and infrastructure planning.
-- Distributed tracing enables rapid investigation of latency, failures, and service dependencies.
-- Security monitoring continuously detects suspicious activity and operational risks.
-- Monitoring integrates with incident response, runbooks, and operational workflows.
-- Documentation clearly defines monitored signals, alert thresholds, dashboards, escalation paths, and operational procedures.
-- The monitoring platform scales alongside applications while enabling engineers to detect, diagnose, and resolve production issues rapidly.
-
-Exceptional monitoring systems create operational confidence.
-
-Engineers know the health of every service, operators detect issues before users notice them, incidents are resolved quickly through actionable telemetry, and the organization continuously improves reliability using measurable operational insight.
+# Checklist
+
+- [ ] Latency, traffic, errors and saturation are instrumented for every service
+- [ ] Latency is a histogram with buckets chosen for the SLO
+- [ ] Metric labels are bounded; no ids or raw paths as labels
+- [ ] Business-level metrics exist alongside infrastructure metrics
+- [ ] Dependency call rate, errors and latency are tracked per dependency
+- [ ] Queue depth and oldest-message age are monitored
+- [ ] OpenTelemetry traces cover every service, with context propagated
+- [ ] High-cardinality identifiers are span attributes, not metric labels
+- [ ] Sampling keeps all errors and slow requests
+- [ ] Logs carry the `trace_id`
+- [ ] An SLO with an explicit error budget is defined for each critical journey
+- [ ] Alerts fire on multi-window burn rate, not static thresholds
+- [ ] An alert fires on unexpected absence of traffic
+- [ ] Every paging alert is user-affecting, actionable, urgent and has a runbook
+- [ ] Alerts are reviewed monthly and unused ones deleted
+- [ ] Liveness and readiness probes are separate; liveness checks no dependencies

@@ -5,1139 +5,203 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: jwt
+category: Security
+description: Issuing and validating JSON Web Tokens safely — algorithm pinning, claim validation, key rotation, and why revocation is the hard part.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# jwt.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, JSON Web Token (JWT) methodologies, token lifecycle management frameworks, secure token validation strategies, distributed authentication practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready JWT-based authentication systems.
+Rules for using JWTs without introducing the failure modes the format invites.
 
-It applies to
-
-- Web Applications
-- APIs
-- SaaS Platforms
-- Enterprise Applications
-- Cloud Platforms
-- Microservices
-- Mobile Applications
-- Developer Platforms
-- Production Software
-
-JWT is not a replacement for authentication.
-
-JWT is the engineering discipline of securely representing verified identity and authorization claims in cryptographically protected tokens that enable scalable, stateless communication between trusted systems while preserving confidentiality, integrity, operational reliability, and maintainability.
-
-JWT answers one question:
-
-**How can verified identity be securely transported between trusted systems?**
+**First, decide whether you need one.** A JWT is the right tool when a resource
+server must validate a token without calling the issuer. If your API can reach a
+session store, an opaque session identifier is simpler, revocable instantly, and
+has none of the pitfalls below. Reach for a JWT because you need stateless
+verification — not because it is the default.
 
 ---
 
-# Core Philosophy
+# Algorithm — the classic break
 
-Authenticate Identity
+## Pin the algorithm at verification. Never read it from the token.
 
-↓
+The `alg` header is attacker-controlled. A verifier that trusts it can be
+defeated two ways:
 
-Generate Claims
+**`alg: none`** — the token declares it is unsigned. A verifier honouring this
+accepts a forged payload with an empty signature.
 
-↓
+**`RS256` → `HS256` confusion** — the attacker changes the header to `HS256` and
+signs with the *public* RSA key as the HMAC secret. A verifier that selects the
+algorithm from the header will validate it, because the public key is not secret.
 
-Sign Token
+```js
+// WRONG — algorithm comes from the token
+jwt.verify(token, key);
 
-↓
+// RIGHT — algorithm is fixed by the server
+jwt.verify(token, publicKey, {
+  algorithms: ["RS256"],          // explicit allow-list
+  issuer: "https://auth.example.com",
+  audience: "https://api.example.com",
+});
+```
 
-Secure Transmission
+Always pass an explicit `algorithms` allow-list containing exactly the algorithm
+you issue. Never include `none`. Never let the list vary with the token.
 
-↓
+| Algorithm | Use |
+| --- | --- |
+| `EdDSA` (Ed25519) | Preferred asymmetric; small, fast, no curve pitfalls |
+| `RS256` / `PS256` | Asymmetric, widely supported; `PS256` preferred over `RS256` |
+| `ES256` | Asymmetric; verify the library rejects malleable signatures |
+| `HS256` | Symmetric — only when issuer and verifier are the same service |
+| `none` | Never |
 
-Validate Every Request
-
-↓
-
-Monitor Token Usage
-
-↓
-
-Rotate Trust
-
-↓
-
-Continuously Improve
-
-A JWT should prove identity—not create trust.
-
----
-
-# Primary Objective
-
-Every JWT implementation should maximize
-
-Integrity
-
-+
-
-Identity Assurance
-
-+
-
-Confidentiality
-
-+
-
-Scalability
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Operational Simplicity
-
-+
-
-Long-Term Sustainability
-
-JWT should securely transport verified identity while minimizing attack opportunities.
+Use `HS256` only where a single service both signs and verifies. The moment a
+second party must verify, they need the secret, and then they can also mint
+tokens.
 
 ---
 
-# Engineering Principles
+# Claim validation
 
-Always prioritize
+Verifying the signature proves integrity. It does not prove the token is *for
+you*, *current*, or *from whom you expect*. Validate every claim explicitly.
 
-Verified Identity
+| Claim | Meaning | Rule |
+| --- | --- | --- |
+| `exp` | Expiry | Required. Reject if past. Allow ≤ 60 s clock skew. |
+| `nbf` | Not before | Reject if in the future |
+| `iat` | Issued at | Use to enforce a maximum token age |
+| `iss` | Issuer | Must equal your expected issuer exactly |
+| `aud` | Audience | Must contain this service. Prevents token reuse across APIs. |
+| `sub` | Subject | The user identity; never trust a custom `user_id` instead |
+| `jti` | Token ID | Needed for replay detection and revocation lists |
 
-↓
+**Never** skip `aud` validation in a multi-service estate. A token minted for the
+analytics API is otherwise accepted by the payments API.
 
-Minimal Claims
+```js
+// Validate claims explicitly. A verified signature says the token was not
+// tampered with — not that it was minted for this service, or is still current.
+const { payload } = await jwtVerify(token, keySet, {
+  algorithms: ["EdDSA"],
+  issuer: "https://auth.example.com",
+  audience: "https://api.example.com",
+  clockTolerance: 60,               // seconds
+  maxTokenAge: "15m",               // bounds `iat`, not just `exp`
+});
+```
 
-↓
+**Never** trust unvalidated custom claims for authorisation — `{"role":"admin"}`
+in a token you did not verify the issuer of is just attacker input.
 
-Cryptographic Integrity
-
-↓
-
-Short Token Lifetime
-
-↓
-
-Continuous Validation
-
-↓
-
-Least Trust
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Every JWT should contain only the minimum information necessary.
-
----
-
-# JWT Engineering Lifecycle
-
-Authenticate Identity
-
-↓
-
-Generate Claims
-
-↓
-
-Sign Token
-
-↓
-
-Distribute Token
-
-↓
-
-Validate Token
-
-↓
-
-Monitor Usage
-
-↓
-
-Rotate Credentials
-
-↓
-
-Continuously Improve
-
-JWT security depends on every stage of the lifecycle.
+Keep expiry short: **5–15 minutes** for access tokens. Long-lived access tokens
+are the reason revocation becomes an unsolvable problem.
 
 ---
 
-# Stage 1 — Identity Analysis
+# Keys
 
-Understand
-
-Users
-
-↓
-
-Applications
-
-↓
-
-Services
-
-↓
-
-Devices
-
-↓
-
-Administrative Accounts
-
-↓
-
-Machine Accounts
-
-↓
-
-External Identity Providers
-
-↓
-
-Future Growth
-
-Only verified identities should receive JWTs.
+- Store signing keys in a secret manager or KMS, never in the repository, never
+  in a client bundle. See `Security/secret-management`.
+- HMAC secrets must be **≥ 256 bits of CSPRNG output**. A guessable secret makes
+  the signature decorative; `HS256` with a dictionary word is brute-forced offline.
+- Publish public keys via **JWKS** (`/.well-known/jwks.json`) and select the key
+  by the token's `kid`.
+- **Rotate** on a schedule. Publish the new key before signing with it, and keep
+  the old key verifiable until every issued token has expired.
+- Cache JWKS, but **bound the cache** and re-fetch on unknown `kid`. Never fetch
+  a key from a URL inside the token — that is a server-side request forgery and
+  key-injection vector in one.
 
 ---
 
-# Stage 2 — Token Requirements
+# Revocation — the honest part
 
-Define
+A JWT is valid until it expires. That is the whole point of stateless
+verification, and it is also the problem: **you cannot un-issue one.**
 
-Authentication Goals
+Practical approaches, in increasing cost:
 
-↓
+1. **Short expiry + refresh tokens.** Access tokens live minutes; the refresh
+   token is opaque, stored server-side, and revocable. This is the standard
+   design and the one to reach for first.
+2. **Deny-list by `jti`** until natural expiry. Requires a shared store — you have
+   reintroduced state, but only for revoked tokens, and entries expire.
+3. **Token version per user.** Store `tokenVersion` on the user; include it as a
+   claim; reject on mismatch. One row read per request, invalidates every token
+   for that user at once. Good for "log out everywhere" and forced password reset.
 
-Authorization Requirements
+```js
+// Token-version revocation: one indexed read per request, and a single
+// increment logs the user out everywhere — on password reset or reported theft.
+const user = await db.user.findUnique({
+  where: { id: payload.sub },
+  select: { tokenVersion: true },
+});
+if (!user || user.tokenVersion !== payload.ver) {
+  throw new Error("token revoked");
+}
+```
 
-↓
+**Never** claim tokens are revoked because the client deleted them. Deleting a
+token client-side is a UI gesture, not a security control.
 
-Token Lifetime
-
-↓
-
-Refresh Strategy
-
-↓
-
-Trust Boundaries
-
-↓
-
-Operational Constraints
-
-↓
-
-Scalability
-
-↓
-
-Security Objectives
-
-JWT design begins with clear security requirements.
+Refresh tokens must be **rotated on use**, and reuse of a consumed refresh token
+must revoke the whole family — that is the signal a token was stolen.
 
 ---
 
-# Stage 3 — Claim Design
+# Transport and storage
 
-Define
-
-Identity Claims
-
-↓
-
-Authorization Claims
-
-↓
-
-Audience
-
-↓
-
-Issuer
-
-↓
-
-Expiration
-
-↓
-
-Issued Time
-
-↓
-
-Token Identifier
-
-↓
-
-Operational Metadata
-
-Claims should remain minimal and meaningful.
+- Send as `Authorization: Bearer <token>` over HTTPS only.
+- In browsers, prefer an `HttpOnly; Secure; SameSite` cookie over `localStorage`.
+  A token in `localStorage` is readable by any script, so any XSS becomes account
+  takeover. If you use cookies, you must handle CSRF — see `Security/csrf`.
+- **Never** put a JWT in a URL. It lands in access logs, `Referer` headers and
+  browser history.
+- The payload is **base64url, not encrypted**. Anyone holding the token can read
+  every claim. Put no secrets, PII, or internal identifiers in it. If confidentiality
+  is required, use JWE — or better, an opaque token.
 
 ---
 
-# Stage 4 — Cryptographic Architecture
+# Anti-patterns
 
-Design
-
-Signing Algorithms
-
-↓
-
-Key Management
-
-↓
-
-Verification Process
-
-↓
-
-Trust Relationships
-
-↓
-
-Rotation Strategy
-
-↓
-
-Secret Protection
-
-↓
-
-Validation Rules
-
-↓
-
-Future Expansion
-
-Cryptography establishes token integrity.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `jwt.verify(token, key)` without `algorithms` | `alg: none` and RS256→HS256 confusion | Explicit allow-list |
+| `jwt.decode()` used to authenticate | Decodes without verifying the signature | `jwt.verify()` |
+| Skipping `aud` | Token from one service accepted by another | Validate audience |
+| 30-day access tokens | Nothing can be revoked in time | 5–15 min + refresh |
+| Token in `localStorage` | Any XSS becomes account takeover | `HttpOnly` cookie |
+| Secrets or PII in the payload | Base64url is encoding, not encryption | Keep claims minimal |
+| Fetching the key from a URL in the token | Attacker chooses the verifying key | JWKS + `kid` allow-list |
+| Refresh token reused silently | Theft goes undetected | Rotate on use; revoke family on reuse |
 
 ---
 
-# Stage 5 — Token Strategy
-
-Define
-
-Access Tokens
-
-↓
-
-Refresh Tokens
-
-↓
-
-Session Lifetime
-
-↓
-
-Renewal Strategy
-
-↓
-
-Revocation Strategy
-
-↓
-
-Expiration Policy
-
-↓
-
-Service Communication
-
-↓
-
-Operational Limits
-
-Token strategy should balance security and usability.
-
----
-
-# Stage 6 — Token Protection
-
-Protect
-
-Signing Keys
-
-↓
-
-Private Keys
-
-↓
-
-Shared Secrets
-
-↓
-
-Refresh Tokens
-
-↓
-
-Transmission
-
-↓
-
-Storage
-
-↓
-
-Validation Rules
-
-↓
-
-Operational Security
-
-Protecting signing material is more important than protecting the token itself.
-
----
-
-# Stage 7 — Token Validation
-
-Validate
-
-Signature
-
-↓
-
-Issuer
-
-↓
-
-Audience
-
-↓
-
-Expiration
-
-↓
-
-Not Before
-
-↓
-
-Claims
-
-↓
-
-Token Integrity
-
-↓
-
-Engineering Quality
-
-Never trust an unvalidated token.
-
----
-
-# Stage 8 — Token Measurement
-
-Measure
-
-Issued Tokens
-
-↓
-
-Validation Failures
-
-↓
-
-Expired Tokens
-
-↓
-
-Refresh Events
-
-↓
-
-Authentication Success
-
-↓
-
-Token Abuse
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-JWT health should remain measurable.
-
----
-
-# Stage 9 — Threat Analysis
-
-Identify
-
-Token Theft
-
-↓
-
-Replay Attacks
-
-↓
-
-Forged Tokens
-
-↓
-
-Weak Secrets
-
-↓
-
-Algorithm Abuse
-
-↓
-
-Expired Token Usage
-
-↓
-
-Privilege Abuse
-
-↓
-
-Operational Threats
-
-JWT security depends on understanding modern attack techniques.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Trust Boundaries
-
-↓
-
-Identity Flow
-
-↓
-
-Token Flow
-
-↓
-
-Service Communication
-
-↓
-
-Validation Architecture
-
-↓
-
-Key Management
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-JWT architecture should remain understandable and secure.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Services
-
-↓
-
-Distributed Systems
-
-↓
-
-Multi-Region Deployment
-
-↓
-
-Identity Providers
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-JWT should scale without weakening trust.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Token Validation
-
-↓
-
-Service Availability
-
-↓
-
-Key Rotation
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Recovery
-
-↓
-
-Monitoring
-
-↓
-
-Identity Consistency
-
-↓
-
-Engineering Quality
-
-Reliable JWT validation preserves identity assurance.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Token Structure
-
-↓
-
-Claim Definitions
-
-↓
-
-Trust Model
-
-↓
-
-Validation Rules
-
-↓
-
-Key Lifecycle
-
-↓
-
-Engineering Decisions
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves implementation consistency.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Key Exposure
-
-↓
-
-Weak Algorithms
-
-↓
-
-Token Leakage
-
-↓
-
-Replay Risks
-
-↓
-
-Refresh Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Technical Debt
-
-JWT risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Scalability
-
-↓
-
-Maintainability
-
-↓
-
-User Experience
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every JWT decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Claims
-
-↓
-
-Cryptographic Integrity
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Evidence
-
-↓
-
-Engineering Quality
-
-JWT implementations require continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-JWT Summary
-
-↓
-
-Threat Analysis
-
-↓
-
-Validation Metrics
-
-↓
-
-Operational Health
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports improve engineering decisions.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Keys
-
-↓
-
-Secret Storage
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Rotation Procedures
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-JWT infrastructure should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-JWT Standards
-
-↓
-
-Key Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-JWT quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Identity Assurance
-
-↓
-
-Cryptographic Strength
-
-↓
-
-Token Validation
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional JWT systems continuously strengthen trust while reducing operational complexity and security risk.
-
----
-
-# JWT Quality Attributes
-
-Evaluate
-
-Cryptographic Integrity
-
-Identity Assurance
-
-Scalability
-
-Reliability
-
-Maintainability
-
-Auditability
-
-Operational Simplicity
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Is every JWT generated only after successful authentication?
-
-↓
-
-Do claims contain only necessary information?
-
-↓
-
-Are signing keys securely managed and rotated?
-
-↓
-
-Is every incoming JWT fully validated?
-
-↓
-
-Can compromised tokens be effectively contained?
-
-↓
-
-Will future engineers understand the token architecture?
-
-↓
-
-Would experienced Security Engineers, Principal Engineers, Identity Architects, Cryptography Engineers, and Engineering Leadership confidently approve this JWT implementation?
-
----
-
-# Severity Levels
-
-Critical
-
-Forged tokens
-
-Signing key compromise
-
-Authentication bypass
-
-Privilege escalation
-
-Major
-
-Weak secrets
-
-Missing validation
-
-Replay exposure
-
-Refresh token weaknesses
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# JWT Checklist
-
-✓ Identity verified
-
-✓ Requirements defined
-
-✓ Claims designed
-
-✓ Cryptographic architecture established
-
-✓ Token strategy selected
-
-✓ Keys protected
-
-✓ Validation implemented
-
-✓ Token metrics monitored
-
-✓ Threats analyzed
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using JWT as a session database
-
-Storing sensitive data inside claims
-
-Long-lived access tokens
-
-Weak signing secrets
-
-Accepting unsigned tokens
-
-Ignoring expiration
-
-Skipping audience validation
-
-Skipping issuer validation
-
-Trusting client-side claims
-
-Using JWT without HTTPS
-
-Never rotating signing keys
-
-Treating JWT as encryption
-
----
-
-# Definition of Done
-
-A JWT implementation is considered complete when
-
-- Identity verification, claim design, cryptographic protection, token validation, key management, lifecycle management, monitoring, governance, and operational controls have been systematically designed using secure engineering principles and evidence-based methodologies.
-- JWTs securely transport verified identity and authorization claims while preventing forgery, replay attacks, privilege escalation, token abuse, signing key compromise, validation bypass, and unnecessary exposure of sensitive information throughout the software lifecycle.
-- The token architecture supports scalable distributed systems, reliable validation, secure key rotation, maintainable engineering practices, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate cryptographic integrity, claim quality, validation consistency, documentation completeness, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains token architecture, claim definitions, trust relationships, signing strategy, validation rules, key lifecycle, engineering rationale, governance expectations, operational procedures, trade-offs, and future JWT improvements.
-- JWT decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving software architectures, identity providers, infrastructure platforms, distributed systems, and future authentication technologies.
-- The resulting JWT implementation demonstrates engineering discipline, strong cryptographic integrity, predictable validation behavior, resilient architecture, secure key management, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional JWT implementations are not measured by how many systems accept the token.
-
-They are measured by how reliably they preserve verified identity, protect cryptographic trust, minimize attack opportunities, enable secure distributed communication, withstand evolving security threats, and continuously deliver resilient, maintainable, and trustworthy authentication across the lifetime of the software.
+# Checklist
+
+- [ ] An opaque session was considered and stateless verification is genuinely needed
+- [ ] Verification passes an explicit `algorithms` allow-list; `none` never appears
+- [ ] `HS256` used only where signer and verifier are the same service
+- [ ] `exp`, `iss` and `aud` validated on every request; skew ≤ 60 s
+- [ ] `jwt.decode()` is never used as an authentication step
+- [ ] Access tokens expire in 5–15 minutes
+- [ ] Signing keys come from a KMS or secret manager; HMAC secrets ≥ 256 bits
+- [ ] Public keys published via JWKS and selected by `kid`, never by token URL
+- [ ] Key rotation publishes before signing and keeps old keys verifiable
+- [ ] A revocation strategy exists — deny-list, token version, or short expiry
+- [ ] Refresh tokens rotate on use; reuse revokes the family
+- [ ] Tokens never appear in URLs; payload contains no secrets or PII

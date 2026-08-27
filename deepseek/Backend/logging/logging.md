@@ -5,1044 +5,195 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: logging
+category: Backend
+description: Structured logging that is searchable and safe — levels with meaning, correlation ids, redaction, sampling, and what belongs in metrics instead.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# logging.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, implement, review, optimize, and maintain Logging systems.
+Rules for application logging. A log line exists to answer a question during an
+incident. If it cannot be found, filtered and correlated, it is noise you are
+paying to store.
 
-Logging is not simply writing messages to the console.
-
-Logging is the systematic recording of application behavior, business events, security activities, infrastructure health, and operational diagnostics to enable debugging, monitoring, auditing, incident response, and continuous improvement.
-
-The objective is to build logging systems that are structured, reliable, searchable, secure, scalable, and useful throughout the entire software lifecycle.
-
-Logs should explain what happened.
-
-Not create more questions.
+Logs are one of three signals and the most expensive per unit of insight. Rates
+and distributions belong in metrics; causality across services belongs in traces.
+→ `Backend/monitoring`
 
 ---
 
-# Core Philosophy
+# Structured, always
 
-Generate Event
+```ts
+// Unsearchable — the fields are trapped inside prose
+log.info(`Order ${id} for user ${userId} failed after ${ms}ms`);
 
-↓
+// Queryable: status:500 AND duration_ms:>1000 AND tenant_id:"acme"
+log.info({ event: "order.create.failed", orderId, userId, tenantId,
+           durationMs: ms, statusCode: 500 }, "order create failed");
+```
 
-Capture Context
+JSON to stdout. The runtime collects and ships it — the application does not write
+files, rotate them, or know about the log backend. → `DevOps/logging`
 
-↓
+Use a real logger (`pino`, `zap`, `slog`, `structlog`, `serilog`), never
+`console.log`. Loggers give you levels, child loggers, redaction and low overhead.
 
-Structure Log
-
-↓
-
-Store Securely
-
-↓
-
-Correlate Events
-
-↓
-
-Analyze Activity
-
-↓
-
-Support Recovery
-
-↓
-
-Approve
-
-Every important event should leave a meaningful trace.
+Keep field names consistent across every service: `request_id`, `trace_id`,
+`user_id`, `tenant_id`, `duration_ms`, `status_code`. A field named three ways
+cannot be queried, and a shared schema is what makes cross-service search work.
 
 ---
 
-# Primary Objective
+# Levels with a decision attached
 
-Every logging system should answer one question.
+| Level | Meaning | Action |
+| --- | --- | --- |
+| `error` | Unexpected failure; a human should look | Alert |
+| `warn` | Degraded but handled — retry succeeded, fallback used | Review in aggregate |
+| `info` | A business event worth reconstructing later | None |
+| `debug` | Developer detail | Off in production |
+| `trace` | Very fine detail | Off, enabled per-request when needed |
 
-"Can engineers understand, debug, audit, and improve the system using logs without exposing sensitive information?"
+The error rate must mean something. An expected `404` or a validation failure is
+**not** an `error` — it is a normal outcome, logged at `info`. Logging domain
+failures at `error` produces alert fatigue and buries real ones.
+→ `Backend/error-handling`
 
-If the answer is uncertain,
-
-the logging architecture requires improvement.
-
----
-
-# Logging Principles
-
-Every implementation should maximize
-
-Observability
-
-↓
-
-Reliability
-
-↓
-
-Consistency
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Developer Experience
-
-↓
-
-Operational Excellence
-
-Logs should support decisions.
-
-Not generate noise.
+Make the level runtime-configurable per service, so `debug` can be raised during
+an incident without a deploy.
 
 ---
 
-# Logging Workflow
+# Correlation
 
-Event Occurs
+Every log line carries a request id, and it propagates.
 
-↓
+```ts
+const id = req.get("x-request-id") ?? crypto.randomUUID();
+req.log = log.child({ requestId: id, traceId: trace.getActiveSpan()?.spanContext().traceId });
+res.set("x-request-id", id);          // echo it so support tickets carry it
+```
 
-Capture Context
-
-↓
-
-Assign Severity
-
-↓
-
-Structure Log
-
-↓
-
-Store Log
-
-↓
-
-Correlate Events
-
-↓
-
-Analyze
-
-↓
-
-Approve
+- Propagate the id to every downstream call (`x-request-id`, W3C `traceparent`).
+- Attach it via async context (`AsyncLocalStorage`, `context.Context`) so it does
+  not have to be threaded through every function signature.
+- Return it on every response. A customer quoting a request id turns an
+  unreproducible report into one log query.
+- Include `trace_id` so a log line links to its trace.
 
 ---
 
-# Stage 1 — Event Identification
+# Never log secrets or personal data
 
-Identify events worth logging.
+```ts
+const log = pino({
+  redact: {
+    paths: ["req.headers.authorization", "req.headers.cookie",
+            "*.password", "*.token", "*.apiKey", "*.card.number", "*.ssn"],
+    censor: "[redacted]",
+  },
+});
+```
 
-Examples
+**Never** log: passwords (even wrong ones), tokens, API keys, session ids, full
+card numbers, CVVs, government identifiers, or full request/response bodies.
 
-Application startup
-
-↓
-
-Request received
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Validation failures
-
-↓
-
-Business operations
-
-↓
-
-External API calls
-
-↓
-
-Database queries (when appropriate)
-
-↓
-
-Errors
-
-↓
-
-System shutdown
-
-Not every function call deserves a log.
+- Redact by **allowlist** for anything that carries user data. A denylist misses
+  the field somebody added last week.
+- Never log an entire object with a spread — `log.info({ user })` will include
+  every field the model gains in future.
+- Personal data in logs inherits retention and erasure obligations. Log a user
+  **id**, not a name and email.
+- A leaked credential in a log is a leaked credential: log storage is widely
+  readable, replicated and backed up. Treat it as a disclosure and rotate.
+  → `Security/secret-management`
 
 ---
 
-# Stage 2 — Log Levels
+# Log the right events
 
-Use consistent severity levels.
+Log at **boundaries and decisions**, not inside loops.
 
-TRACE
+Worth logging:
 
-Very detailed execution information.
+- One request-completion line per request: method, route (the **template**, not
+  the interpolated path), status, duration, request id, actor.
+- Outbound dependency calls: target, status, duration, retry count.
+- State transitions with business meaning: `payment.captured`, `order.shipped`.
+- Security events: authentication failure, authorization denial, rate-limit
+  breach, privilege change. → `Security/audit-log`
+- Background job start/finish with the outcome and duration.
 
-↓
+Not worth logging: entry and exit of every function, "starting…" without a
+matching "finished", raw payloads, anything already captured as a metric.
 
-DEBUG
-
-Development and troubleshooting information.
-
-↓
-
-INFO
-
-Normal application behavior.
-
-↓
-
-WARN
-
-Unexpected but recoverable situations.
-
-↓
-
-ERROR
-
-Operation failed.
-
-↓
-
-FATAL
-
-Application cannot continue safely.
-
-Log severity should reflect operational impact.
+Use the route template (`/orders/:id`) as the field value. Interpolated paths make
+grouping and cardinality control impossible.
 
 ---
 
-# Stage 3 — Structured Logging
+# Cost and volume
 
-Prefer structured formats.
+Logs are the largest observability bill in most systems and the growth is
+superlinear with traffic.
 
-Include
-
-Timestamp
-
-↓
-
-Level
-
-↓
-
-Message
-
-↓
-
-Service
-
-↓
-
-Environment
-
-↓
-
-Version
-
-↓
-
-Metadata
-
-Avoid unstructured log messages.
-
-Machines should parse logs easily.
+- **Sample** high-volume success paths (keep 1–10% of healthy `2xx` request lines,
+  keep 100% of errors). Record the sampling rate in the line so counts can be
+  reconstructed.
+- Never derive a metric by counting log lines — it is expensive and breaks the
+  moment sampling changes. Emit a counter. → `Backend/monitoring`
+- Set retention by value: 7–30 days hot for debugging, longer and cheaper for
+  audit and compliance.
+- Keep cardinality out of field values that get indexed — a raw user id is fine to
+  log, but not as a metric label.
 
 ---
 
-# Stage 4 — Context Enrichment
+# Anti-patterns
 
-Attach useful context.
-
-Examples
-
-Request ID
-
-↓
-
-Correlation ID
-
-↓
-
-User ID
-
-↓
-
-Organization ID
-
-↓
-
-Session ID
-
-↓
-
-Worker ID
-
-↓
-
-Job ID
-
-↓
-
-Region
-
-↓
-
-Feature Flag
-
-Context transforms logs into investigations.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| String-interpolated messages | Fields cannot be queried | Structured fields |
+| `console.log` | No levels, no redaction, poor performance | A real logger |
+| Inconsistent field names | Cross-service queries impossible | Shared field schema |
+| Expected failures at `error` | Alert fatigue; real errors buried | `info`/`warn` for domain outcomes |
+| No request id | Cannot follow one request | Correlation id, propagated and echoed |
+| Threading the logger through every call | Noisy signatures; gets dropped | Async context |
+| Logging full request bodies | Credentials and PII in log storage | Allowlist redaction |
+| Logging whole objects | New sensitive fields leak automatically | Explicit fields |
+| Denylist redaction | Misses the newest field | Allowlist |
+| Interpolated paths as the route field | Unbounded grouping keys | Route template |
+| Logging inside loops | Volume explosion, no added insight | Log at boundaries |
+| Counting log lines as a metric | Expensive; breaks under sampling | Emit counters |
+| No sampling on high-volume paths | Dominant cost driver | Sample success, keep all errors |
+| Application writing and rotating files | Duplicates platform responsibility | stdout |
+| Fixed log level requiring a deploy | Cannot debug during an incident | Runtime-configurable level |
 
 ---
 
-# Stage 5 — Request Logging
-
-Capture
-
-HTTP Method
-
-↓
-
-Route
-
-↓
-
-Status Code
-
-↓
-
-Duration
-
-↓
-
-Client IP
-
-↓
-
-User Agent
-
-↓
-
-Response Size
-
-↓
-
-Correlation ID
-
-Every request should be traceable.
-
----
-
-# Stage 6 — Business Event Logging
-
-Log significant business events.
-
-Examples
-
-User registered
-
-↓
-
-Order placed
-
-↓
-
-Invoice paid
-
-↓
-
-Subscription renewed
-
-↓
-
-Refund issued
-
-↓
-
-Role changed
-
-↓
-
-Feature enabled
-
-Business logs explain product behavior.
-
----
-
-# Stage 7 — Error Logging
-
-Capture
-
-Exception
-
-↓
-
-Stack Trace
-
-↓
-
-Error Code
-
-↓
-
-Request Context
-
-↓
-
-Input Summary
-
-↓
-
-Recovery Action
-
-Errors should contain enough information for diagnosis.
-
-Not reproduction by guessing.
-
----
-
-# Stage 8 — Security Logging
-
-Record
-
-Login attempts
-
-↓
-
-Permission changes
-
-↓
-
-Failed authorization
-
-↓
-
-Password reset
-
-↓
-
-MFA enrollment
-
-↓
-
-Secret access
-
-↓
-
-Suspicious activity
-
-↓
-
-Administrative actions
-
-Security logs support auditing and incident response.
-
----
-
-# Stage 9 — Sensitive Data Protection
-
-Never log
-
-Passwords
-
-↓
-
-Authentication tokens
-
-↓
-
-API keys
-
-↓
-
-Private keys
-
-↓
-
-Credit card numbers
-
-↓
-
-CVV
-
-↓
-
-Personal secrets
-
-↓
-
-Raw personal information unless required
-
-Mask sensitive values before logging.
-
----
-
-# Stage 10 — Correlation
-
-Support
-
-Request ID
-
-↓
-
-Trace ID
-
-↓
-
-Span ID
-
-↓
-
-Correlation ID
-
-↓
-
-Job ID
-
-↓
-
-Message ID
-
-↓
-
-Transaction ID
-
-Distributed systems require correlation.
-
----
-
-# Stage 11 — Performance
-
-Review
-
-Log frequency
-
-↓
-
-Payload size
-
-↓
-
-Serialization cost
-
-↓
-
-Disk usage
-
-↓
-
-Network overhead
-
-↓
-
-Asynchronous logging
-
-Logging should never become a bottleneck.
-
----
-
-# Stage 12 — Storage
-
-Support
-
-Centralized aggregation
-
-↓
-
-Retention policies
-
-↓
-
-Compression
-
-↓
-
-Archiving
-
-↓
-
-Search indexing
-
-↓
-
-Backup
-
-Logs should remain available throughout their required lifecycle.
-
----
-
-# Stage 13 — Rotation & Retention
-
-Define
-
-Rotation strategy
-
-↓
-
-Retention period
-
-↓
-
-Archive policy
-
-↓
-
-Deletion policy
-
-↓
-
-Compliance requirements
-
-Storage should remain sustainable.
-
----
-
-# Stage 14 — Searchability
-
-Logs should support searching by
-
-Timestamp
-
-↓
-
-Request ID
-
-↓
-
-User ID
-
-↓
-
-Service
-
-↓
-
-Error Code
-
-↓
-
-Correlation ID
-
-↓
-
-Environment
-
-↓
-
-Severity
-
-Finding logs should take seconds.
-
-Not hours.
-
----
-
-# Stage 15 — Reliability
-
-Ensure
-
-Asynchronous writing
-
-↓
-
-Buffer protection
-
-↓
-
-Backpressure handling
-
-↓
-
-Failure recovery
-
-↓
-
-Log durability
-
-Applications should continue operating if logging infrastructure degrades.
-
----
-
-# Stage 16 — Scalability
-
-Support
-
-Horizontal services
-
-↓
-
-Distributed systems
-
-↓
-
-Containers
-
-↓
-
-Microservices
-
-↓
-
-Cloud infrastructure
-
-↓
-
-High log volume
-
-Logging infrastructure should scale independently.
-
----
-
-# Stage 17 — Monitoring Integration
-
-Logs should integrate with
-
-Metrics
-
-↓
-
-Tracing
-
-↓
-
-Alerting
-
-↓
-
-Dashboards
-
-↓
-
-Incident management
-
-↓
-
-Security monitoring
-
-Logs become more valuable when combined with other observability signals.
-
----
-
-# Stage 18 — Testing
-
-Verify
-
-Correct log levels
-
-↓
-
-Structured format
-
-↓
-
-Sensitive data masking
-
-↓
-
-Correlation IDs
-
-↓
-
-Error logging
-
-↓
-
-Performance impact
-
-↓
-
-Retention policies
-
-Logging should be tested like any production feature.
-
----
-
-# Stage 19 — Documentation
-
-Document
-
-Log schema
-
-↓
-
-Severity definitions
-
-↓
-
-Context fields
-
-↓
-
-Retention
-
-↓
-
-Search examples
-
-↓
-
-Operational guidelines
-
-↓
-
-Compliance rules
-
-Documentation improves operational efficiency.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Log usefulness
-
-↓
-
-Noise reduction
-
-↓
-
-Missing context
-
-↓
-
-Performance
-
-↓
-
-Storage cost
-
-↓
-
-Security findings
-
-↓
-
-Developer feedback
-
-Logging should evolve alongside the application.
-
----
-
-# Logging Quality Attributes
-
-Evaluate
-
-Observability
-
-Reliability
-
-Performance
-
-Security
-
-Scalability
-
-Maintainability
-
-Consistency
-
-Developer Experience
-
----
-
-# Logging Questions
-
-Before approval ask
-
-Can incidents be investigated using logs alone?
-
-↓
-
-Are logs structured consistently?
-
-↓
-
-Can requests be traced across services?
-
-↓
-
-Is sensitive information protected?
-
-↓
-
-Can logs scale with application growth?
-
-↓
-
-Can operators quickly locate important events?
-
-↓
-
-Would another engineering team trust these logs during a production incident?
-
----
-
-# Severity Levels
-
-Critical
-
-Sensitive data exposure
-
-Missing security logs
-
-Lost audit events
-
-Corrupted log pipeline
-
-Major
-
-Inconsistent log structure
-
-Missing correlation IDs
-
-Excessive logging
-
-Weak retention strategy
-
-Poor searchability
-
-Medium
-
-Performance optimization
-
-Documentation improvements
-
-Context enrichment
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Additional metadata
-
-Future enhancements
-
----
-
-# Logging Checklist
-
-✓ Log levels defined
-
-✓ Structured logging implemented
-
-✓ Context enrichment configured
-
-✓ Request logging enabled
-
-✓ Business events logged
-
-✓ Error logging standardized
-
-✓ Security events logged
-
-✓ Sensitive data masked
-
-✓ Correlation IDs implemented
-
-✓ Retention policy defined
-
-✓ Centralized storage configured
-
-✓ Monitoring integrated
-
-✓ Performance reviewed
-
-✓ Testing completed
-
-✓ Documentation complete
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Console-only logging
-
-Logging everything
-
-Logging nothing important
-
-Plain-text unstructured logs
-
-Logging passwords
-
-Logging authentication tokens
-
-Duplicated log entries
-
-Missing correlation IDs
-
-Using incorrect severity levels
-
-Logging large payloads unnecessarily
-
-Swallowing exceptions without logs
-
-Blocking application execution while writing logs
-
-Ignoring retention policies
-
----
-
-# Definition of Done
-
-Logging review is complete when
-
-- Important application, business, security, and infrastructure events are consistently recorded.
-- Logs are structured, searchable, and enriched with contextual metadata such as request, trace, and correlation identifiers.
-- Sensitive information is protected through masking, redaction, or exclusion.
-- Logging integrates with metrics, tracing, monitoring, alerting, and incident response workflows.
-- Performance impact remains minimal through efficient, asynchronous logging strategies.
-- Centralized storage, retention, rotation, and archival policies satisfy operational and compliance requirements.
-- Engineers can investigate production incidents efficiently using log data.
-- Documentation clearly defines schemas, severity levels, retention policies, and operational practices.
-- Logging infrastructure scales with application growth, distributed services, and increasing traffic.
-- Every critical system event leaves a reliable, secure, and meaningful audit trail.
-
-Exceptional logging systems transform production systems into observable systems.
-
-They provide engineers with clear operational insight, help operators detect and resolve incidents rapidly, support security investigations and compliance, and enable continuous improvement without exposing sensitive information or degrading application performance.
+# Checklist
+
+- [ ] All logs are structured JSON written to stdout
+- [ ] A real logging library is used, configured with redaction
+- [ ] Field names follow one schema across all services
+- [ ] Levels carry a decision; expected failures are not `error`
+- [ ] Log level is runtime-configurable without a deploy
+- [ ] Every line carries a request id and, where present, a trace id
+- [ ] The request id propagates downstream and is echoed to the client
+- [ ] Correlation context is carried in async context, not parameters
+- [ ] No secrets, tokens, credentials or full bodies are ever logged
+- [ ] Personal data is limited to identifiers, with retention defined
+- [ ] Redaction is allowlist-based and covers headers and nested fields
+- [ ] One completion line per request, using the route template
+- [ ] Security-relevant events are logged with actor, target and source
+- [ ] High-volume success paths are sampled; errors are never sampled out
+- [ ] Metrics are emitted as counters, not derived from log lines
+- [ ] Retention is set per log class and matches its actual value

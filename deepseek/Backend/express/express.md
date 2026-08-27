@@ -5,820 +5,211 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: express
+category: Backend
+description: Express application structure — router organisation, async error handling, security defaults, request context, and testing without a live server.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# express.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, implement, review, optimize, and maintain Express.js applications.
+Rules for structuring an Express application. Express is unopinionated, which
+means every decision it does not make for you is one you must make deliberately —
+and the defaults it does ship are tuned for 2012.
 
-Express is not simply a routing library.
-
-It is the HTTP application layer responsible for translating client requests into business operations while keeping transport concerns separate from business logic.
-
-The objective is to build Express applications that are modular, secure, scalable, observable, maintainable, and production-ready.
-
-Express should orchestrate requests.
-
-It should never become the application itself.
+Runtime concerns are `Backend/node`; middleware ordering is
+`Backend/middlewares`.
 
 ---
 
-# Core Philosophy
+# Separate the app from the server
 
-Understand Request
+```js
+// app.js — builds and returns the app. No listen(), no side effects.
+export function createApp({ db, mailer, logger }) {
+  const app = express();
+  app.use(/* … */);
+  app.use("/v1", routes({ db, mailer }));
+  return app;
+}
 
-↓
+// server.js — the only file that binds a port
+const server = createApp({ db, mailer, logger }).listen(PORT);
+```
 
-Validate Input
+This one split makes integration testing possible without a live port
+(`supertest(createApp({ db: testDb }))`), lets tests run in parallel, and keeps
+dependency wiring in one place. → `Testing/integration`
 
-↓
-
-Authenticate User
-
-↓
-
-Authorize Action
-
-↓
-
-Execute Business Logic
-
-↓
-
-Generate Response
-
-↓
-
-Observe Behavior
-
-↓
-
-Approve
-
-Express should coordinate.
-
-Business logic belongs elsewhere.
+Pass dependencies in. A module that imports its own database client cannot be
+tested without one.
 
 ---
 
-# Primary Objective
+# Structure by feature
 
-Every Express application should answer one question.
-
-"Can this application continue serving reliable HTTP APIs as traffic, features, developers, and infrastructure grow?"
-
-If the answer is uncertain,
-
-the architecture requires improvement.
-
----
-
-# Engineering Principles
-
-Every implementation should maximize
-
-Simplicity
-
-↓
-
-Separation of Concerns
-
-↓
-
-Scalability
-
-↓
-
-Reliability
-
-↓
-
-Security
-
-↓
-
-Observability
-
-↓
-
-Developer Experience
-
-Transport logic should remain independent from business logic.
-
----
-
-# Development Workflow
-
-Understand API
-
-↓
-
-Design Routes
-
-↓
-
-Implement Middleware
-
-↓
-
-Validate Requests
-
-↓
-
-Call Services
-
-↓
-
-Handle Errors
-
-↓
-
-Observe
-
-↓
-
-Approve
-
----
-
-# Stage 1 — API Understanding
-
-Before writing code determine
-
-Business requirements
-
-↓
-
-Resources
-
-↓
-
-Operations
-
-↓
-
-Authentication
-
-↓
-
-Authorization
-
-↓
-
-Validation
-
-↓
-
-Expected responses
-
-Routes should represent business capabilities.
-
-Not implementation details.
-
----
-
-# Stage 2 — Application Structure
-
-Prefer modular architecture.
-
-Example
-
+```
 src/
+  features/
+    orders/
+      orders.routes.js     # HTTP: parse, validate, call the service, format
+      orders.service.js    # business rules — no req/res anywhere
+      orders.repo.js       # data access, tenant-scoped
+      orders.schema.js     # zod schemas
+      orders.test.js
+  middleware/
+  lib/
+```
 
-app/
+The rule that matters: **`req` and `res` do not leave the route layer.** A service
+that takes `req` cannot be called from a background job, a CLI, or a test without
+constructing a fake request.
 
-config/
-
-routes/
-
-controllers/
-
-services/
-
-repositories/
-
-middlewares/
-
-validators/
-
-models/
-
-events/
-
-jobs/
-
-workers/
-
-utils/
-
-tests/
-
-Structure should scale with engineering teams.
+Routers compose — mount feature routers on the app rather than declaring a hundred
+routes in one file.
 
 ---
 
-# Stage 3 — Routing
+# Async errors
 
-Routes should
+```js
+// Express 4: a rejected promise is NOT caught. The request hangs until timeout.
+app.get("/orders/:id", async (req, res) => { throw new Error("boom"); });  // ← hangs
 
-Represent resources
+// Fix 1 — Express 5 forwards rejections automatically. Prefer this.
+// Fix 2 — Express 4: a wrapper
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+app.get("/orders/:id", ah(async (req, res) => { … }));
+```
 
-Remain RESTful
+This is the single most common Express bug: a route that throws asynchronously
+never responds, the client times out, and nothing appears in the logs. Either
+upgrade to Express 5, or apply the wrapper to **every** async handler — one missed
+route is one hanging endpoint.
 
-Be predictable
+The error handler is identified by **arity**, not by position alone:
 
-Stay thin
+```js
+app.use((err, req, res, next) => { … });   // four arguments, registered last
+```
 
-Avoid business logic
-
-Example
-
-GET /users
-
-POST /users
-
-GET /users/:id
-
-PATCH /users/:id
-
-DELETE /users/:id
-
-Routes define the API contract.
+A three-argument function registered last is not an error handler and will be
+skipped silently. → `Backend/error-handling`
 
 ---
 
-# Stage 4 — Controllers
+# Security defaults you must set
 
-Controllers should
+Express ships with none of these.
 
-Receive request
+```js
+app.disable("x-powered-by");                       // stop advertising the stack
+app.set("trust proxy", 1);                         // exact hop count, never `true`
+app.use(helmet());                                 // security headers
+app.use(express.json({ limit: "100kb" }));         // bounded body
+app.use(cors({ origin: ALLOWED, credentials: true }));   // static allowlist
+```
 
-↓
+| Setting | Consequence of omitting it |
+| --- | --- |
+| `trust proxy` unset | `req.ip` is the proxy's — rate limiting keys on one value for everyone |
+| `trust proxy: true` | `X-Forwarded-For` is fully client-controlled; the limiter is bypassable |
+| No body limit | Default 100kb for JSON, but `express.urlencoded` and raw need their own |
+| `helmet()` absent | No HSTS, no `nosniff`, no frame protection → `Security/headers` |
+| `cors({ origin: true })` | Reflects any origin — with credentials this is total exposure |
+| `x-powered-by` on | Version fingerprinting for attackers |
 
-Validate request
+Set `trust proxy` to the **number of proxies** in front of you. `true` means trust
+whatever the client sent. → `API/rate-limiting`
 
-↓
-
-Call services
-
-↓
-
-Return response
-
-Controllers should never
-
-Contain business rules
-
-Contain database queries
-
-Perform complex calculations
-
-Controllers coordinate.
-
-Services execute.
+Validate every input at the boundary with a schema, and reject unknown fields.
+→ `Backend/validation`
 
 ---
 
-# Stage 5 — Services
+# Request context and lifecycle
 
-Services should contain
-
-Business rules
-
-Application logic
-
-Decision making
-
-Workflow orchestration
-
-Services should remain independent from Express.
-
----
-
-# Stage 6 — Middleware
-
-Middleware should solve one concern.
-
-Examples
-
-Authentication
-
-Authorization
-
-Validation
-
-Logging
-
-Rate Limiting
-
-Compression
-
-CORS
-
-Security Headers
-
-Request IDs
-
-Each middleware should have a single responsibility.
+- Attach a request id first and expose a child logger as `req.log`.
+- Carry request-scoped state in `AsyncLocalStorage`, not on module variables — a
+  module-scope `currentUser` leaks one request's identity into another's under
+  concurrency.
+- Set `server.keepAliveTimeout` above your load balancer's idle timeout, or you
+  will see intermittent `502`s from races on connection close (a classic behind
+  AWS ALB, whose default is 60s).
+- Implement graceful shutdown: `server.close()`, drain in-flight requests, then
+  exit.
+- Add `/healthz` (liveness, no dependency checks) and `/readyz` (readiness, checks
+  dependencies) before any auth middleware. → `Backend/monitoring`
 
 ---
 
-# Stage 7 — Request Validation
+# Testing
 
-Validate
+```js
+const res = await request(createApp({ db: testDb }))
+  .post("/v1/orders")
+  .set("Cookie", sessionFor(user))
+  .send({ items: [{ sku: "ABC-1", qty: 2 }] });
+expect(res.status).toBe(201);
+```
 
-Headers
-
-Query parameters
-
-Route parameters
-
-Request body
-
-Content type
-
-File uploads
-
-Reject invalid requests immediately.
-
----
-
-# Stage 8 — Response Design
-
-Responses should be
-
-Consistent
-
-Predictable
-
-Minimal
-
-Documented
-
-Versionable
-
-Include
-
-Status
-
-Data
-
-Metadata
-
-Errors
-
-Avoid inconsistent response structures.
+- `supertest` against the app object — no port, no fixed host, parallel-safe.
+- Test the **denial** cases: unauthenticated, wrong tenant, malformed body. Those
+  are the assertions that catch a missing check. → `Backend/authorization`
+- One test that enumerates every registered route and asserts an unauthenticated
+  request is rejected, with an explicit public allowlist, catches the endpoint
+  somebody forgot to protect.
 
 ---
 
-# Stage 9 — Error Handling
+# Anti-patterns
 
-Centralize error handling.
-
-Handle
-
-Validation errors
-
-Authentication errors
-
-Authorization failures
-
-Database errors
-
-Unexpected exceptions
-
-Never duplicate error handling.
-
----
-
-# Stage 10 — Dependency Injection
-
-Prefer explicit dependency injection.
-
-Avoid
-
-Global state
-
-Singleton abuse
-
-Hidden dependencies
-
-Dependencies should be easy to replace during testing.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `listen()` in the same file as the app | Cannot test without binding a port | Split app and server |
+| Modules importing their own database client | Untestable without a real database | Inject dependencies |
+| `req`/`res` in service functions | Not reusable from jobs, CLIs or tests | Keep HTTP in the route layer |
+| Async handler without a catch (Express 4) | Request hangs until client timeout | Express 5 or a wrapper |
+| Three-argument error handler | Silently not an error handler | Four arguments, last |
+| Multiple error handlers | Inconsistent responses | One, registered last |
+| `trust proxy` unset behind a proxy | Every client shares the proxy's IP | Set the hop count |
+| `trust proxy: true` | `X-Forwarded-For` becomes forgeable | Exact number |
+| No body size limit | Memory exhaustion | `limit` on every parser |
+| `cors({ origin: true })` with credentials | Any site reads authenticated responses | Static allowlist |
+| No `helmet()` | Missing every security header | Add it early |
+| `x-powered-by` left on | Free fingerprinting | `app.disable` |
+| Module-scoped request state | Cross-request data leakage | `AsyncLocalStorage` |
+| `keepAliveTimeout` below the LB's | Intermittent `502`s | Set it higher |
+| Health checks behind auth | Probes fail; pods restart | Register before auth |
+| No graceful shutdown | Deploys sever live requests | `server.close()` and drain |
+| Only happy-path tests | Missing auth checks invisible | Assert denials |
 
 ---
 
-# Stage 11 — Configuration
-
-Externalize
-
-Environment variables
-
-Secrets
-
-Database URLs
-
-Feature flags
-
-Ports
-
-Timeouts
-
-Configuration belongs outside application code.
-
----
-
-# Stage 12 — Performance
-
-Review
-
-Compression
-
-Streaming
-
-Caching
-
-Connection reuse
-
-Response size
-
-Database latency
-
-Event loop health
-
-Express should remain lightweight.
-
----
-
-# Stage 13 — Security
-
-Review
-
-Helmet
-
-HTTPS
-
-CORS
-
-CSRF protection
-
-Rate limiting
-
-Input validation
-
-Output sanitization
-
-Security headers
-
-Express applications should be secure by default.
-
----
-
-# Stage 14 — Observability
-
-Implement
-
-Structured logging
-
-Metrics
-
-Tracing
-
-Health checks
-
-Correlation IDs
-
-Request timing
-
-Visibility accelerates debugging.
-
----
-
-# Stage 15 — Testing
-
-Implement
-
-Unit tests
-
-Route tests
-
-Integration tests
-
-Contract tests
-
-Load tests
-
-Security tests
-
-Routes should be fully testable.
-
----
-
-# Stage 16 — Scalability
-
-Review
-
-Stateless architecture
-
-Horizontal scaling
-
-Caching
-
-Queues
-
-Workers
-
-Connection pooling
-
-Express should scale without redesign.
-
----
-
-# Stage 17 — Reliability
-
-Implement
-
-Graceful shutdown
-
-Timeouts
-
-Retries
-
-Circuit breakers
-
-Health endpoints
-
-Fallbacks
-
-Production systems expect failures.
-
----
-
-# Stage 18 — Documentation
-
-Document
-
-Routes
-
-Authentication
-
-Authorization
-
-Validation
-
-Responses
-
-Errors
-
-Examples
-
-Documentation is part of the API.
-
----
-
-# Stage 19 — Production Readiness
-
-Verify
-
-Environment configuration
-
-Monitoring
-
-Logging
-
-Security
-
-Deployment
-
-Rollback
-
-Health checks
-
-Alerting
-
-Production readiness is mandatory.
-
----
-
-# Stage 20 — Continuous Improvement
-
-Review
-
-Performance
-
-Security
-
-Dependencies
-
-Developer feedback
-
-Architecture
-
-Technical debt
-
-Production incidents
-
-Every deployment should improve maintainability.
-
----
-
-# Express Quality Attributes
-
-Evaluate
-
-Correctness
-
-Maintainability
-
-Reliability
-
-Performance
-
-Scalability
-
-Security
-
-Observability
-
-Developer Experience
-
----
-
-# Engineering Questions
-
-Before approval ask
-
-Are routes resource-oriented?
-
-↓
-
-Are controllers thin?
-
-↓
-
-Does business logic exist only inside services?
-
-↓
-
-Can middleware be reused?
-
-↓
-
-Can the application scale horizontally?
-
-↓
-
-Can failures be diagnosed quickly?
-
-↓
-
-Would another engineer understand this architecture immediately?
-
----
-
-# Severity Levels
-
-Critical
-
-Business logic in routes
-
-Authentication bypass
-
-Unhandled exceptions
-
-Security vulnerability
-
-Data corruption
-
-Major
-
-Poor architecture
-
-Duplicate logic
-
-Weak validation
-
-Missing monitoring
-
-Performance bottlenecks
-
-Medium
-
-Naming inconsistencies
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Examples
-
-Comments
-
-Refactoring suggestions
-
-Future improvements
-
----
-
-# Express Checklist
-
-✓ Modular architecture
-
-✓ RESTful routes
-
-✓ Thin controllers
-
-✓ Business logic isolated
-
-✓ Middleware reusable
-
-✓ Validation implemented
-
-✓ Error handling centralized
-
-✓ Configuration externalized
-
-✓ Security reviewed
-
-✓ Logging enabled
-
-✓ Monitoring enabled
-
-✓ Health checks implemented
-
-✓ Testing completed
-
-✓ Documentation complete
-
-✓ Production ready
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Business logic inside routes
-
-Database queries inside controllers
-
-Nested middleware chains
-
-Large controller files
-
-Global mutable state
-
-Duplicated validation
-
-Duplicated responses
-
-Hardcoded configuration
-
-Missing centralized error handling
-
-Ignoring async errors
-
-Overloaded middleware
-
-Framework-dependent business logic
-
----
-
-# Definition of Done
-
-Express engineering review is complete when
-
-- Routes expose a clean, predictable, and RESTful API.
-- Controllers coordinate requests without containing business logic.
-- Services encapsulate business rules independently of Express.
-- Middleware remains modular, reusable, and focused on a single responsibility.
-- Request validation and centralized error handling protect application integrity.
-- Security, observability, testing, and documentation are implemented consistently.
-- Configuration remains externalized and suitable for multiple environments.
-- The application scales horizontally without architectural changes.
-- Production readiness is verified through monitoring, health checks, deployment, and rollback strategies.
-- The codebase is understandable, maintainable, and capable of supporting long-term product evolution.
-
-Exceptional Express applications are not defined by the framework.
-
-They are defined by clean architecture, predictable behavior, operational reliability, and the ability to evolve without accumulating unnecessary complexity.
+# Checklist
+
+- [ ] `createApp()` is separate from `listen()`
+- [ ] Dependencies are injected, not imported inside modules
+- [ ] Code is organised by feature, with routes, service and repository separated
+- [ ] `req`/`res` never reach the service layer
+- [ ] Every async handler forwards rejections (Express 5, or a wrapper everywhere)
+- [ ] Exactly one four-argument error handler, registered last
+- [ ] `x-powered-by` is disabled
+- [ ] `trust proxy` is set to the exact number of proxies
+- [ ] `helmet()` is applied early enough to cover error responses
+- [ ] Every body parser has an explicit size limit
+- [ ] CORS uses a static origin allowlist
+- [ ] All input is schema-validated with unknown fields rejected
+- [ ] A request id is attached first and available as `req.log`
+- [ ] Request-scoped state lives in `AsyncLocalStorage`
+- [ ] `keepAliveTimeout` exceeds the load balancer's idle timeout
+- [ ] Liveness and readiness endpoints exist and bypass authentication
+- [ ] `SIGTERM` drains in-flight requests before exit
+- [ ] Tests run against the app object with `supertest`
+- [ ] Denial cases and unauthenticated access are asserted per route

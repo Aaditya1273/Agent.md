@@ -5,1139 +5,223 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: authentication
+category: Security
+description: Password storage, session handling and login-flow rules for building authentication that survives a credential-stuffing campaign and a database leak.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# authentication.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, authentication methodologies, identity verification frameworks, credential protection strategies, session management practices, and long-term best practices for designing secure, scalable, reliable, maintainable, and production-ready authentication systems.
+Rules for implementing authentication: how to store credentials, how to issue and
+end sessions, and how to fail safely. Scope is **proving who a user is**.
+Deciding what they may then do is `Security/authorization`.
 
-It applies to
-
-- Web Applications
-- SaaS Platforms
-- Enterprise Software
-- APIs
-- Mobile Applications
-- Cloud Platforms
-- Microservices
-- Developer Platforms
-- Production Software
-
-Authentication is not asking users for a password.
-
-Authentication is the engineering discipline of reliably verifying the identity of users, applications, services, and devices while minimizing security risks, protecting credentials, preserving user experience, and maintaining operational reliability throughout the software lifecycle.
-
-Authentication answers one question:
-
-**Who is requesting access?**
+Assume the database will leak. Every rule here is chosen so that a full dump of
+your `users` table does not hand an attacker working credentials.
 
 ---
 
-# Core Philosophy
+# Password storage
 
-Understand Identity
+## Use a memory-hard KDF. Never a general-purpose hash.
 
-↓
+Correct, in order of preference:
 
-Verify Identity
+| Algorithm | Parameters | Notes |
+| --- | --- | --- |
+| `argon2id` | `m=19456` (19 MiB), `t=2`, `p=1` | Default choice. OWASP-recommended baseline. |
+| `scrypt` | `N=2^17`, `r=8`, `p=1` | Use when `argon2id` is unavailable. |
+| `bcrypt` | `cost=12` minimum | Acceptable. **Truncates at 72 bytes** — pre-hash longer inputs. |
+| `PBKDF2-HMAC-SHA256` | `600000` iterations | Only when FIPS compliance forces it. |
 
-↓
+```js
+// Node — argon2id with explicit parameters, never the library defaults alone.
+import argon2 from "argon2";
 
-Protect Credentials
+const hash = await argon2.hash(password, {
+  type: argon2.argon2id,
+  memoryCost: 19456, // KiB
+  timeCost: 2,
+  parallelism: 1,
+});
+```
 
-↓
+**Never** use `md5`, `sha1`, `sha256`, or any bare digest for passwords. They are
+designed to be fast, which is the opposite of what is required. A commodity GPU
+tries billions of SHA-256 candidates per second.
 
-Protect Sessions
+**Never** implement your own salting scheme. `argon2id`, `scrypt` and `bcrypt`
+generate and embed a per-password salt in the output string. A separate `salt`
+column is a sign the KDF is being misused.
 
-↓
+**Never** apply a "pepper" stored in the same database as the hashes. If it is
+in the dump, it is not a secret.
 
-Monitor Authentication
+## Verify in constant time
 
-↓
+Use the library's own verifier — `argon2.verify()`, `bcrypt.compare()`. Never
+compare hashes with `===` or `==`. For any other secret comparison (API keys,
+tokens) use `crypto.timingSafeEqual`.
 
-Detect Abuse
+## Rehash on login when parameters change
 
-↓
-
-Respond Securely
-
-↓
-
-Continuously Improve
-
-Identity should always be verified before trust is granted.
-
----
-
-# Primary Objective
-
-Every authentication system should maximize
-
-Identity Assurance
-
-+
-
-Confidentiality
-
-+
-
-Reliability
-
-+
-
-Availability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-User Trust
-
-+
-
-Long-Term Sustainability
-
-Authentication should establish trust before any protected operation begins.
+Store the full encoded hash string (`$argon2id$v=19$m=19456,t=2,p=1$...`), which
+carries its own parameters. On successful login, if the stored parameters are
+weaker than current policy, rehash the plaintext you already have in memory and
+update the row. This is the only moment the plaintext is available.
 
 ---
 
-# Engineering Principles
+# Password policy
 
-Always prioritize
-
-Identity Verification
-
-↓
-
-Least Trust
-
-↓
-
-Credential Protection
-
-↓
-
-Secure Sessions
-
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Validation
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Authentication should never rely on assumptions.
+- **Minimum 8 characters. Maximum at least 64.** A low maximum is a strong signal
+  the password is being stored in a fixed-width column, unhashed.
+- **Accept every Unicode character**, including spaces and emoji. Normalise to
+  `NFKC` before hashing so the same typed password verifies across platforms.
+- **Check against a breach corpus** (Have I Been Pwned range API, or a local
+  copy). Rejecting known-breached passwords prevents more account takeover than
+  any composition rule.
+- **No composition rules.** Do not require a symbol, a digit and mixed case.
+  They push users toward `Password1!` and provide no measurable benefit.
+- **No forced rotation** on a schedule. Rotate on evidence of compromise only.
 
 ---
 
-# Authentication Engineering Lifecycle
+# Sessions
 
-Identify Users
+## Prefer opaque server-side sessions
 
-↓
+A random session identifier in a cookie, with state held server-side, is the
+default. It can be revoked instantly. Use `JWT` only when statelessness is a
+real requirement — and then read `Security/jwt` for its failure modes.
 
-Design Identity Model
+```
+Set-Cookie: sid=<128-bit random>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=1209600
+```
 
-↓
+Every attribute above is load-bearing:
 
-Protect Credentials
+| Attribute | Prevents |
+| --- | --- |
+| `HttpOnly` | Token theft via XSS — JavaScript cannot read the cookie |
+| `Secure` | Transmission over plaintext HTTP |
+| `SameSite=Lax` | Most CSRF, while keeping top-level navigation logins working |
+| `Path=/` | Scope confusion across sub-applications |
 
-↓
+**Never store a session token in `localStorage`.** It is readable by any script
+on the page, which converts any XSS into full account takeover. This is the most
+common authentication mistake in single-page applications.
 
-Verify Identity
+Generate identifiers with a CSPRNG — `crypto.randomBytes(32)`, not
+`Math.random()`, not a timestamp, not a UUIDv1 (which encodes MAC and time).
 
-↓
+## Rotate on privilege change
 
-Establish Sessions
+Issue a **new** session identifier on login, on logout, and on any privilege
+elevation. Reusing the pre-login identifier is session fixation: an attacker who
+plants a known identifier before login holds a valid session after it.
 
-↓
+## Expire on two clocks
 
-Monitor Activity
+Enforce both an **idle timeout** and an **absolute lifetime**. Idle timeout alone
+lets a stolen token live indefinitely under automated use.
 
-↓
+## Logout must destroy server-side state
 
-Respond to Threats
-
-↓
-
-Continuously Improve
-
-Authentication is a continuous process—not a single login event.
-
----
-
-# Stage 1 — Identity Analysis
-
-Understand
-
-Users
-
-↓
-
-Applications
-
-↓
-
-Services
-
-↓
-
-Devices
-
-↓
-
-Administrative Accounts
-
-↓
-
-Machine Accounts
-
-↓
-
-External Providers
-
-↓
-
-Future Growth
-
-Every identity requires a defined trust level.
+Clearing the cookie is not logout. Delete the session record. Otherwise a
+captured token remains valid until natural expiry.
 
 ---
 
-# Stage 2 — Authentication Requirements
+# Login flow
 
-Define
+## Fail identically for every cause
 
-Business Requirements
+```
+# Correct — one message, one status, one timing profile
+401  "Invalid email or password."
+```
 
-↓
+Never distinguish "no such user" from "wrong password", in the body, the status
+code, or the response time. Any difference is a user-enumeration oracle. Where
+the code paths differ in cost, perform a dummy KDF verification against a fixed
+hash so both branches take comparable time.
 
-Security Requirements
+Apply the same rule to password reset and signup: **"If that address exists, we
+have sent a link"** — always, regardless.
 
-↓
+## Rate limit on two keys
 
-Compliance
+Limit per-account and per-IP independently. Per-IP alone does not stop a
+distributed credential-stuffing run against one account; per-account alone lets
+one IP spray many accounts.
 
-↓
+Prefer exponential backoff or a temporary lock over a permanent one — a
+permanent lock triggered by failed attempts is a denial-of-service primitive
+against your own users.
 
-Availability
+## Multi-factor
 
-↓
+Offer TOTP (`RFC 6238`) or WebAuthn. **Prefer WebAuthn** — it is phishing-resistant
+because the credential is bound to the origin.
 
-Recovery
-
-↓
-
-Scalability
-
-↓
-
-User Experience
-
-↓
-
-Operational Constraints
-
-Authentication should satisfy both business and security objectives.
-
----
-
-# Stage 3 — Threat Analysis
-
-Identify
-
-Credential Theft
-
-↓
-
-Password Guessing
-
-↓
-
-Brute Force
-
-↓
-
-Credential Stuffing
-
-↓
-
-Session Hijacking
-
-↓
-
-Phishing
-
-↓
-
-Social Engineering
-
-↓
-
-Identity Abuse
-
-Authentication begins by understanding attacks.
+- SMS is a weak factor (SIM swap). Offer it only as a fallback, never as the only
+  option.
+- Verify TOTP against a **±1 step** window, no wider.
+- **Burn each TOTP code once.** Without single-use enforcement, a code is replayable
+  for its full validity window.
+- Generate single-use recovery codes at enrolment and hash them like passwords.
 
 ---
 
-# Stage 4 — Identity Architecture
+# Password reset
 
-Design
-
-Identity Store
-
-↓
-
-Credential Management
-
-↓
-
-Verification Flow
-
-↓
-
-Trust Boundaries
-
-↓
-
-Session Lifecycle
-
-↓
-
-Recovery Process
-
-↓
-
-Monitoring
-
-↓
-
-Future Expansion
-
-Identity architecture determines long-term security.
+- Tokens must be **single-use**, **short-lived** (≤ 60 minutes), and CSPRNG-generated.
+- **Store the hash of the reset token**, not the token. A leaked database must not
+  yield working reset links.
+- Invalidate all existing sessions on password change, except optionally the one
+  performing the change.
+- Never send the new or existing password by email.
 
 ---
 
-# Stage 5 — Authentication Strategy
+# Anti-patterns
 
-Define
-
-Single-Factor Authentication
-
-↓
-
-Multi-Factor Authentication
-
-↓
-
-Passwordless Authentication
-
-↓
-
-Federated Identity
-
-↓
-
-Machine Authentication
-
-↓
-
-Risk-Based Authentication
-
-↓
-
-Recovery Strategy
-
-↓
-
-Operational Limits
-
-Authentication should match organizational risk.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `sha256(password + salt)` | GPU-fast; billions of guesses per second | `argon2id` |
+| Session token in `localStorage` | Any XSS becomes account takeover | `HttpOnly` cookie |
+| "User not found" vs "wrong password" | User-enumeration oracle | One identical failure response |
+| Reusing the session id after login | Session fixation | Rotate on every privilege change |
+| Reset token stored in plaintext | DB leak yields working reset links | Store its hash |
+| `Math.random()` for tokens | Predictable; not a CSPRNG | `crypto.randomBytes(32)` |
+| Max password length of 16 | Implies storage, not hashing | Accept ≥ 64 characters |
+| Forced 90-day rotation | Drives predictable increments | Rotate on compromise only |
 
 ---
 
-# Stage 6 — Credential Protection
-
-Protect
-
-Passwords
-
-↓
-
-Secrets
-
-↓
-
-Tokens
-
-↓
-
-Private Keys
-
-↓
-
-Recovery Codes
-
-↓
-
-Verification Data
-
-↓
-
-Storage
-
-↓
-
-Transmission
-
-Credentials should never become unnecessary attack targets.
-
----
-
-# Stage 7 — Identity Verification
-
-Validate
-
-Credentials
-
-↓
-
-Additional Factors
-
-↓
-
-Risk Signals
-
-↓
-
-Device Trust
-
-↓
-
-Session Integrity
-
-↓
-
-Business Rules
-
-↓
-
-Operational Policies
-
-↓
-
-Engineering Quality
-
-Verification should establish confidence before access.
-
----
-
-# Stage 8 — Authentication Measurement
-
-Measure
-
-Login Success
-
-↓
-
-Login Failure
-
-↓
-
-Authentication Latency
-
-↓
-
-Failed Attempts
-
-↓
-
-Recovery Events
-
-↓
-
-Suspicious Activity
-
-↓
-
-User Experience
-
-↓
-
-Operational Stability
-
-Authentication quality should remain measurable.
-
----
-
-# Stage 9 — Attack Detection
-
-Identify
-
-Repeated Failures
-
-↓
-
-Credential Abuse
-
-↓
-
-Account Enumeration
-
-↓
-
-Automation
-
-↓
-
-Session Abuse
-
-↓
-
-Token Abuse
-
-↓
-
-Geographic Anomalies
-
-↓
-
-Operational Threats
-
-Detection should identify attacks before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Identity Boundaries
-
-↓
-
-Authentication Flow
-
-↓
-
-Trust Relationships
-
-↓
-
-Session Architecture
-
-↓
-
-Recovery Design
-
-↓
-
-Monitoring
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Authentication architecture should remain understandable.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-High Login Volume
-
-↓
-
-Distributed Services
-
-↓
-
-Multiple Regions
-
-↓
-
-Identity Providers
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Authentication should scale without reducing security.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Availability
-
-↓
-
-Session Reliability
-
-↓
-
-Recovery
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Handling
-
-↓
-
-Identity Consistency
-
-↓
-
-Monitoring
-
-↓
-
-Engineering Quality
-
-Reliable authentication preserves user trust.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Identity Model
-
-↓
-
-Authentication Flow
-
-↓
-
-Trust Boundaries
-
-↓
-
-Recovery Process
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves authentication knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Credential Risks
-
-↓
-
-Session Risks
-
-↓
-
-Recovery Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Business Risks
-
-↓
-
-Emerging Threats
-
-↓
-
-Technical Debt
-
-Authentication risks continuously evolve.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-User Experience
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every authentication decision introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Identity Verification
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Operational Readiness
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-Authentication requires continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Authentication Summary
-
-↓
-
-Risk Assessment
-
-↓
-
-Threat Analysis
-
-↓
-
-Performance Metrics
-
-↓
-
-Operational Health
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports improve engineering decisions.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Configuration
-
-↓
-
-Credential Storage
-
-↓
-
-Monitoring
-
-↓
-
-Logging
-
-↓
-
-Recovery
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Authentication should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Authentication Standards
-
-↓
-
-Identity Reviews
-
-↓
-
-Security Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Authentication quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Identity Verification
-
-↓
-
-Credential Protection
-
-↓
-
-Threat Detection
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional authentication continuously strengthens identity assurance while preserving usability and engineering simplicity.
-
----
-
-# Authentication Quality Attributes
-
-Evaluate
-
-Identity Assurance
-
-Confidentiality
-
-Reliability
-
-Availability
-
-Scalability
-
-Maintainability
-
-Observability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Has every identity been clearly defined?
-
-↓
-
-Can every authentication decision be justified by measurable risk reduction?
-
-↓
-
-Are credentials protected throughout their lifecycle?
-
-↓
-
-Can authentication failures be safely handled?
-
-↓
-
-Will future engineers understand these authentication decisions?
-
-↓
-
-Can the authentication architecture scale securely?
-
-↓
-
-Would experienced Security Engineers, Staff Engineers, Principal Engineers, Identity Architects, and Engineering Leadership confidently approve this authentication design?
-
----
-
-# Severity Levels
-
-Critical
-
-Authentication bypass
-
-Identity compromise
-
-Credential disclosure
-
-Complete account takeover
-
-Major
-
-Weak credential protection
-
-Session weaknesses
-
-Brute-force exposure
-
-Authentication failures
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Authentication Checklist
-
-✓ Identity model defined
-
-✓ Authentication requirements established
-
-✓ Threats analyzed
-
-✓ Identity architecture designed
-
-✓ Authentication strategy selected
-
-✓ Credentials protected
-
-✓ Identity verified
-
-✓ Authentication measured
-
-✓ Attacks monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Trusting unauthenticated requests
-
-Weak credential protection
-
-Hardcoded credentials
-
-Plain-text password storage
-
-Permanent sessions
-
-Predictable recovery mechanisms
-
-Ignoring failed login monitoring
-
-Authentication without rate limiting
-
-Implicit trust between systems
-
-Treating authentication as authorization
-
-Ignoring session lifecycle
-
-Optimizing convenience over identity assurance
-
----
-
-# Definition of Done
-
-An authentication system is considered complete when
-
-- Identity models, authentication flows, credential protection mechanisms, verification processes, session lifecycle management, recovery procedures, monitoring capabilities, and operational controls have been systematically designed using secure engineering principles and evidence-based decision making.
-- Authentication reliably verifies users, applications, services, and devices while protecting credentials, minimizing attack opportunities, preventing identity abuse, maintaining operational resilience, and preserving a secure user experience throughout the software lifecycle.
-- Authentication architecture supports scalable growth, distributed systems, reliable recovery, maintainable engineering practices, continuous monitoring, sustainable governance, operational excellence, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate identity verification, credential protection, architectural consistency, documentation quality, maintainability, scalability, production readiness, operational resilience, and long-term engineering sustainability before deployment.
-- Documentation clearly explains identity architecture, authentication flows, trust boundaries, engineering rationale, credential lifecycle, recovery strategies, validation evidence, governance expectations, operational procedures, and future authentication improvements.
-- Authentication decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving software architectures, infrastructure platforms, identity providers, and future authentication technologies.
-- The resulting authentication system demonstrates engineering discipline, strong identity assurance, secure credential management, resilient architecture, predictable operational behavior, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional authentication is not measured by how many login methods are supported.
-
-It is measured by how reliably software verifies identity, protects credentials, prevents unauthorized access, withstands evolving threats, preserves user trust, and continuously delivers secure, maintainable, and resilient authentication throughout the lifetime of the software.
+# Checklist
+
+- [ ] Passwords hashed with `argon2id` (`m=19456, t=2, p=1`) or an approved alternative
+- [ ] No bare `md5` / `sha1` / `sha256` anywhere in the credential path
+- [ ] Verification uses the library comparator, never `===`
+- [ ] Hashes upgraded on login when parameters are below policy
+- [ ] Maximum password length ≥ 64; all Unicode accepted; `NFKC` normalised
+- [ ] Candidate passwords checked against a breach corpus
+- [ ] Session cookie carries `HttpOnly`, `Secure`, `SameSite`
+- [ ] No session token in `localStorage` or `sessionStorage`
+- [ ] Session identifier rotated on login, logout and privilege change
+- [ ] Both idle and absolute session expiry enforced
+- [ ] Logout deletes server-side session state
+- [ ] Login, signup and reset return identical responses for unknown accounts
+- [ ] Rate limiting keyed on both account and IP
+- [ ] Reset tokens single-use, ≤ 60 minutes, stored hashed
+- [ ] All sessions invalidated on password change
+- [ ] MFA available; WebAuthn preferred; TOTP codes single-use

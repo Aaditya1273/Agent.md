@@ -5,1143 +5,198 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: folder-structure
+category: Frontend
+description: Organising a frontend codebase — colocation by feature, import boundaries enforced by tooling, naming, and the shared layer that becomes a dumping ground.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# folder-structure.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, architectural standards, module organization strategies, ownership boundaries, scalability guidelines, and long-term best practices for organizing frontend codebases.
+Rules for laying out a frontend codebase. Structure is a communication tool: it
+tells a new contributor where a change belongs, and it makes an accidental
+dependency visible in a diff.
 
-It applies to
-
-- React Applications
-- Next.js Applications
-- Enterprise Platforms
-- SaaS Products
-- AI Applications
-- Design Systems
-- Component Libraries
-- Monorepos
-- Production Web Applications
-
-Folder structure is not about creating directories.
-
-Folder structure is the architectural organization of software into logical, discoverable, maintainable, and scalable modules that reflect the business domain rather than technical implementation.
-
-Directories organize files.
-
-Architecture organizes knowledge.
+The single decision that matters: **organise by feature, not by file type.**
 
 ---
 
-# Core Philosophy
+# Colocate by feature
 
-Understand the Domain
+```
+src/
+  features/
+    orders/
+      components/OrderTable.tsx
+      hooks/useOrders.ts
+      api/orders.ts
+      schemas.ts
+      types.ts
+      index.ts              # the public surface of this feature
+    checkout/
+    auth/
+  shared/
+    ui/                     # Button, Input — no feature knowledge
+    lib/                    # formatMoney, cn — pure utilities
+    hooks/                  # useDebouncedValue — generic
+  app/                      # routes, layouts, providers
+```
 
-↓
+Compare with organising by type (`components/`, `hooks/`, `utils/` at the top
+level): a single feature change touches four distant directories, related files
+are never adjacent, and deleting a feature means hunting through every folder.
 
-Identify Responsibilities
+Colocation means **a feature is one directory**. You can read it, review it, and
+delete it in one place.
 
-↓
-
-Define Module Boundaries
-
-↓
-
-Assign Ownership
-
-↓
-
-Organize by Feature
-
-↓
-
-Reduce Coupling
-
-↓
-
-Review Architecture
-
-↓
-
-Continuously Improve
-
-Projects should be organized around business capabilities rather than framework conventions.
+Test files, styles and stories live beside the component they cover
+(`OrderTable.tsx`, `OrderTable.test.tsx`) — a test in a parallel `__tests__` tree
+is the file most likely to be forgotten when the component moves.
 
 ---
 
-# Primary Objective
+# Enforce the boundaries
 
-Every project structure should maximize
+A structure nobody enforces reverts to a graph within a quarter.
 
-Maintainability
+```js
+// eslint.config.js — features may not import each other's internals
+{
+  rules: {
+    "import/no-restricted-paths": ["error", { zones: [
+      { target: "./src/features/*/!(index.ts)", from: "./src/features", except: ["./index.ts"] },
+      { target: "./src/shared", from: "./src/features" },   // shared must not know features
+    ]}],
+  },
+}
+```
 
-+
+Three rules, all machine-checkable:
 
-Discoverability
+1. **Cross-feature imports go through `index.ts`.** Reaching into
+   `features/orders/hooks/useOrders` from `features/checkout` couples them to an
+   internal path.
+2. **`shared/` never imports from `features/`.** The moment it does, "shared" means
+   "everything", and the dependency graph is a cycle.
+3. **No circular imports** (`eslint-plugin-import` `no-cycle`).
 
-+
-
-Scalability
-
-+
-
-Modularity
-
-+
-
-Consistency
-
-+
-
-Developer Experience
-
-+
-
-Collaboration
-
-+
-
-Long-Term Sustainability
-
-Engineers should understand the project structure without reading implementation details.
+Add `dependency-cruiser` or `eslint-plugin-boundaries` for a stricter layered
+model when the codebase warrants it.
 
 ---
 
-# Engineering Principles
+# Promote to `shared/` on the third use
 
-Always prioritize
+`shared/` is where structure goes to die if anything can enter it.
 
-Business Domains
+- Something used by **one** feature lives in that feature.
+- Used by two? Duplicate it, or leave it where it is. Premature abstraction over
+  two similar-looking cases produces a component with seven boolean props.
+- Used by **three**, with the same meaning? Promote it — and give it its own
+  tests.
 
-↓
+Never create `utils.ts`, `helpers.ts`, `common/` or `misc/`. A name that does not
+say what is inside guarantees unrelated things accumulate there. Name by domain:
+`shared/lib/currency.ts`, `shared/lib/dates.ts`.
 
-Feature Ownership
-
-↓
-
-High Cohesion
-
-↓
-
-Low Coupling
-
-↓
-
-Predictable Organization
-
-↓
-
-Consistency
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Project organization should reflect how the product evolves.
+`shared/ui` holds presentational components with **no** business knowledge. A
+`Button` that knows about orders is not shared.
 
 ---
 
-# Project Organization Lifecycle
+# Naming and imports
 
-Understand Requirements
+| Thing | Convention |
+| --- | --- |
+| Component files | `PascalCase.tsx`, matching the exported component |
+| Hooks | `useThing.ts` — the prefix drives lint rules |
+| Utilities, config | `kebab-case.ts` |
+| Directories | `kebab-case` |
+| Types | `PascalCase`; colocated unless shared |
+| Tests | `Thing.test.tsx` beside the source |
 
-↓
+Pick one export style and hold it: default exports for route/page components
+(frameworks expect them), named exports everywhere else. Named exports refactor
+better and cannot be imported under a different name by mistake.
 
-Model Business Domains
+Use path aliases (`@/features/orders`) rather than `../../../`. Relative paths
+break on every move and hide how far a module is reaching.
 
-↓
+Order imports consistently — external, then aliased internal, then relative —
+enforced by `eslint-plugin-import` so it never appears in a diff.
 
-Define Module Boundaries
+```json
+// tsconfig.json — one alias root keeps imports short and moves cheap
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] }
+  }
+}
+```
 
-↓
-
-Assign Ownership
-
-↓
-
-Organize Features
-
-↓
-
-Review Architecture
-
-↓
-
-Document Decisions
-
-↓
-
-Continuously Improve
-
-Architecture should define folders—not the other way around.
-
----
-
-# Stage 1 — Domain Analysis
-
-Understand
-
-Business Capabilities
-
-↓
-
-Core Features
-
-↓
-
-Supporting Features
-
-↓
-
-Shared Functionality
-
-↓
-
-Infrastructure
-
-↓
-
-External Integrations
-
-↓
-
-Future Expansion
-
-↓
-
-Operational Requirements
-
-Business domains should determine project organization.
+Mirror the alias in the bundler (`vite.config.ts` `resolve.alias`, or webpack
+`resolve.alias`) — TypeScript path mapping affects type checking only, and a
+missing bundler alias produces a build that type-checks and then fails to
+resolve at runtime.
 
 ---
 
-# Stage 2 — Module Boundaries
+# Signals to restructure
 
-Separate
+- A directory with more than ~15 files is usually two features.
+- A file over ~300 lines is usually two files.
+- A "feature" imported by every other feature is infrastructure — move it to
+  `shared/` or `app/`.
+- A cycle between features means one concept has been split across both.
+- A `shared/` directory growing faster than `features/` means the promotion rule
+  is not being applied.
 
-Features
-
-↓
-
-Shared Components
-
-↓
-
-Infrastructure
-
-↓
-
-Utilities
-
-↓
-
-Services
-
-↓
-
-Configuration
-
-↓
-
-Assets
-
-↓
-
-Documentation
-
-Every module should have a clear responsibility.
+Restructure when the signal appears, not on a schedule, and do it as its own
+commit — a move mixed with a behaviour change is unreviewable.
 
 ---
 
-# Stage 3 — Ownership
+# Anti-patterns
 
-Assign
-
-Feature Ownership
-
-↓
-
-Shared Ownership
-
-↓
-
-Infrastructure Ownership
-
-↓
-
-Component Ownership
-
-↓
-
-Review Responsibility
-
-↓
-
-Documentation Ownership
-
-↓
-
-Maintenance Responsibility
-
-↓
-
-Governance
-
-Every directory should have a clear owner.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Top-level `components/`, `hooks/`, `utils/` | One change touches four directories | Organise by feature |
+| Tests in a parallel `__tests__` tree | Forgotten when the source moves | Colocate |
+| Cross-feature deep imports | Couples to internal paths | Import via `index.ts` |
+| `shared/` importing from `features/` | Dependency cycle; "shared" means everything | One-way dependency |
+| Circular imports | Undefined initialisation order; hard to reason about | `no-cycle` lint rule |
+| `utils.ts` / `helpers.ts` / `misc/` | Unrelated code accumulates | Domain-named modules |
+| Promoting to `shared/` on first reuse | Premature abstraction with boolean props | Wait for the third use |
+| Shared components with domain knowledge | Not reusable; drags features along | Keep `shared/ui` presentational |
+| Boundaries documented but not enforced | Reverts to a graph in a quarter | Lint rules in CI |
+| Deep relative imports | Break on every move | Path aliases |
+| Mixed export conventions | Inconsistent imports; refactors miss cases | One rule, linted |
+| Restructuring mixed with behaviour changes | Unreviewable diff | Separate commits |
+| Directories that grow without limit | Hides that it is two concerns | Split at the signal |
 
 ---
 
-# Stage 4 — Feature Organization
-
-Group
-
-Business Features
-
-↓
-
-Related Components
-
-↓
-
-State
-
-↓
-
-Hooks
-
-↓
-
-Services
-
-↓
-
-Tests
-
-↓
-
-Documentation
-
-↓
-
-Assets
-
-Everything required by a feature should live close together whenever practical.
-
----
-
-# Stage 5 — Shared Resources
-
-Centralize
-
-Reusable Components
-
-↓
-
-Utilities
-
-↓
-
-Design System
-
-↓
-
-Configuration
-
-↓
-
-Constants
-
-↓
-
-Shared Hooks
-
-↓
-
-Shared Services
-
-↓
-
-Cross-Cutting Concerns
-
-Shared resources should remain stable and framework-independent whenever possible.
-
----
-
-# Stage 6 — Dependency Direction
-
-Maintain
-
-Feature Isolation
-
-↓
-
-Explicit Imports
-
-↓
-
-Stable APIs
-
-↓
-
-Minimal Dependencies
-
-↓
-
-Shared Contracts
-
-↓
-
-Layer Separation
-
-↓
-
-Architecture Boundaries
-
-↓
-
-Predictability
-
-Dependencies should always flow in one understandable direction.
-
----
-
-# Stage 7 — Naming Standards
-
-Define
-
-Directory Names
-
-↓
-
-Module Names
-
-↓
-
-Feature Names
-
-↓
-
-Shared Resources
-
-↓
-
-Infrastructure
-
-↓
-
-Documentation
-
-↓
-
-Consistency
-
-↓
-
-Clarity
-
-Names should describe business intent rather than implementation details.
-
----
-
-# Stage 8 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-Growing Codebases
-
-↓
-
-Independent Modules
-
-↓
-
-Large Repositories
-
-↓
-
-Monorepos
-
-↓
-
-Platform Expansion
-
-↓
-
-Future Evolution
-
-Organization should support growth without restructuring.
-
----
-
-# Stage 9 — Reusability
-
-Encourage
-
-Independent Features
-
-↓
-
-Shared Components
-
-↓
-
-Composable Modules
-
-↓
-
-Reusable Utilities
-
-↓
-
-Design System
-
-↓
-
-Cross-Project Libraries
-
-↓
-
-Consistent Interfaces
-
-↓
-
-Maintainability
-
-Reuse should emerge naturally from good architecture.
-
----
-
-# Stage 10 — Testing Organization
-
-Organize
-
-Feature Tests
-
-↓
-
-Component Tests
-
-↓
-
-Integration Tests
-
-↓
-
-Utilities
-
-↓
-
-Fixtures
-
-↓
-
-Mocks
-
-↓
-
-Shared Helpers
-
-↓
-
-Documentation
-
-Testing structure should mirror production architecture.
-
----
-
-# Stage 11 — Documentation
-
-Maintain
-
-Architecture Guides
-
-↓
-
-Feature Documentation
-
-↓
-
-Ownership
-
-↓
-
-Module Boundaries
-
-↓
-
-Known Constraints
-
-↓
-
-Trade-Offs
-
-↓
-
-Decision Records
-
-↓
-
-Future Improvements
-
-Documentation preserves organizational intent.
-
----
-
-# Stage 12 — Configuration
-
-Separate
-
-Application Settings
-
-↓
-
-Environment Configuration
-
-↓
-
-Build Configuration
-
-↓
-
-Tooling
-
-↓
-
-Infrastructure
-
-↓
-
-Developer Utilities
-
-↓
-
-Automation
-
-↓
-
-Operational Settings
-
-Configuration should remain isolated from business logic.
-
----
-
-# Stage 13 — Repository Consistency
-
-Maintain
-
-Import Conventions
-
-↓
-
-Naming Standards
-
-↓
-
-Directory Rules
-
-↓
-
-Ownership Rules
-
-↓
-
-Review Standards
-
-↓
-
-Documentation
-
-↓
-
-Architecture Consistency
-
-↓
-
-Engineering Discipline
-
-Consistency reduces cognitive load.
-
----
-
-# Stage 14 — Code Reviews
-
-Review
-
-Organization
-
-↓
-
-Dependencies
-
-↓
-
-Module Boundaries
-
-↓
-
-Ownership
-
-↓
-
-Naming
-
-↓
-
-Maintainability
-
-↓
-
-Architecture
-
-↓
-
-Engineering Standards
-
-Project organization deserves architectural review.
-
----
-
-# Stage 15 — Risk Assessment
-
-Evaluate
-
-Circular Dependencies
-
-↓
-
-Large Modules
-
-↓
-
-Architecture Drift
-
-↓
-
-Duplicated Functionality
-
-↓
-
-Weak Ownership
-
-↓
-
-Technical Debt
-
-↓
-
-Maintenance Cost
-
-↓
-
-Operational Risk
-
-Poor organization compounds over time.
-
----
-
-# Stage 16 — Continuous Optimization
-
-Continuously improve
-
-Architecture
-
-↓
-
-Organization
-
-↓
-
-Dependencies
-
-↓
-
-Developer Experience
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Refactor structure before complexity becomes permanent.
-
----
-
-# Stage 17 — Production Readiness
-
-Validate
-
-Module Boundaries
-
-↓
-
-Dependencies
-
-↓
-
-Ownership
-
-↓
-
-Consistency
-
-↓
-
-Documentation
-
-↓
-
-Maintainability
-
-↓
-
-Operational Stability
-
-↓
-
-Engineering Quality
-
-A maintainable repository supports reliable delivery.
-
----
-
-# Stage 18 — Governance
-
-Maintain
-
-Architecture Standards
-
-↓
-
-Ownership Rules
-
-↓
-
-Directory Conventions
-
-↓
-
-Review Process
-
-↓
-
-Documentation
-
-↓
-
-Version Management
-
-↓
-
-Engineering Discipline
-
-↓
-
-Continuous Evolution
-
-Repository organization requires long-term governance.
-
----
-
-# Stage 19 — Knowledge Preservation
-
-Preserve
-
-Architecture Decisions
-
-↓
-
-Module Purpose
-
-↓
-
-Ownership History
-
-↓
-
-Trade-Offs
-
-↓
-
-Documentation
-
-↓
-
-Review Outcomes
-
-↓
-
-Future Plans
-
-↓
-
-Engineering Knowledge
-
-Good organization preserves institutional knowledge.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Project Organization
-
-↓
-
-Architecture
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-Software Longevity
-
-Exceptional repositories remain understandable regardless of their size.
-
----
-
-# Folder Structure Quality Attributes
-
-Evaluate
-
-Maintainability
-
-Discoverability
-
-Modularity
-
-Consistency
-
-Scalability
-
-Developer Experience
-
-Knowledge Preservation
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does the project organization reflect the business domain?
-
-↓
-
-Can new engineers locate features without extensive documentation?
-
-↓
-
-Are module responsibilities clearly separated?
-
-↓
-
-Are dependencies predictable?
-
-↓
-
-Can new features be added without reorganizing the repository?
-
-↓
-
-Will this structure still work when the project becomes ten times larger?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this repository architecture?
-
----
-
-# Severity Levels
-
-Critical
-
-Circular dependencies
-
-Architecture violations
-
-Broken module boundaries
-
-Repository-wide coupling
-
-Major
-
-Poor feature organization
-
-Weak ownership
-
-Large shared modules
-
-Inconsistent dependency flow
-
-Medium
-
-Documentation gaps
-
-Naming inconsistencies
-
-Weak organization
-
-Minor
-
-Formatting
-
-Metadata
-
-Comments
-
-Repository consistency
-
----
-
-# Folder Structure Checklist
-
-✓ Business domains identified
-
-✓ Module boundaries established
-
-✓ Ownership assigned
-
-✓ Features organized
-
-✓ Shared resources centralized
-
-✓ Dependency direction validated
-
-✓ Naming standards defined
-
-✓ Scalability reviewed
-
-✓ Reusability considered
-
-✓ Testing organization aligned
-
-✓ Documentation updated
-
-✓ Configuration isolated
-
-✓ Repository consistency enforced
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Knowledge preserved
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Organizing purely by file type
-
-Framework-driven architecture
-
-Deep directory nesting
-
-Large "shared" folders with unrelated code
-
-Circular dependencies
-
-Cross-feature imports without boundaries
-
-God modules
-
-Duplicated utilities
-
-Poor ownership
-
-Mixed responsibilities
-
-Frequent repository restructuring
-
-Implementation-driven naming
-
-Treating folders as architecture
-
----
-
-# Definition of Done
-
-A project organization is considered production-ready when
-
-- Every directory represents a clearly defined business capability, architectural layer, or shared responsibility with explicit ownership, predictable boundaries, and minimal coupling to unrelated modules.
-- Features, shared resources, infrastructure, configuration, documentation, testing, and supporting utilities are organized according to architectural responsibilities rather than framework conventions or implementation details.
-- Dependency relationships remain intentional, directional, and understandable, allowing engineers to extend features, replace implementations, and evolve the system without introducing structural instability.
-- Repository organization supports parallel development, independent feature ownership, scalable collaboration, efficient onboarding, architectural consistency, and long-term maintainability across teams and releases.
-- Engineering reviews validate module boundaries, ownership models, dependency flow, organizational consistency, documentation quality, scalability, maintainability, and operational readiness before production deployment.
-- Documentation preserves repository architecture through clearly defined ownership rules, module responsibilities, organizational standards, architectural decisions, known constraints, trade-offs, and future evolution strategies.
-- The resulting repository demonstrates engineering discipline, architectural clarity, modularity, maintainability, scalability, developer productivity, knowledge preservation, and long-term software sustainability.
-
-Exceptional project structures are not measured by how many folders they contain.
-
-They are measured by how naturally they reflect the business domain, how clearly they communicate ownership and responsibility, how safely they support continuous evolution, and how confidently future engineers can expand the system while preserving architectural integrity.
+# Checklist
+
+- [ ] Code is organised by feature, not by file type
+- [ ] Each feature directory contains its components, hooks, API and schemas
+- [ ] Tests, styles and stories are colocated with their source
+- [ ] Each feature exposes a public surface through `index.ts`
+- [ ] Cross-feature imports go through that surface only, enforced by lint
+- [ ] `shared/` never imports from `features/`
+- [ ] Circular imports are blocked in CI
+- [ ] Code is promoted to `shared/` only on the third genuine use
+- [ ] No `utils`, `helpers`, `common` or `misc` modules exist
+- [ ] `shared/ui` components carry no business knowledge
+- [ ] Naming conventions are consistent and linted
+- [ ] Export style is consistent across the codebase
+- [ ] Path aliases replace deep relative imports
+- [ ] Import order is enforced automatically
+- [ ] Restructuring lands as its own commit

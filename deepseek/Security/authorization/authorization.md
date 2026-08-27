@@ -5,1139 +5,186 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: authorization
+category: Security
+description: Deciding what an authenticated user may do — enforcing at the data layer, preventing IDOR, and modelling roles without permission sprawl.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# authorization.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, authorization methodologies, access control frameworks, permission management strategies, policy enforcement practices, and long-term best practices for designing secure, scalable, maintainable, and production-ready authorization systems.
+Rules for enforcing what a user may do once you know who they are. Establishing
+identity is `Security/authentication`.
 
-It applies to
-
-- Web Applications
-- APIs
-- SaaS Platforms
-- Enterprise Applications
-- Cloud Platforms
-- Microservices
-- Mobile Backends
-- Developer Platforms
-- Production Software
-
-Authorization is not determining who a user is.
-
-Authorization is the engineering discipline of determining what authenticated identities are permitted to access, modify, execute, or administer while enforcing least privilege, protecting business assets, and maintaining security, scalability, and operational simplicity.
-
-Authorization answers one question:
-
-**What is this authenticated identity allowed to do?**
+The rule underneath everything: **authorise the object, not the route.** Most
+real-world breaches are not missing login — they are a logged-in user reaching an
+object that belongs to someone else.
 
 ---
 
-# Core Philosophy
+# Enforce on every request, at the data layer
 
-Verify Identity
+Authorisation belongs where the data is fetched, not in the UI and not only in a
+middleware that guards a URL pattern.
 
-↓
+```js
+// WRONG — the check is on the route, the query is not scoped
+if (!req.user) return res.status(401).end();
+const invoice = await db.invoice.findUnique({ where: { id: req.params.id } });
 
-Determine Permissions
+// RIGHT — ownership is part of the query, so a miss is a miss
+const invoice = await db.invoice.findFirst({
+  where: { id: req.params.id, organisationId: req.user.organisationId },
+});
+if (!invoice) return res.status(404).end();
+```
 
-↓
+Scoping the query makes the safe path the default one. A developer who forgets a
+check gets no rows rather than someone else's data.
 
-Enforce Least Privilege
+**Never** rely on the client to enforce anything. A hidden button, a disabled
+field and an unrendered route are user-interface conveniences. Every one is
+reachable with `curl`.
 
-↓
-
-Validate Every Request
-
-↓
-
-Protect Resources
-
-↓
-
-Monitor Access
-
-↓
-
-Detect Abuse
-
-↓
-
-Continuously Improve
-
-Trust should never extend beyond explicitly granted permissions.
+**Never** authorise on an identifier supplied by the client — `?organisationId=`,
+`X-Tenant-Id`, or a `role` field in the request body. Derive the subject's scope
+from the **session**, always.
 
 ---
 
-# Primary Objective
+# IDOR — the most common failure
 
-Every authorization system should maximize
+Insecure Direct Object Reference: the user changes an identifier and reaches
+another user's record.
 
-Least Privilege
-
-+
-
-Integrity
-
-+
-
-Confidentiality
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Scalability
-
-+
-
-Auditability
-
-+
-
-Long-Term Sustainability
-
-Authorization should grant only the minimum permissions necessary to accomplish legitimate work.
+- Check ownership **on every operation**, including read, update, delete, export,
+  and every nested resource. `/invoices/42/attachments/7` needs the attachment
+  checked too, not just the invoice.
+- Apply it to **bulk operations**. `POST /invoices/delete` with a list of ids must
+  verify every element, not the first.
+- **Return `404`, not `403`**, for objects the user may not see. `403` confirms
+  the object exists, which is an enumeration oracle.
+- Random identifiers (UUIDv4, ULID) reduce guessability. They are **not**
+  authorisation — an identifier that leaks in a URL, a log, or a shared link is
+  still reachable.
 
 ---
 
-# Engineering Principles
+# Modelling permissions
 
-Always prioritize
+Start simple and add structure only when it earns its place.
 
-Explicit Authorization
+| Model | Fits | Cost |
+| --- | --- | --- |
+| Ownership check | Single-tenant, user-owned records | Trivial |
+| **RBAC** — roles hold permissions | Most applications | Low; roles proliferate over time |
+| **ReBAC** — relationship graph | Sharing, nesting, "documents in folders" | Needs a dedicated service |
+| **ABAC** — attribute policy | Compliance, time and location rules | Hardest to reason about and test |
 
-↓
+Check **permissions, not roles**, at the call site:
 
-Least Privilege
+```js
+// Fragile — every new role needs every call site edited
+if (user.role === "admin" || user.role === "owner") { … }
 
-↓
+// Durable — roles map to permissions in one place
+if (!can(user, "invoice:delete", invoice)) return res.status(404).end();
+```
 
-Default Deny
+```js
+// One place maps roles to permissions, so adding a role never edits a call site.
+const GRANTS = {
+  viewer: ["invoice:read"],
+  member: ["invoice:read", "invoice:create"],
+  admin:  ["invoice:read", "invoice:create", "invoice:delete", "member:invite"],
+};
 
-↓
+function can(user, permission, resource) {
+  if (!GRANTS[user.role]?.includes(permission)) return false;
+  // Role is necessary but never sufficient — the object must also be in scope.
+  return resource.organisationId === user.organisationId;
+}
+```
 
-Policy Consistency
+Principles that hold across all models:
 
-↓
-
-Defense in Depth
-
-↓
-
-Continuous Validation
-
-↓
-
-Operational Simplicity
-
-↓
-
-Continuous Improvement
-
-Every protected resource should require explicit authorization.
-
----
-
-# Authorization Engineering Lifecycle
-
-Identify Resources
-
-↓
-
-Identify Identities
-
-↓
-
-Define Permissions
-
-↓
-
-Design Policies
-
-↓
-
-Enforce Authorization
-
-↓
-
-Validate Decisions
-
-↓
-
-Monitor Access
-
-↓
-
-Continuously Improve
-
-Authorization is enforced on every protected operation.
+- **Deny by default.** An endpoint with no explicit rule must refuse, not allow.
+  Enumerate permitted actions, never forbidden ones.
+- **Least privilege.** Grant the narrowest permission that works, including for
+  service accounts and background jobs.
+- **Re-evaluate on privilege change.** Roles cached in a session or JWT are stale
+  the moment an admin revokes them — see the revocation section of `Security/jwt`.
 
 ---
 
-# Stage 1 — Resource Analysis
+# Multi-tenancy
 
-Identify
+- Put the tenant identifier in **every** table and **every** query. A single
+  unscoped `findMany` is a cross-tenant leak.
+- Prefer enforcement the application cannot forget: PostgreSQL **row-level
+  security** with a session variable, or a repository layer that refuses an
+  unscoped query.
+```sql
+-- PostgreSQL row-level security: the database refuses cross-tenant reads even
+-- if an application query forgets its WHERE clause.
+ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 
-Business Resources
+CREATE POLICY tenant_isolation ON invoices
+  USING (organisation_id = current_setting('app.organisation_id')::uuid);
+```
 
-↓
-
-Sensitive Data
-
-↓
-
-Administrative Functions
-
-↓
-
-Infrastructure
-
-↓
-
-APIs
-
-↓
-
-Services
-
-↓
-
-Files
-
-↓
-
-Operational Assets
-
-Every protected resource requires ownership and access policies.
+- Test with **two tenants** whose ids differ. A single-tenant test suite passes
+  happily against code that ignores the tenant entirely.
 
 ---
 
-# Stage 2 — Identity Analysis
+# Server-side and privilege escalation
 
-Identify
-
-Users
-
-↓
-
-Roles
-
-↓
-
-Groups
-
-↓
-
-Applications
-
-↓
-
-Services
-
-↓
-
-Devices
-
-↓
-
-External Partners
-
-↓
-
-Administrative Accounts
-
-Every identity requires clearly defined permissions.
+- **Never** accept `role`, `isAdmin`, `plan` or `permissions` from a request body.
+  Mass-assignment of these fields is direct privilege escalation. Allow-list the
+  fields a user may update.
+- **Never** expose an admin action on a route distinguished only by obscurity.
+  `/admin/*` needs the same object-level checks as everything else.
+- Re-check authorisation **after** any state transition — a user who was an owner
+  when the request started may not be by the time it commits.
+- Log authorisation **denials** with subject, object and action. A spike is either
+  an attack or a broken deployment, and you want to know which.
 
 ---
 
-# Stage 3 — Permission Analysis
+# Anti-patterns
 
-Define
-
-Read
-
-↓
-
-Write
-
-↓
-
-Update
-
-↓
-
-Delete
-
-↓
-
-Execute
-
-↓
-
-Administrative Actions
-
-↓
-
-Delegated Actions
-
-↓
-
-Operational Controls
-
-Permissions should remain explicit and understandable.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Route-level check with an unscoped query | IDOR: any id returns any record | Scope ownership into the query |
+| Hiding the button in the UI | The endpoint is reachable with `curl` | Enforce server-side |
+| Trusting `?organisationId=` from the client | Attacker chooses their own scope | Derive scope from the session |
+| `403` for objects the user cannot see | Confirms existence; enumeration oracle | Return `404` |
+| `if (user.role === "admin")` at call sites | Every new role edits every site | Check named permissions |
+| Allowing `role` in a request body | Direct privilege escalation | Allow-list updatable fields |
+| Checking only the parent resource | Nested objects unchecked | Authorise every level |
+| Bulk endpoint checking the first item | The rest are unauthorised | Verify every element |
+| UUIDs treated as authorisation | Identifiers leak via URLs and logs | Always check ownership |
+| Single-tenant test data | Passes against tenant-blind code | Test with two tenants |
 
 ---
 
-# Stage 4 — Authorization Architecture
-
-Design
-
-Permission Model
-
-↓
-
-Role Model
-
-↓
-
-Policy Engine
-
-↓
-
-Resource Ownership
-
-↓
-
-Trust Boundaries
-
-↓
-
-Delegation
-
-↓
-
-Inheritance
-
-↓
-
-Future Expansion
-
-Authorization architecture determines long-term maintainability.
-
----
-
-# Stage 5 — Authorization Strategy
-
-Define
-
-Role-Based Access
-
-↓
-
-Attribute-Based Access
-
-↓
-
-Policy-Based Access
-
-↓
-
-Resource Ownership
-
-↓
-
-Context-Aware Access
-
-↓
-
-Temporary Access
-
-↓
-
-Administrative Access
-
-↓
-
-Emergency Access
-
-Authorization strategies should match business requirements.
-
----
-
-# Stage 6 — Policy Enforcement
-
-Implement
-
-Permission Validation
-
-↓
-
-Policy Evaluation
-
-↓
-
-Context Validation
-
-↓
-
-Business Rules
-
-↓
-
-Ownership Verification
-
-↓
-
-Administrative Controls
-
-↓
-
-Operational Policies
-
-↓
-
-Secure Defaults
-
-Authorization decisions should remain deterministic.
-
----
-
-# Stage 7 — Access Validation
-
-Validate
-
-Permission Accuracy
-
-↓
-
-Policy Consistency
-
-↓
-
-Business Rules
-
-↓
-
-Privilege Boundaries
-
-↓
-
-Delegation
-
-↓
-
-Administrative Controls
-
-↓
-
-Operational Policies
-
-↓
-
-Engineering Quality
-
-Authorization should always be verified before access is granted.
-
----
-
-# Stage 8 — Authorization Measurement
-
-Measure
-
-Access Requests
-
-↓
-
-Denied Requests
-
-↓
-
-Permission Changes
-
-↓
-
-Privilege Escalation Attempts
-
-↓
-
-Administrative Actions
-
-↓
-
-Policy Violations
-
-↓
-
-Audit Coverage
-
-↓
-
-Operational Stability
-
-Authorization quality should remain measurable.
-
----
-
-# Stage 9 — Abuse Detection
-
-Identify
-
-Privilege Escalation
-
-↓
-
-Unauthorized Access
-
-↓
-
-Permission Misuse
-
-↓
-
-Administrative Abuse
-
-↓
-
-Policy Violations
-
-↓
-
-Excessive Privileges
-
-↓
-
-Anomalous Activity
-
-↓
-
-Operational Threats
-
-Access monitoring should identify misuse before compromise.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Trust Boundaries
-
-↓
-
-Permission Boundaries
-
-↓
-
-Resource Ownership
-
-↓
-
-Policy Consistency
-
-↓
-
-Delegation
-
-↓
-
-Isolation
-
-↓
-
-Maintainability
-
-↓
-
-Future Evolution
-
-Authorization architecture should remain predictable.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Users
-
-↓
-
-Growing Roles
-
-↓
-
-Growing Resources
-
-↓
-
-Distributed Services
-
-↓
-
-Multiple Organizations
-
-↓
-
-Operational Growth
-
-↓
-
-Future Expansion
-
-↓
-
-Engineering Sustainability
-
-Authorization should scale without increasing complexity.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Policy Consistency
-
-↓
-
-Permission Accuracy
-
-↓
-
-Operational Stability
-
-↓
-
-Failure Handling
-
-↓
-
-Audit Integrity
-
-↓
-
-Monitoring
-
-↓
-
-Recovery
-
-↓
-
-Engineering Quality
-
-Reliable authorization preserves business integrity.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Permission Model
-
-↓
-
-Role Definitions
-
-↓
-
-Policy Rules
-
-↓
-
-Trust Boundaries
-
-↓
-
-Engineering Decisions
-
-↓
-
-Trade-Offs
-
-↓
-
-Operational Standards
-
-↓
-
-Future Improvements
-
-Documentation preserves authorization knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Privilege Escalation
-
-↓
-
-Overprivileged Accounts
-
-↓
-
-Policy Drift
-
-↓
-
-Administrative Risks
-
-↓
-
-Operational Risks
-
-↓
-
-Infrastructure Risks
-
-↓
-
-Business Risks
-
-↓
-
-Technical Debt
-
-Authorization risks evolve continuously.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Security
-
-↓
-
-Usability
-
-↓
-
-Complexity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Operational Cost
-
-↓
-
-Reliability
-
-↓
-
-Future Evolution
-
-Every authorization policy introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Policies
-
-↓
-
-Permission Model
-
-↓
-
-Architecture
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-Authorization requires continuous validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Authorization Summary
-
-↓
-
-Permission Analysis
-
-↓
-
-Policy Coverage
-
-↓
-
-Access Metrics
-
-↓
-
-Risk Assessment
-
-↓
-
-Recommendations
-
-↓
-
-Future Improvements
-
-↓
-
-Lessons Learned
-
-Reports improve long-term governance.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Policies
-
-↓
-
-Permission Assignments
-
-↓
-
-Monitoring
-
-↓
-
-Audit Logging
-
-↓
-
-Incident Response
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-↓
-
-Recovery
-
-Authorization should remain dependable in production.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Authorization Standards
-
-↓
-
-Permission Reviews
-
-↓
-
-Policy Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Monitoring
-
-↓
-
-Knowledge Sharing
-
-↓
-
-Engineering Discipline
-
-Authorization quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Permission Models
-
-↓
-
-Policy Quality
-
-↓
-
-Access Monitoring
-
-↓
-
-Operational Excellence
-
-↓
-
-Reliability
-
-↓
-
-Engineering Discipline
-
-↓
-
-Security Maturity
-
-↓
-
-Software Longevity
-
-Exceptional authorization continuously minimizes unnecessary privileges while preserving operational simplicity and business security.
-
----
-
-# Authorization Quality Attributes
-
-Evaluate
-
-Least Privilege
-
-Integrity
-
-Confidentiality
-
-Reliability
-
-Maintainability
-
-Scalability
-
-Auditability
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Has every protected resource been identified?
-
-↓
-
-Does every permission have a measurable business purpose?
-
-↓
-
-Can privileges be reduced further?
-
-↓
-
-Is every authorization decision explicitly enforced?
-
-↓
-
-Will future engineers understand these authorization policies?
-
-↓
-
-Can the authorization architecture scale securely?
-
-↓
-
-Would experienced Security Engineers, Staff Engineers, Principal Engineers, Identity Architects, and Engineering Leadership confidently approve this authorization design?
-
----
-
-# Severity Levels
-
-Critical
-
-Authorization bypass
-
-Privilege escalation
-
-Administrative compromise
-
-Unauthorized data access
-
-Major
-
-Excessive permissions
-
-Policy failures
-
-Resource exposure
-
-Permission inconsistencies
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Security improvement opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Authorization Checklist
-
-✓ Resources identified
-
-✓ Identities analyzed
-
-✓ Permissions defined
-
-✓ Authorization architecture designed
-
-✓ Strategy selected
-
-✓ Policies enforced
-
-✓ Access validated
-
-✓ Authorization measured
-
-✓ Abuse monitored
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation completed
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reports produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Implicit trust
-
-Default allow
-
-Overprivileged accounts
-
-Shared administrative accounts
-
-Hardcoded permissions
-
-Authorization only in the user interface
-
-Missing resource ownership
-
-Ignoring policy reviews
-
-Permanent elevated privileges
-
-Trusting client-side authorization
-
-Treating roles as permissions
-
-Optimizing convenience over least privilege
-
----
-
-# Definition of Done
-
-An authorization system is considered complete when
-
-- Protected resources, permission models, access policies, trust boundaries, privilege relationships, delegation rules, administrative controls, monitoring capabilities, and governance processes have been systematically designed using evidence-based security engineering principles.
-- Authorization consistently enforces least privilege by validating every protected operation against explicit policies while preventing unauthorized access, privilege escalation, policy inconsistencies, excessive permissions, and operational misuse throughout the software lifecycle.
-- Authorization architecture supports scalable growth, distributed systems, organizational expansion, maintainable engineering practices, reliable policy enforcement, continuous monitoring, operational resilience, sustainable governance, and long-term software evolution without introducing unnecessary complexity or technical debt.
-- Engineering reviews validate permission accuracy, policy consistency, architectural integrity, documentation quality, maintainability, scalability, production readiness, operational resilience, auditability, and long-term engineering sustainability before deployment.
-- Documentation clearly explains permission models, authorization flows, trust boundaries, policy decisions, engineering rationale, governance expectations, operational procedures, validation evidence, trade-offs, and future authorization improvements.
-- Authorization decisions remain implementation-independent, vendor-neutral, measurable, reproducible, evidence-based, and applicable across evolving software architectures, organizational structures, infrastructure platforms, and future access control technologies.
-- The resulting authorization system demonstrates engineering discipline, strong access control, predictable policy enforcement, resilient architecture, comprehensive auditability, operational excellence, maintainability, scalability, continuous observability, and sustainable software security throughout its lifetime.
-
-Exceptional authorization is not measured by how many permissions exist.
-
-It is measured by how precisely software grants only the access required, consistently enforces least privilege, protects business assets, withstands evolving threats, preserves operational simplicity, and continuously delivers secure, maintainable, and resilient access control throughout the lifetime of the software.
+# Checklist
+
+- [ ] Every data access is scoped by owner or tenant in the query itself
+- [ ] No authorisation decision depends on a client-supplied identifier
+- [ ] Nested and bulk operations authorise every object, not just the first
+- [ ] Unauthorised objects return `404`, not `403`
+- [ ] Endpoints deny by default; permitted actions are enumerated
+- [ ] Call sites check named permissions rather than role strings
+- [ ] `role`, `isAdmin` and `permissions` cannot be set from a request body
+- [ ] Cached roles are re-evaluated on privilege change
+- [ ] Multi-tenant queries are enforced structurally (RLS or repository layer)
+- [ ] Tests cover two tenants and a cross-tenant access attempt
+- [ ] Authorisation denials are logged with subject, object and action

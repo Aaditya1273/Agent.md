@@ -5,1137 +5,193 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: queries
+category: Performance
+description: Query performance from the application's side — N+1 elimination, projection, batching, pagination cost, and asserting query counts in tests.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# queries.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, query optimization methodologies, execution analysis strategies, retrieval efficiency practices, workload optimization standards, and long-term best practices for designing fast, reliable, scalable, maintainable, and production-ready database queries.
+Rules for the queries an application issues. Plan reading and index design are
+`Database/query-optimization` and `Database/indexes`; this covers what the code
+does — how many queries, how much data, and how it is shaped.
 
-It applies to
-
-- Web Applications
-- Enterprise Applications
-- SaaS Platforms
-- APIs
-- Microservices
-- Analytics Platforms
-- Reporting Systems
-- Cloud Applications
-- Production Software
-
-Query optimization is not writing shorter SQL.
-
-Query optimization is the engineering discipline of retrieving exactly the required information using the minimum computational work, storage access, memory consumption, and execution time while preserving correctness, scalability, reliability, and maintainability.
-
-Every unnecessary query operation increases system cost.
+The dominant cost in most applications is not a slow query. It is **too many
+queries**, each individually fast.
 
 ---
 
-# Core Philosophy
+# Count queries per request
 
-Understand Business Questions
+```ts
+// One request, 143 queries. Every one is 0.4ms and the endpoint takes 900ms.
+```
 
-↓
+Latency is per round trip. A hundred 0.4 ms queries with 0.5 ms of network each is
+90 ms of pure waiting, and it grows linearly with result size — which testing with
+ten rows never reveals.
 
-Understand Required Data
+Instrument it. Log query count and total query time per request, and put the count
+in the response headers in development:
 
-↓
+```ts
+res.set("Server-Timing", `db;dur=${totalMs};desc="${queryCount} queries"`);
+```
 
-Retrieve Only Necessary Information
+Then **assert** it, so the regression is caught by CI rather than by a customer:
 
-↓
+```ts
+test("the feed endpoint issues a bounded number of queries", async () => {
+  const { queries } = await withQueryCount(() => getFeed(userId));
+  expect(queries.length).toBeLessThan(6);
+});
+```
 
-Minimize Database Work
-
-↓
-
-Optimize Execution
-
-↓
-
-Validate Correctness
-
-↓
-
-Measure Performance
-
-↓
-
-Continuously Improve
-
-Queries should retrieve value rather than process unnecessary data.
+This single test catches almost every N+1 that would otherwise ship. Code review
+does not catch them reliably, because the query is invisible at the call site.
 
 ---
 
-# Primary Objective
+# N+1: the default failure of every ORM
 
-Every query optimization should maximize
+```ts
+// 1 + N queries. The loop is invisible as a performance problem.
+const posts = await db.post.findMany();
+for (const p of posts) p.author = await db.user.findUnique({ where: { id: p.authorId } });
 
-Correctness
+// 1 query
+const posts = await db.post.findMany({ include: { author: true } });
+```
 
-+
+Where an ORM cannot express the join, batch by key:
 
-Efficiency
+```sql
+SELECT * FROM users WHERE id = ANY($1);     -- one round trip, array of ids
+```
 
-+
+In a resolver-based system (GraphQL), the loop is structural — a field resolver
+has no idea it is being called for a hundred parents. Use a per-request DataLoader
+that batches within a tick and deduplicates keys. → `API/graphql`
 
-Scalability
-
-+
-
-Reliability
-
-+
-
-Maintainability
-
-+
-
-Resource Utilization
-
-+
-
-Predictable Performance
-
-+
-
-Long-Term Sustainability
-
-Query optimization should improve production performance rather than benchmark statistics.
+**Never** access a relation inside a loop. That single rule prevents most of this
+class.
 
 ---
 
-# Engineering Principles
+# Ask for less
 
-Always prioritize
+| Habit | Cost |
+| --- | --- |
+| `SELECT *` | Moves columns nobody reads; defeats index-only scans |
+| Hydrating full ORM entities | Allocation and serialisation for unused fields |
+| No `LIMIT` | The result set grows with the table |
+| Aggregating in application code | Every row crosses the wire |
+| Fetching to count | Reads everything to produce one number |
 
-Correctness
+```ts
+// Explicit projection: smaller payload, and the index can cover the query
+const rows = await db.user.findMany({
+  where: { tenantId },
+  select: { id: true, email: true },
+  take: 50,
+});
 
-↓
+// Count in the database
+const total = await db.order.count({ where: { tenantId, status: "paid" } });
+```
 
-Minimal Data Retrieval
-
-↓
-
-Efficient Execution
-
-↓
-
-Predictable Performance
-
-↓
-
-Architectural Simplicity
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-↓
-
-Continuous Improvement
-
-Every query should retrieve only what the business requires.
+Projection is also a security control: a default full-entity fetch that reaches a
+JSON response is how password hashes leak. → `Backend/validation`
 
 ---
 
-# Query Engineering Lifecycle
+# Pagination is a performance decision
 
-Understand Requirements
+`OFFSET 100000` makes the database produce and discard 100,000 rows before
+returning 20. The cost grows with depth, so the deepest pages — usually crawlers
+and exports — are the most expensive requests you serve.
 
-↓
+```sql
+-- Constant cost at any depth
+SELECT * FROM orders
+WHERE tenant_id = $1 AND (created_at, id) < ($2, $3)
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
 
-Analyze Queries
-
-↓
-
-Measure Performance
-
-↓
-
-Identify Bottlenecks
-
-↓
-
-Optimize Execution
-
-↓
-
-Validate Results
-
-↓
-
-Monitor Production
-
-↓
-
-Continuously Improve
-
-Optimization begins with understanding data requirements.
+Also: `COUNT(*)` over a filtered set is a second full scan. Make total counts
+opt-in, or return an estimate. → `API/pagination`
 
 ---
 
-# Stage 1 — Business Requirement Analysis
+# Batch, and do independent work concurrently
 
-Understand
+```ts
+// Sequential — 3 round trips of latency for 3 independent queries
+const user   = await getUser(id);
+const orders = await getOrders(id);
+const prefs  = await getPrefs(id);
 
-Business Objectives
+// One round-trip's worth of latency
+const [user, orders, prefs] = await Promise.all([getUser(id), getOrders(id), getPrefs(id)]);
+```
 
-↓
-
-Application Features
-
-↓
-
-User Requests
-
-↓
-
-Data Requirements
-
-↓
-
-Reporting Needs
-
-↓
-
-Operational Constraints
-
-↓
-
-Growth Expectations
-
-↓
-
-Future Evolution
-
-Every query begins with a business question.
+- Bound the concurrency. `Promise.all` over 5,000 items opens 5,000 queries and
+  exhausts the connection pool — which presents as "the database is slow" when it
+  is actually queueing. → `Database/postgres`
+- Bulk writes: one `INSERT ... VALUES (…),(…),(…)` or `COPY` beats a thousand
+  single-row inserts by orders of magnitude.
+- Use a limiter rather than raw `Promise.all` for large sets:
+  `pLimit(10)`, a semaphore, or the ORM's own batching. The right bound is the
+  free capacity in `DB_POOL_SIZE`, not the number of items.
+- Keep network calls **out of transactions** — an open transaction holds locks and
+  a connection for the duration of someone else's latency.
+  → `Database/transactions`
 
 ---
 
-# Stage 2 — Query Analysis
+# Anti-patterns
 
-Analyze
-
-Read Queries
-
-↓
-
-Write Queries
-
-↓
-
-Update Queries
-
-↓
-
-Delete Queries
-
-↓
-
-Aggregations
-
-↓
-
-Filtering
-
-↓
-
-Sorting
-
-↓
-
-Joins
-
-Every query has an execution cost.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| No query-count instrumentation | N+1 is invisible until production | Log and assert counts |
+| Relation access inside a loop | 1 + N round trips | Eager load or batch |
+| Resolvers without DataLoader | N+1 by construction | Per-request loaders |
+| `SELECT *` | Moves unused bytes; defeats covering indexes | Explicit projection |
+| Returning ORM entities to the API | Leaks internal and sensitive fields | Map to an explicit shape |
+| Missing `LIMIT` | Cost grows with the table | Always paginate |
+| `OFFSET` for deep pages | Produces and discards every skipped row | Keyset pagination |
+| `COUNT(*)` on every list request | A second full scan per page | Opt-in or estimate |
+| Aggregating in application code | Every row crosses the wire | `GROUP BY` in SQL |
+| Fetching rows to count them | Reads everything for one number | `count()` |
+| Sequential independent queries | Latency adds up | `Promise.all` |
+| Unbounded concurrent fan-out | Pool exhaustion; looks like a slow database | Concurrency limiter |
+| Row-by-row inserts | Orders of magnitude slower | Bulk insert or `COPY` |
+| Network calls inside transactions | Locks held for external latency | Move them out |
+| Testing against small datasets | Plans and costs differ entirely | Production-shaped data |
 
 ---
 
-# Stage 3 — Data Requirement Evaluation
-
-Identify
-
-Required Columns
-
-↓
-
-Required Rows
-
-↓
-
-Relationships
-
-↓
-
-Filters
-
-↓
-
-Grouping
-
-↓
-
-Ordering
-
-↓
-
-Aggregations
-
-↓
-
-Result Size
-
-Queries should retrieve only meaningful information.
-
----
-
-# Stage 4 — Execution Analysis
-
-Analyze
-
-Execution Plan
-
-↓
-
-Index Usage
-
-↓
-
-Table Scans
-
-↓
-
-Join Operations
-
-↓
-
-Sorting
-
-↓
-
-Aggregation
-
-↓
-
-Temporary Storage
-
-↓
-
-Execution Cost
-
-Execution plans reveal optimization opportunities.
-
----
-
-# Stage 5 — Query Strategy
-
-Define
-
-Filtering Strategy
-
-↓
-
-Join Strategy
-
-↓
-
-Aggregation Strategy
-
-↓
-
-Pagination Strategy
-
-↓
-
-Sorting Strategy
-
-↓
-
-Index Strategy
-
-↓
-
-Caching Opportunities
-
-↓
-
-Recovery Strategy
-
-Query architecture determines long-term performance.
-
----
-
-# Stage 6 — Query Optimization
-
-Optimize
-
-Filters
-
-↓
-
-Indexes
-
-↓
-
-Joins
-
-↓
-
-Aggregations
-
-↓
-
-Sorting
-
-↓
-
-Pagination
-
-↓
-
-Data Retrieval
-
-↓
-
-Execution Efficiency
-
-Optimization should reduce unnecessary database work.
-
----
-
-# Stage 7 — Correctness Validation
-
-Validate
-
-Business Logic
-
-↓
-
-Returned Data
-
-↓
-
-Relationships
-
-↓
-
-Aggregations
-
-↓
-
-Transactions
-
-↓
-
-Consistency
-
-↓
-
-Accuracy
-
-↓
-
-Engineering Quality
-
-Correctness always takes priority over speed.
-
----
-
-# Stage 8 — Performance Measurement
-
-Measure
-
-Execution Time
-
-↓
-
-Rows Processed
-
-↓
-
-Rows Returned
-
-↓
-
-CPU Usage
-
-↓
-
-Memory Usage
-
-↓
-
-Disk Activity
-
-↓
-
-Network Transfer
-
-↓
-
-User Experience
-
-Every optimization should remain measurable.
-
----
-
-# Stage 9 — Optimization Opportunities
-
-Identify
-
-Full Table Scans
-
-↓
-
-Missing Filters
-
-↓
-
-Duplicate Queries
-
-↓
-
-Unused Columns
-
-↓
-
-Inefficient Joins
-
-↓
-
-Unnecessary Sorting
-
-↓
-
-Repeated Computation
-
-↓
-
-Resource Waste
-
-Optimization follows measurable evidence.
-
----
-
-# Stage 10 — Architecture Review
-
-Evaluate
-
-Schema Design
-
-↓
-
-Relationships
-
-↓
-
-Query Boundaries
-
-↓
-
-Service Boundaries
-
-↓
-
-Index Strategy
-
-↓
-
-Data Ownership
-
-↓
-
-Maintainability
-
-↓
-
-Scalability
-
-Architecture determines query efficiency.
-
----
-
-# Stage 11 — Scalability
-
-Validate
-
-Growing Tables
-
-↓
-
-Large Datasets
-
-↓
-
-Concurrent Users
-
-↓
-
-Heavy Reporting
-
-↓
-
-Distributed Systems
-
-↓
-
-Global Applications
-
-↓
-
-Operational Stability
-
-↓
-
-Future Expansion
-
-Queries should scale with data growth.
-
----
-
-# Stage 12 — Reliability
-
-Verify
-
-Query Correctness
-
-↓
-
-Transaction Integrity
-
-↓
-
-Failure Recovery
-
-↓
-
-Consistency
-
-↓
-
-Availability
-
-↓
-
-Operational Stability
-
-↓
-
-Predictable Behavior
-
-↓
-
-Engineering Quality
-
-Reliable queries preserve data integrity.
-
----
-
-# Stage 13 — Documentation
-
-Document
-
-Query Strategy
-
-↓
-
-Optimization Decisions
-
-↓
-
-Execution Analysis
-
-↓
-
-Engineering Trade-Offs
-
-↓
-
-Performance Goals
-
-↓
-
-Known Constraints
-
-↓
-
-Future Improvements
-
-↓
-
-Engineering Standards
-
-Documentation preserves engineering knowledge.
-
----
-
-# Stage 14 — Risk Assessment
-
-Identify
-
-Slow Queries
-
-↓
-
-Missing Indexes
-
-↓
-
-Resource Exhaustion
-
-↓
-
-Lock Contention
-
-↓
-
-Large Result Sets
-
-↓
-
-Performance Regression
-
-↓
-
-Operational Risks
-
-↓
-
-Technical Debt
-
-Query risks should remain continuously visible.
-
----
-
-# Stage 15 — Trade-Off Analysis
-
-Evaluate
-
-Performance
-
-↓
-
-Maintainability
-
-↓
-
-Complexity
-
-↓
-
-Reliability
-
-↓
-
-Developer Experience
-
-↓
-
-Scalability
-
-↓
-
-Architecture
-
-↓
-
-Future Evolution
-
-Every optimization introduces engineering trade-offs.
-
----
-
-# Stage 16 — Validation
-
-Validate
-
-Correctness
-
-↓
-
-Performance
-
-↓
-
-Architecture
-
-↓
-
-Reliability
-
-↓
-
-Documentation
-
-↓
-
-Evidence
-
-↓
-
-Testing
-
-↓
-
-Engineering Quality
-
-Query improvements require measurable validation.
-
----
-
-# Stage 17 — Reporting
-
-Produce
-
-Query Summary
-
-↓
-
-Performance Metrics
-
-↓
-
-Execution Analysis
-
-↓
-
-Optimization Results
-
-↓
-
-Remaining Risks
-
-↓
-
-Recommendations
-
-↓
-
-Future Opportunities
-
-↓
-
-Lessons Learned
-
-Reports preserve optimization knowledge.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Production Queries
-
-↓
-
-Monitoring
-
-↓
-
-Operational Stability
-
-↓
-
-Reliability
-
-↓
-
-Performance
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Maintainability
-
-Queries should remain reliable under production workloads.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Query Standards
-
-↓
-
-Architecture Reviews
-
-↓
-
-Performance Reviews
-
-↓
-
-Documentation
-
-↓
-
-Ownership
-
-↓
-
-Continuous Measurement
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Discipline
-
-Query quality requires continuous governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Query Efficiency
-
-↓
-
-Architecture
-
-↓
-
-Performance
-
-↓
-
-Reliability
-
-↓
-
-Maintainability
-
-↓
-
-Operational Excellence
-
-↓
-
-Engineering Discipline
-
-↓
-
-Software Longevity
-
-Exceptional software continuously retrieves only the information required while minimizing unnecessary database work and preserving engineering quality.
-
----
-
-# Query Quality Attributes
-
-Evaluate
-
-Correctness
-
-Performance
-
-Efficiency
-
-Reliability
-
-Scalability
-
-Maintainability
-
-Engineering Consistency
-
-Long-Term Sustainability
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does the query retrieve only the required information?
-
-↓
-
-Has optimization been based on measurable evidence?
-
-↓
-
-Can unnecessary processing be eliminated?
-
-↓
-
-Does the execution strategy scale with future data growth?
-
-↓
-
-Will future engineers understand these optimization decisions?
-
-↓
-
-Are correctness and maintainability preserved?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this query strategy?
-
----
-
-# Severity Levels
-
-Critical
-
-Query failure
-
-Data corruption
-
-Transaction failure
-
-Application instability
-
-Major
-
-Slow queries
-
-Large table scans
-
-High resource consumption
-
-Performance degradation
-
-Medium
-
-Architecture weaknesses
-
-Documentation gaps
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Naming consistency
-
-Documentation quality
-
----
-
-# Query Checklist
-
-✓ Business requirements analyzed
-
-✓ Queries evaluated
-
-✓ Data requirements identified
-
-✓ Execution analyzed
-
-✓ Query strategy defined
-
-✓ Queries optimized
-
-✓ Correctness validated
-
-✓ Performance measured
-
-✓ Optimization opportunities identified
-
-✓ Architecture reviewed
-
-✓ Scalability validated
-
-✓ Reliability verified
-
-✓ Documentation updated
-
-✓ Risks assessed
-
-✓ Trade-offs documented
-
-✓ Validation completed
-
-✓ Reporting produced
-
-✓ Production readiness verified
-
-✓ Governance established
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Selecting unnecessary columns
-
-Retrieving unnecessary rows
-
-Full table scans without justification
-
-Missing filtering
-
-Overly complex joins
-
-Nested queries without value
-
-Repeated database requests
-
-Ignoring execution plans
-
-Optimizing without measurement
-
-Ignoring scalability
-
-Architecture driven by temporary optimizations
-
-Treating fast development as more important than long-term maintainability
-
----
-
-# Definition of Done
-
-A query optimization strategy is considered complete when
-
-- Database queries retrieve exactly the information required while minimizing execution time, storage access, memory consumption, CPU utilization, network transfer, and operational complexity without compromising correctness, reliability, maintainability, scalability, or architectural integrity.
-- Query execution plans, filtering strategies, joins, aggregations, sorting operations, pagination, indexing opportunities, and resource utilization have been systematically analyzed and optimized through evidence-based engineering decisions rather than assumptions or premature optimization.
-- Query architecture supports predictable performance, efficient data retrieval, scalable workload growth, maintainable application evolution, reliable transaction processing, operational resilience, and sustainable engineering practices without introducing unnecessary technical debt or complexity.
-- Engineering reviews validate query correctness, execution efficiency, architectural consistency, documentation quality, scalability, maintainability, production readiness, reliability, and long-term sustainability before deployment.
-- Documentation clearly explains optimization rationale, execution strategies, engineering trade-offs, validation evidence, governance expectations, operational constraints, known limitations, and future optimization opportunities.
-- Query optimization decisions remain measurable, implementation-independent, reproducible, evidence-based, and aligned with sustainable engineering principles rather than database-specific optimization techniques.
-- The resulting system demonstrates engineering discipline, efficient data retrieval, predictable execution, architectural clarity, operational excellence, reliable query behavior, scalable performance, maintainability, and long-term software sustainability.
-
-Exceptional query optimization is not measured by the shortest execution time for a single query.
-
-It is measured by how efficiently the entire system retrieves the right information, performs only the necessary work, scales predictably with growing data, preserves correctness under production workloads, and continuously delivers sustainable engineering excellence.
+# Checklist
+
+- [ ] Query count and total query time are logged per request
+- [ ] Integration tests assert a bounded query count on key endpoints
+- [ ] No relation is fetched inside a loop
+- [ ] Resolver-based APIs batch through per-request DataLoaders
+- [ ] Queries select explicit columns, never `*`
+- [ ] API responses are built from explicit shapes, not ORM entities
+- [ ] Every list query has a limit and paginates
+- [ ] Deep pagination uses keyset cursors, not `OFFSET`
+- [ ] Total counts are opt-in or estimated
+- [ ] Aggregation happens in the database
+- [ ] Independent queries run concurrently, with bounded fan-out
+- [ ] Bulk writes use multi-row inserts or `COPY`
+- [ ] No network call happens inside a transaction
+- [ ] Performance is verified against production-shaped data volumes

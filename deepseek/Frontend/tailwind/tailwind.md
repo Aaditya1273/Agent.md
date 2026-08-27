@@ -5,1144 +5,189 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: tailwind
+category: Frontend
+description: Tailwind CSS — design tokens over arbitrary values, component extraction, conditional classes without string concatenation, and dark mode.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# tailwind.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines engineering principles, design system standards, styling architecture, component styling strategies, responsive design patterns, and long-term best practices for building production-grade user interfaces using Tailwind CSS.
+Rules for using Tailwind. Its value is a constrained design system applied
+directly where markup lives — no naming, no dead CSS, no cascade surprises.
 
-It applies to
-
-- SaaS Platforms
-- Enterprise Applications
-- Design Systems
-- Component Libraries
-- AI Applications
-- Dashboards
-- Marketing Websites
-- Internal Tools
-- Production Web Applications
-
-Tailwind CSS is not a collection of utility classes.
-
-It is a design system framework that enables consistent, scalable, maintainable user interfaces through composition, standardized design tokens, and predictable styling architecture.
-
-Utilities implement styles.
-
-Design systems implement consistency.
+The failure mode is the opposite: arbitrary values everywhere, duplicated class
+strings, and unreadable markup. Every rule here protects the constraint.
 
 ---
 
-# Core Philosophy
+# Configure tokens; stop reaching for arbitrary values
 
-Understand Design Requirements
+```css
+/* app.css — Tailwind v4 configures in CSS */
+@import "tailwindcss";
 
-↓
+@theme {
+  --color-brand-500: oklch(0.62 0.19 259);
+  --color-surface:   oklch(0.98 0 0);
+  --spacing-18:      4.5rem;
+  --radius-card:     0.75rem;
+  --font-display:    "Inter Variable", sans-serif;
+}
+```
 
-Define Design Tokens
+Then `bg-brand-500`, `p-18`, `rounded-card` work everywhere, and the value is
+defined once.
 
-↓
+`p-[13px]` and `text-[#3b82f6]` bypass the system. Each one is a value nobody
+else knows about and nothing can update. Use them for genuine one-offs (a
+`translate-y-[3px]` optical adjustment), and add a token the second time a value
+appears.
 
-Compose Layouts
+Prefer the scale for colours, spacing, radii, shadows and typography.
 
-↓
-
-Build Components
-
-↓
-
-Ensure Consistency
-
-↓
-
-Optimize Responsiveness
-
-↓
-
-Review Quality
-
-↓
-
-Continuously Improve
-
-A scalable interface is built from consistent design decisions rather than isolated styles.
+**Never** hard-code a brand colour as a hex value in a utility class. When the
+brand changes, they are unfindable.
 
 ---
 
-# Primary Objective
+# Extract components, not `@apply` soup
 
-Every Tailwind CSS codebase should maximize
+```tsx
+// The right abstraction is a component: typed, testable, composable
+export function Button({ variant = "primary", className, ...props }) {
+  return <button className={cn(base, variants[variant], className)} {...props} />;
+}
+```
 
-Consistency
+```css
+/* The wrong one: reinvents CSS classes and loses everything Tailwind gave you */
+.btn { @apply px-4 py-2 rounded font-medium bg-brand-500 text-white; }
+```
 
-+
+`@apply` reintroduces the naming problem, the indirection, and the dead-CSS
+problem Tailwind exists to remove. Reserve it for a handful of genuinely global
+primitives (a focus ring, a prose block), not for components.
 
-Maintainability
+For variants, use `cva` (class-variance-authority) or `tailwind-variants` — they
+give typed variants and handle conflict resolution:
 
-+
+```ts
+const button = cva("inline-flex items-center rounded-card font-medium", {
+  variants: {
+    variant: { primary: "bg-brand-500 text-white", ghost: "bg-transparent hover:bg-surface" },
+    size:    { sm: "h-8 px-3 text-sm", md: "h-10 px-4" },
+  },
+  defaultVariants: { variant: "primary", size: "md" },
+});
+```
 
-Reusability
-
-+
-
-Accessibility
-
-+
-
-Performance
-
-+
-
-Developer Experience
-
-+
-
-Scalability
-
-+
-
-Long-Term Sustainability
-
-Styling should become part of the architecture rather than an implementation detail.
-
----
-
-# Engineering Principles
-
-Always prioritize
-
-Design Systems
-
-↓
-
-Reusable Components
-
-↓
-
-Consistent Spacing
-
-↓
-
-Semantic Structure
-
-↓
-
-Responsive Design
-
-↓
-
-Accessibility
-
-↓
-
-Maintainability
-
-↓
-
-Continuous Improvement
-
-Utilities should support architecture rather than replace it.
+Always accept a `className` prop and merge it with `twMerge` so a caller can
+override — otherwise `bg-red-500` and `bg-brand-500` both land in the class list
+and the winner depends on stylesheet order, not on intent.
 
 ---
 
-# Tailwind Development Lifecycle
+# Conditional classes
 
-Understand Requirements
+```tsx
+// Broken: the scanner never sees the full class name, so the CSS is not generated
+<div className={`text-${color}-500 p-${size}`} />
 
-↓
+// Correct: complete class names in the source
+const COLOR = { error: "text-red-500", ok: "text-green-600" } as const;
+<div className={COLOR[status]} />
+```
 
-Define Design System
+Tailwind generates CSS by **scanning source files for literal class strings**. A
+dynamically constructed name produces no CSS and no error — the style is simply
+absent, and usually only in the production build.
 
-↓
+Use `clsx`/`cn` for conditionals, and `twMerge` to resolve conflicts:
 
-Establish Layout Rules
-
-↓
-
-Build Components
-
-↓
-
-Apply Responsive Design
-
-↓
-
-Validate Accessibility
-
-↓
-
-Review
-
-↓
-
-Continuously Improve
-
-Consistency should be established before implementation.
+```tsx
+<div className={cn("p-4 text-sm", isActive && "bg-brand-50", className)} />
+```
 
 ---
 
-# Stage 1 — Design Requirements
+# Responsive, state and dark mode
 
-Understand
+Tailwind is mobile-first: an unprefixed utility applies at all sizes, and `md:`
+applies **from** that breakpoint up.
 
-Business Goals
+```tsx
+<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" />
+```
 
-↓
-
-Brand Identity
-
-↓
-
-User Experience
-
-↓
-
-Accessibility Requirements
-
-↓
-
-Device Support
-
-↓
-
-Performance Expectations
-
-↓
-
-Future Growth
-
-↓
-
-Design Constraints
-
-Design decisions should solve user problems.
+- Use state variants rather than JavaScript: `hover:`, `focus-visible:`,
+  `disabled:`, `aria-expanded:`, `data-[state=open]:`, `group-hover:`, `peer-checked:`.
+- `focus-visible:` rather than `focus:` for focus rings, and **never** remove the
+  ring without replacing it — keyboard users need it. → `Testing/accessibility`
+- Dark mode: define both palettes as tokens and let `dark:` switch them. Driving
+  it from a `data-theme` attribute set before hydration avoids a flash and a
+  hydration mismatch. → `Frontend/hydration`
+- Honour `motion-reduce:` for anything animated.
 
 ---
 
-# Stage 2 — Design System
+# Keep markup readable
 
-Define
+A 30-class element is a real cost. Reduce it by:
 
-Color Palette
+- Extracting a component as soon as the same string appears twice.
+- Grouping classes in a consistent order — enforce with
+  `prettier-plugin-tailwindcss` so ordering never appears in a diff.
+- Using logical properties (`ps-4`, `me-2`) where the application supports RTL.
+- Letting the parent own layout (`flex`, `gap`) and children own themselves; a
+  child setting its own margin for a specific parent is not reusable.
 
-↓
-
-Typography
-
-↓
-
-Spacing Scale
-
-↓
-
-Border Radius
-
-↓
-
-Elevation
-
-↓
-
-Breakpoints
-
-↓
-
-Animation Standards
-
-↓
-
-Design Tokens
-
-Every visual decision should originate from the design system.
+Tailwind's output is already minimal — it emits only the classes it found. The
+remaining size concern is your own markup, not the stylesheet.
 
 ---
 
-# Stage 3 — Layout Architecture
+# Anti-patterns
 
-Design
-
-Page Structure
-
-↓
-
-Containers
-
-↓
-
-Grid Systems
-
-↓
-
-Flex Layouts
-
-↓
-
-Spacing
-
-↓
-
-Alignment
-
-↓
-
-Responsive Behavior
-
-↓
-
-Scalable Structure
-
-Layouts should remain predictable across the application.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Arbitrary values everywhere | Bypasses the design system | Define tokens in `@theme` |
+| Hex colours in utility classes | Unfindable when the brand changes | Named colour tokens |
+| `@apply` for components | Reintroduces naming and dead CSS | React components |
+| Dynamic class-name construction | Class never generated; silent missing style | Full literal strings in a map |
+| No `twMerge` on merged classes | Conflicts resolved by stylesheet order | `cn` with `twMerge` |
+| Component not accepting `className` | Callers cannot adjust anything | Accept and merge it |
+| Duplicated long class strings | Drift between copies | Extract a component |
+| Desktop-first breakpoints | Fights Tailwind's mobile-first model | Base styles, then `md:` up |
+| `focus:` instead of `focus-visible:` | Rings on mouse click | `focus-visible:` |
+| Removing the focus ring | Keyboard navigation becomes invisible | Replace, never remove |
+| JavaScript for hover/open states | More code than a variant | State and `data-*` variants |
+| Dark mode via duplicated markup | Two trees to maintain | Token pairs plus `dark:` |
+| Unordered class strings | Noisy diffs | Prettier plugin |
+| Ignoring `motion-reduce:` | Vestibular discomfort; accessibility failure | Respect the preference |
 
 ---
 
-# Stage 4 — Component Styling
-
-Build
-
-Reusable Components
-
-↓
-
-Consistent Variants
-
-↓
-
-State Styles
-
-↓
-
-Interactive Feedback
-
-↓
-
-Visual Hierarchy
-
-↓
-
-Theme Compatibility
-
-↓
-
-Minimal Duplication
-
-↓
-
-Maintainability
-
-Components should own their styling patterns.
-
----
-
-# Stage 5 — Responsive Design
-
-Optimize
-
-Mobile Layout
-
-↓
-
-Tablet Layout
-
-↓
-
-Desktop Layout
-
-↓
-
-Large Displays
-
-↓
-
-Flexible Spacing
-
-↓
-
-Adaptive Typography
-
-↓
-
-Content Prioritization
-
-↓
-
-Cross-Device Consistency
-
-Responsiveness should be designed rather than patched.
-
----
-
-# Stage 6 — Design Tokens
-
-Maintain
-
-Color Variables
-
-↓
-
-Typography Scale
-
-↓
-
-Spacing Values
-
-↓
-
-Shadow System
-
-↓
-
-Radius System
-
-↓
-
-Animation Timing
-
-↓
-
-Sizing Scale
-
-↓
-
-Reusable Standards
-
-Design tokens create visual consistency.
-
----
-
-# Stage 7 — Utility Composition
-
-Prefer
-
-Composable Utilities
-
-↓
-
-Shared Patterns
-
-↓
-
-Reusable Abstractions
-
-↓
-
-Minimal Repetition
-
-↓
-
-Predictable Naming
-
-↓
-
-Consistent Styling
-
-↓
-
-Maintainable Classes
-
-↓
-
-Long-Term Evolution
-
-Composition should reduce duplication.
-
----
-
-# Stage 8 — Accessibility
-
-Ensure
-
-Color Contrast
-
-↓
-
-Focus Indicators
-
-↓
-
-Keyboard Navigation
-
-↓
-
-Readable Typography
-
-↓
-
-Semantic HTML
-
-↓
-
-Motion Preferences
-
-↓
-
-Interactive Feedback
-
-↓
-
-Inclusive Design
-
-Accessibility is a styling requirement.
-
----
-
-# Stage 9 — Performance
-
-Optimize
-
-Generated CSS
-
-↓
-
-Unused Styles
-
-↓
-
-Component Complexity
-
-↓
-
-Animation Efficiency
-
-↓
-
-Layout Stability
-
-↓
-
-Rendering Cost
-
-↓
-
-Responsive Assets
-
-↓
-
-Runtime Performance
-
-Performance begins with disciplined styling.
-
----
-
-# Stage 10 — Theme Architecture
-
-Support
-
-Light Mode
-
-↓
-
-Dark Mode
-
-↓
-
-Brand Themes
-
-↓
-
-Color Consistency
-
-↓
-
-Design Tokens
-
-↓
-
-Shared Variables
-
-↓
-
-Scalable Themes
-
-↓
-
-Future Expansion
-
-Themes should extend the design system rather than replace it.
-
----
-
-# Stage 11 — Animations
-
-Design
-
-Transitions
-
-↓
-
-Hover States
-
-↓
-
-Focus States
-
-↓
-
-Loading States
-
-↓
-
-Motion Hierarchy
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-↓
-
-User Feedback
-
-Motion should communicate state rather than decoration.
-
----
-
-# Stage 12 — Code Organization
-
-Maintain
-
-Component Styles
-
-↓
-
-Shared Utilities
-
-↓
-
-Configuration
-
-↓
-
-Theme Definitions
-
-↓
-
-Design Tokens
-
-↓
-
-Reusable Patterns
-
-↓
-
-Naming Standards
-
-↓
-
-Repository Consistency
-
-Organization simplifies maintenance.
-
----
-
-# Stage 13 — Scalability
-
-Design for
-
-Growing Features
-
-↓
-
-Growing Teams
-
-↓
-
-Shared Components
-
-↓
-
-Design System Evolution
-
-↓
-
-Multiple Themes
-
-↓
-
-Reusable Patterns
-
-↓
-
-Independent Modules
-
-↓
-
-Long-Term Maintenance
-
-Good styling architecture scales with the product.
-
----
-
-# Stage 14 — Documentation
-
-Document
-
-Design Principles
-
-↓
-
-Component Variants
-
-↓
-
-Design Tokens
-
-↓
-
-Spacing Rules
-
-↓
-
-Responsive Behavior
-
-↓
-
-Accessibility Standards
-
-↓
-
-Known Trade-Offs
-
-↓
-
-Future Improvements
-
-Documentation preserves visual consistency.
-
----
-
-# Stage 15 — Review
-
-Review
-
-Consistency
-
-↓
-
-Accessibility
-
-↓
-
-Responsiveness
-
-↓
-
-Maintainability
-
-↓
-
-Performance
-
-↓
-
-Visual Hierarchy
-
-↓
-
-Engineering Standards
-
-↓
-
-Design Quality
-
-Reviews ensure consistency across the application.
-
----
-
-# Stage 16 — Risk Assessment
-
-Evaluate
-
-Inconsistent Styling
-
-↓
-
-Duplicated Utilities
-
-↓
-
-Accessibility Risks
-
-↓
-
-Responsive Issues
-
-↓
-
-Design Drift
-
-↓
-
-Technical Debt
-
-↓
-
-Maintenance Cost
-
-↓
-
-Operational Risk
-
-Visual inconsistency increases maintenance cost.
-
----
-
-# Stage 17 — Continuous Optimization
-
-Continuously improve
-
-Design System
-
-↓
-
-Component Library
-
-↓
-
-Responsiveness
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Documentation
-
-↓
-
-Engineering Standards
-
-The design system should evolve intentionally.
-
----
-
-# Stage 18 — Production Readiness
-
-Validate
-
-Responsive Layouts
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Cross-Browser Compatibility
-
-↓
-
-Theme Support
-
-↓
-
-Component Consistency
-
-↓
-
-Documentation
-
-↓
-
-Operational Stability
-
-Production quality includes visual quality.
-
----
-
-# Stage 19 — Governance
-
-Maintain
-
-Design Standards
-
-↓
-
-Component Ownership
-
-↓
-
-Review Process
-
-↓
-
-Theme Consistency
-
-↓
-
-Documentation
-
-↓
-
-Version Management
-
-↓
-
-Engineering Discipline
-
-↓
-
-Continuous Evolution
-
-Design systems require governance.
-
----
-
-# Stage 20 — Long-Term Sustainability
-
-Continuously improve
-
-Design Consistency
-
-↓
-
-Maintainability
-
-↓
-
-Accessibility
-
-↓
-
-Performance
-
-↓
-
-Developer Experience
-
-↓
-
-Knowledge Preservation
-
-↓
-
-Engineering Quality
-
-↓
-
-Software Longevity
-
-Exceptional styling systems remain consistent regardless of application size.
-
----
-
-# Tailwind CSS Quality Attributes
-
-Evaluate
-
-Consistency
-
-Maintainability
-
-Accessibility
-
-Performance
-
-Responsiveness
-
-Scalability
-
-Developer Experience
-
-Engineering Consistency
-
----
-
-# Engineering Questions
-
-Before approving ask
-
-Does every component follow the design system?
-
-↓
-
-Are spacing and typography consistent?
-
-↓
-
-Can styles be reused across features?
-
-↓
-
-Is responsive behavior intentional?
-
-↓
-
-Is accessibility fully supported?
-
-↓
-
-Will future engineers understand the styling architecture?
-
-↓
-
-Would experienced Staff or Principal Engineers confidently approve this design system?
-
----
-
-# Severity Levels
-
-Critical
-
-Broken design system
-
-Accessibility failures
-
-Responsive failures
-
-Theme inconsistency
-
-Major
-
-Duplicated styling
-
-Inconsistent spacing
-
-Weak component architecture
-
-Poor responsive structure
-
-Medium
-
-Large utility chains
-
-Naming inconsistencies
-
-Documentation gaps
-
-Minor
-
-Formatting
-
-Comments
-
-Metadata
-
-Repository consistency
-
----
-
-# Tailwind CSS Checklist
-
-✓ Requirements understood
-
-✓ Design system defined
-
-✓ Layout architecture planned
-
-✓ Components reusable
-
-✓ Responsive design implemented
-
-✓ Design tokens established
-
-✓ Utility composition optimized
-
-✓ Accessibility validated
-
-✓ Performance reviewed
-
-✓ Themes supported
-
-✓ Animations consistent
-
-✓ Code organized
-
-✓ Scalability considered
-
-✓ Documentation updated
-
-✓ Reviews completed
-
-✓ Risks assessed
-
-✓ Production readiness validated
-
-✓ Governance established
-
-✓ Continuous improvement practiced
-
-✓ Long-term sustainability protected
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Random utility usage
-
-Magic spacing values
-
-Duplicated utility patterns
-
-Ignoring design tokens
-
-Overusing arbitrary values
-
-Mixing multiple styling approaches
-
-Deeply nested layouts
-
-Inconsistent breakpoints
-
-Ignoring accessibility
-
-Creating one-off components
-
-Styling without architectural intent
-
-Treating Tailwind as inline CSS
-
-Ignoring long-term maintainability
-
----
-
-# Definition of Done
-
-A Tailwind CSS codebase is considered production-ready when
-
-- Every interface is constructed from a well-defined design system that establishes consistent spacing, typography, color usage, sizing, responsive behavior, animation principles, and component styling across the entire application.
-- Utility classes are composed into reusable architectural patterns that reduce duplication, simplify maintenance, and preserve visual consistency without sacrificing flexibility.
-- Component styling, responsive layouts, accessibility requirements, theme support, interaction states, and visual hierarchy work together as a cohesive system that improves both user experience and developer productivity.
-- Design tokens provide the authoritative source for visual decisions, enabling scalable theming, maintainable styling, and predictable evolution without introducing design drift.
-- Performance, accessibility, maintainability, responsiveness, documentation, and engineering reviews collectively ensure that styling remains reliable throughout the software lifecycle.
-- Engineering reviews continuously validate design consistency, responsive behavior, accessibility compliance, performance characteristics, documentation quality, and adherence to repository standards.
-- The styling architecture preserves engineering knowledge through reusable design patterns, documented decisions, shared standards, and disciplined governance.
-- The resulting interface demonstrates engineering discipline, architectural consistency, visual clarity, accessibility, maintainability, scalability, and long-term software sustainability.
-
-Exceptional Tailwind CSS systems are not defined by how many utility classes they use.
-
-They are defined by the consistency of their design language, the clarity of their styling architecture, the scalability of their component system, and the confidence with which future engineers can extend the interface while preserving the integrity of the design system.
+# Checklist
+
+- [ ] Design tokens are defined centrally and used instead of arbitrary values
+- [ ] Arbitrary values are rare, one-off and justified
+- [ ] No raw hex colours appear in utility classes
+- [ ] Repeated class strings are extracted into components
+- [ ] `@apply` is limited to a few global primitives
+- [ ] Variants are defined with `cva` or `tailwind-variants`
+- [ ] Components accept and merge a `className` prop with `twMerge`
+- [ ] No class name is built by string interpolation
+- [ ] Conditional classes come from complete literal strings
+- [ ] Layout is mobile-first with breakpoints applied upward
+- [ ] Interactive states use Tailwind variants rather than JavaScript
+- [ ] `focus-visible:` rings are present on every interactive element
+- [ ] Dark mode uses token pairs and is set before hydration
+- [ ] `motion-reduce:` is honoured for animations
+- [ ] Class ordering is enforced by the Prettier plugin

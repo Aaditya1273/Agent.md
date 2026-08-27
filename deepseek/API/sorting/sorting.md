@@ -5,746 +5,175 @@ targetModels:
   - "DeepSeek R1"
   - "DeepSeek V3 Family"
   - "Future DeepSeek Models"
-version: "1.0.0"
-
-
+name: sorting
+category: API
+description: Sort parameters that are stable, indexed and injection-proof — allowlisted keys, deterministic tiebreakers, null ordering, and locale-aware text.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-08-23
+reviewed-by: unreviewed
 ---
+<!-- Generated from models/_canonical by scripts/build-model-variants.js.
+     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
 
-# sorting.md
-
-Version: 1.0.0
-
-Target Models
-
-- DeepSeek V4
-- DeepSeek V3.2
-- DeepSeek R1
-- DeepSeek V3 Family
-- Future DeepSeek Models
-
----
 
 # Purpose
 
-This document defines how DeepSeek should design, review, implement, document, and optimize API sorting.
-
-Sorting is not merely arranging records alphabetically or numerically.
-
-Sorting determines how users consume information, discover relevant data, and navigate large datasets efficiently.
-
-The objective is to design sorting systems that are deterministic, performant, intuitive, and consistent across every endpoint.
-
-Every sorted result should be predictable regardless of dataset size.
+Rules for sorting on list endpoints. Sorting looks trivial and produces two
+serious bugs: a client-controlled column name reaching SQL, and a non-deterministic
+order that makes pagination silently skip rows.
 
 ---
 
-# Core Philosophy
+# Syntax
 
-Understand Data
+```
+GET /v1/orders?sort=-createdAt          descending
+GET /v1/orders?sort=status,-createdAt   multi-key, in priority order
+```
 
-↓
+The `-` prefix is the most common convention and needs no second parameter. The
+alternative — `?sortBy=createdAt&order=desc` — cannot express multi-key sorting
+without inventing array syntax.
 
-Understand User Intent
-
-↓
-
-Select Sortable Fields
-
-↓
-
-Define Ordering
-
-↓
-
-Optimize Queries
-
-↓
-
-Validate Results
-
-↓
-
-Approve
-
-Sorting should improve discoverability.
-
-Never create ambiguity.
+Whatever you choose, use it on **every** list endpoint. Always define and document
+a **default sort**; an endpoint with no default returns rows in whatever order the
+database found them, which changes between releases and between replicas.
 
 ---
 
-# Primary Objective
+# Allowlist, always
 
-Every sorting implementation should answer one question.
+```ts
+const SORTABLE = {
+  createdAt: "created_at",
+  total:     "total_cents",
+  status:    "status",
+} as const;
 
-"Can clients consistently receive records in the exact order they expect?"
+function orderBy(sort = "-createdAt") {
+  const keys = sort.split(",").slice(0, 3);            // cap the key count
+  const parts = keys.map((k) => {
+    const desc = k.startsWith("-");
+    const column = SORTABLE[desc ? k.slice(1) : k];    // column from the table, not from input
+    if (!column) throw new BadRequest(`Cannot sort by ${k}`);
+    return `${column} ${desc ? "DESC" : "ASC"}`;
+  });
+  parts.push("id DESC");                               // deterministic tiebreaker, always
+  return parts.join(", ");
+}
+```
 
-If the answer is uncertain,
+- The column name comes from **your** map. Parameterisation does not protect
+  identifiers — a bound parameter cannot be a column name, so an interpolated one
+  is injection. → `Security/sql-injection`
+- Direction resolves to the literal `ASC`/`DESC`, never to client text.
+- Unknown key → `400` with the field named. Silently falling back to a default
+  hides client bugs and makes results look correct while being wrong.
+- Cap the number of sort keys; each one adds an index requirement.
 
-the sorting strategy requires redesign.
-
----
-
-# Sorting Principles
-
-Every implementation should maximize
-
-Predictability
-
-↓
-
-Consistency
-
-↓
-
-Performance
-
-↓
-
-Scalability
-
-↓
-
-Readability
-
-↓
-
-Developer Experience
-
-↓
-
-User Experience
-
-Sorting should always produce deterministic results.
+Aliases also decouple the API from the schema, so renaming `total_cents` is not a
+breaking change. → `API/filtering`
 
 ---
 
-# Sorting Workflow
+# Determinism is mandatory
 
-Understand Dataset
+**Every sort must end in a unique tiebreaker.** Without one, rows with equal sort
+values may come back in any order — and a different order on the next page.
 
-↓
+```sql
+-- Broken: two orders created in the same millisecond swap between pages,
+-- so one is returned twice and another never appears.
+ORDER BY created_at DESC
 
-Identify Sortable Fields
+-- Correct
+ORDER BY created_at DESC, id DESC
+```
 
-↓
+This is the mechanism behind "the export is missing rows" reports that nobody can
+reproduce. It only manifests under ties, which are rare in test data and common in
+production. → `API/pagination`
 
-Define Default Ordering
-
-↓
-
-Support Multi-field Sorting
-
-↓
-
-Validate Inputs
-
-↓
-
-Optimize Queries
-
-↓
-
-Approve
+Cursor pagination requires the same total order, and the cursor must encode every
+sort key. A cursor is valid only for the sort it was issued with — validate that,
+or reset pagination when the sort changes.
 
 ---
 
-# Stage 1 — Dataset Understanding
+# Index every sortable field
 
-Before implementing determine
+A sort without a matching index makes the database read and sort the entire
+matching set for every page.
 
-What entities exist?
+| Query | Index required |
+| --- | --- |
+| `WHERE tenant_id = ? ORDER BY created_at DESC, id DESC` | `(tenant_id, created_at DESC, id DESC)` |
+| `ORDER BY lower(name) ASC, id ASC` | `(lower(name), id)` expression index |
+| `ORDER BY total_cents DESC NULLS LAST, id DESC` | `(total_cents DESC NULLS LAST, id DESC)` |
 
-↓
+The index's key order and direction must match the `ORDER BY` — including the
+tiebreaker and the null placement. A close-but-not-exact index is not used, and
+`EXPLAIN` will show a `Sort` node above the scan. → `Database/indexes`
 
-Which fields are sortable?
-
-↓
-
-Which ordering is most useful?
-
-↓
-
-How frequently do values change?
-
-↓
-
-What indexes exist?
-
-Sorting begins with understanding user expectations.
+Verify with `EXPLAIN (ANALYZE, BUFFERS)` that no `Sort` node appears for any
+allowed sort combination.
 
 ---
 
-# Stage 2 — Sortable Fields
+# Nulls, text and case
 
-Choose meaningful fields.
-
-Examples
-
-Name
-
-Created Date
-
-Updated Date
-
-Price
-
-Priority
-
-Rating
-
-Popularity
-
-Status
-
-Views
-
-Downloads
-
-Only expose fields users actually need.
+- **Null placement is engine-specific.** Postgres puts `NULL` first on `DESC`;
+  MySQL puts it last. State it explicitly (`NULLS LAST`) so behaviour does not
+  change with the database.
+- **Text sorting is collation-dependent.** `'Ä'` sorts differently under `C`,
+  `en_US` and `de_DE`. Pick a collation, declare it on the column, and index it —
+  changing collation later invalidates every text index.
+- **Case sensitivity**: `ORDER BY name` puts `Zebra` before `apple` under a binary
+  collation. Sort on `lower(name)` with a matching expression index, and document
+  the choice.
+- **Numbers stored as text** sort lexicographically: `"10" < "9"`. Store numbers
+  as numbers.
+- **Enumerations** rarely sort usefully by their string value. If `pending` should
+  precede `shipped`, sort by an explicit rank column or a `CASE` expression, not
+  alphabetically.
 
 ---
 
-# Stage 3 — Default Sorting
+# Anti-patterns
 
-Every endpoint should define a default order.
-
-Examples
-
-Newest First
-
-Oldest First
-
-Alphabetical
-
-Highest Rating
-
-Most Popular
-
-Priority
-
-Users should never receive random ordering.
-
----
-
-# Stage 4 — Ascending & Descending
-
-Support both directions.
-
-Examples
-
-sort=name
-
-sort=-name
-
-sort=createdAt
-
-sort=-createdAt
-
-The "-" prefix indicates descending order.
-
-Maintain one convention throughout the API.
+| Anti-pattern | Why it fails | Fix |
+| --- | --- | --- |
+| Client sort key interpolated into SQL | Injection — parameters cannot bind identifiers | Allowlist map |
+| Direction taken from client text | Same injection surface | Literal `ASC`/`DESC` |
+| Unknown key silently ignored | Wrong results that look right | `400` naming the field |
+| No default sort | Order changes between releases and replicas | Documented default |
+| Sort without a unique tiebreaker | Pages skip and duplicate rows | Append the primary key |
+| Cursor not bound to the sort | Meaningless position after a sort change | Encode and validate sort in the cursor |
+| Unindexed sortable field | Full sort per page | Composite index matching the sort |
+| Index direction mismatched | Extra `Sort` node; index unused | Match order and direction exactly |
+| Relying on default null placement | Differs between Postgres and MySQL | Explicit `NULLS FIRST/LAST` |
+| Ignoring collation | Locale-dependent order; index invalidation on change | Declare and index the collation |
+| Sorting numeric strings | `"10" < "9"` | Numeric column type |
+| Alphabetical enum sort | `cancelled` before `pending` | Explicit rank |
+| Unbounded sort key count | Unplanned query shapes | Cap the keys |
+| Internal column names exposed | Renames become breaking changes | Alias layer |
 
 ---
 
-# Stage 5 — Multi-field Sorting
-
-Allow multiple sort fields.
-
-Example
-
-sort=priority,-createdAt,name
-
-Sorting should occur sequentially.
-
-Primary
-
-↓
-
-Secondary
-
-↓
-
-Tertiary
-
-Multi-field sorting should remain deterministic.
-
----
-
-# Stage 6 — Stable Ordering
-
-Ensure identical values remain predictable.
-
-Example
-
-Priority
-
-↓
-
-Created Date
-
-↓
-
-ID
-
-Tie-breaking prevents inconsistent pagination.
-
----
-
-# Stage 7 — Data Type Support
-
-Review
-
-Strings
-
-Numbers
-
-Dates
-
-Booleans
-
-Enums
-
-Identifiers
-
-Each data type should have well-defined ordering rules.
-
----
-
-# Stage 8 — Relationship Sorting
-
-Support sorting through related entities when appropriate.
-
-Examples
-
-orders?sort=customer.name
-
-projects?sort=owner
-
-articles?sort=author
-
-Relationship sorting should remain performant.
-
----
-
-# Stage 9 — Null Handling
-
-Define behavior explicitly.
-
-Null First
-
-Null Last
-
-Ignored
-
-Document null ordering.
-
-Never leave it undefined.
-
----
-
-# Stage 10 — Locale Awareness
-
-Review
-
-Case sensitivity
-
-Unicode
-
-Language-specific ordering
-
-Accented characters
-
-International applications require locale-aware sorting.
-
----
-
-# Stage 11 — Pagination Integration
-
-Sorting must occur
-
-Before pagination.
-
-Correct sequence
-
-Filter
-
-↓
-
-Sort
-
-↓
-
-Paginate
-
-↓
-
-Respond
-
-Changing sort order after pagination produces incorrect results.
-
----
-
-# Stage 12 — Filtering Integration
-
-Filtering should narrow the dataset.
-
-Sorting should order the filtered results.
-
-Example
-
-Category
-
-↓
-
-Price Filter
-
-↓
-
-Sort
-
-↓
-
-Pagination
-
-↓
-
-Response
-
-Filtering and sorting should work together naturally.
-
----
-
-# Stage 13 — Performance
-
-Inspect
-
-Indexes
-
-Execution plans
-
-Memory usage
-
-Database sorting
-
-External sorting
-
-Temporary tables
-
-Sorting should leverage indexed columns whenever possible.
-
----
-
-# Stage 14 — Large Dataset Review
-
-Evaluate
-
-Millions of records
-
-Distributed systems
-
-Database optimization
-
-Streaming
-
-Caching
-
-Sorting should remain efficient under scale.
-
----
-
-# Stage 15 — Validation
-
-Validate
-
-Unknown fields
-
-Duplicate fields
-
-Invalid syntax
-
-Unauthorized fields
-
-Malformed requests
-
-Reject invalid sorting immediately.
-
----
-
-# Stage 16 — Security
-
-Review
-
-Input validation
-
-SQL injection prevention
-
-Field whitelist
-
-Authorization
-
-Sensitive attributes
-
-Clients should only sort by approved fields.
-
----
-
-# Stage 17 — Error Handling
-
-Errors should explain
-
-Invalid field
-
-Unsupported field
-
-Malformed syntax
-
-Unknown direction
-
-Unauthorized sort
-
-Recovery guidance
-
-Developers should immediately understand the problem.
-
----
-
-# Stage 18 — Documentation
-
-Document
-
-Supported fields
-
-Direction syntax
-
-Examples
-
-Defaults
-
-Limitations
-
-Performance considerations
-
-Documentation eliminates assumptions.
-
----
-
-# Stage 19 — Consistency
-
-Review
-
-Parameter names
-
-Direction syntax
-
-Responses
-
-Defaults
-
-Validation
-
-Documentation
-
-Consistency improves usability.
-
----
-
-# Stage 20 — Future Scalability
-
-Evaluate
-
-New sortable fields
-
-Growing datasets
-
-Additional indexes
-
-Distributed databases
-
-API evolution
-
-Sorting should scale without redesign.
-
----
-
-# Sorting Quality Attributes
-
-Evaluate
-
-Correctness
-
-Performance
-
-Consistency
-
-Scalability
-
-Predictability
-
-Maintainability
-
-Developer Experience
-
-User Experience
-
----
-
-# Sorting Questions
-
-Before approval ask
-
-Does sorting produce deterministic results?
-
-↓
-
-Can users predict ordering?
-
-↓
-
-Are indexed fields prioritized?
-
-↓
-
-Can sorting scale to millions of records?
-
-↓
-
-Does sorting integrate with filtering and pagination?
-
-↓
-
-Would another developer understand the sorting rules immediately?
-
-↓
-
-Will this remain maintainable as the API evolves?
-
----
-
-# Severity Levels
-
-Critical
-
-Incorrect ordering
-
-Non-deterministic results
-
-Unauthorized sorting
-
-Database instability
-
-Major
-
-Poor performance
-
-Missing validation
-
-Weak documentation
-
-Unindexed sorting
-
-Medium
-
-Naming inconsistencies
-
-Missing sortable fields
-
-Optimization opportunities
-
-Minor
-
-Formatting
-
-Examples
-
-Documentation improvements
-
-Suggestion
-
-Future sorting enhancements
-
-Additional sorting strategies
-
----
-
-# Sorting Checklist
-
-✓ Default ordering defined
-
-✓ Ascending supported
-
-✓ Descending supported
-
-✓ Multi-field sorting
-
-✓ Stable ordering
-
-✓ Indexed fields
-
-✓ Pagination integrated
-
-✓ Filtering integrated
-
-✓ Validation implemented
-
-✓ Security reviewed
-
-✓ Documentation complete
-
-✓ Performance optimized
-
-✓ Consistent syntax
-
-✓ Deterministic behavior
-
-✓ Scalable implementation
-
----
-
-# Anti-Patterns
-
-Avoid
-
-Random ordering
-
-Sorting after pagination
-
-Sorting on unrestricted fields
-
-Missing default ordering
-
-Database-specific syntax
-
-Unindexed sorting
-
-Hidden ordering
-
-Duplicate sort rules
-
-Ignoring tie-breaking
-
-Inconsistent syntax
-
-Poor documentation
-
-Sorting without validation
-
----
-
-# Definition of Done
-
-Sorting review is complete when
-
-- Every endpoint defines a predictable default ordering.
-- Supported sortable fields are meaningful and documented.
-- Ascending, descending, and multi-field sorting behave consistently.
-- Ordering remains deterministic through stable tie-breaking.
-- Filtering and pagination integrate correctly with sorting.
-- Database queries remain efficient through proper indexing.
-- Validation prevents unsupported or unsafe sorting requests.
-- Documentation clearly explains supported fields and syntax.
-- The implementation scales with increasing data volume.
-- Developers can confidently request and receive data in the exact order they expect.
-
-Excellent sorting is rarely noticed.
-
-Users simply find the right information in the right order, while the underlying system remains fast, predictable, and scalable.
+# Checklist
+
+- [ ] One sort syntax is used across every list endpoint
+- [ ] Every endpoint has a documented default sort
+- [ ] Sort keys come from an allowlist mapping alias → column
+- [ ] Direction resolves to a literal, never to client-supplied text
+- [ ] Unknown sort keys return `400` naming the field
+- [ ] The number of sort keys is capped
+- [ ] Every sort ends in a unique tiebreaker
+- [ ] Cursors encode the sort and are validated against it
+- [ ] A composite index matches each allowed sort, including direction and tiebreaker
+- [ ] `EXPLAIN ANALYZE` shows no `Sort` node for any allowed combination
+- [ ] Null ordering is stated explicitly
+- [ ] Text collation and case handling are declared, indexed and documented
+- [ ] Enumerations sort by an explicit rank, not alphabetically
+- [ ] Sortable fields are declared in the OpenAPI document
