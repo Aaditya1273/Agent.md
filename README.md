@@ -2,7 +2,7 @@
 
 # Agent.md
 
-**The Open Registry for AI Engineering Presets.**
+**The Open Registry for AI Engineering Presets...**
 
 Configure Claude and every AI coding assistant with production-ready engineering standards in seconds.
 
