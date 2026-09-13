@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: middlewares
 category: Backend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -74,13 +80,13 @@ app.use("/api/admin", requireRole("admin"));       // path-scoped
 router.post("/orders", validate(CreateOrder), createOrder);   // route-scoped
 ```
 
-- Expensive middleware (session lookup, feature-flag fetch) should be scoped to
+1. Expensive middleware (session lookup, feature-flag fetch) should be scoped to
   the routes that need it, not global.
-- **Default-deny is safer than default-allow.** Apply authentication globally and
+2. **Default-deny is safer than default-allow.** Apply authentication globally and
   mark public routes explicitly, rather than protecting routes one by one — a
   forgotten `requireAuth` on a new route is an unauthenticated endpoint, whereas a
   forgotten `public()` marker is a visible `401`.
-- Exempt health and metrics endpoints deliberately, and only those.
+3. Exempt health and metrics endpoints deliberately, and only those.
 
 ---
 
@@ -118,13 +124,13 @@ app.use(async (req, res, next) => {
 });
 ```
 
-- Express 5 forwards rejected promises automatically; Express 4 does not.
-- Every middleware must either call `next()`, call `next(err)`, or send a
+1. Express 5 forwards rejected promises automatically; Express 4 does not.
+2. Every middleware must either call `next()`, call `next(err)`, or send a
   response — **exactly one**. Calling `next()` after sending produces
   "headers already sent".
-- One error-handling middleware, registered last, translates errors into
+3. One error-handling middleware, registered last, translates errors into
   responses. → `Backend/error-handling`
-- Response-modifying middleware (compression, headers) must wrap or hook the
+4. Response-modifying middleware (compression, headers) must wrap or hook the
   response, not assume it runs before the handler.
 
 ---
@@ -134,12 +140,12 @@ app.use(async (req, res, next) => {
 Every global middleware runs on every request, so its cost is multiplied by
 traffic.
 
-- No blocking I/O in a middleware that could be lazy. Load the user's permissions
+1. No blocking I/O in a middleware that could be lazy. Load the user's permissions
   when a handler asks, not on every request including health checks.
-- Cache what is stable per process (JWKS, feature flags, configuration) with a
+2. Cache what is stable per process (JWKS, feature flags, configuration) with a
   refresh interval, not per request. → `Security/jwt`
-- Do not parse a body the route does not use — scope the parser.
-- Measure middleware cost: a 15 ms lookup in a global middleware is 15 ms on the
+3. Do not parse a body the route does not use — scope the parser.
+4. Measure middleware cost: a 15 ms lookup in a global middleware is 15 ms on the
   p50 of every endpoint.
 
 | Framework | Registration | Error handler signature |

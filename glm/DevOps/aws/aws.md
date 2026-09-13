@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -39,17 +45,17 @@ monthly.
 }
 ```
 
-- **Never create long-lived access keys** for a human or a workload. Use IAM roles:
+1. **Never create long-lived access keys** for a human or a workload. Use IAM roles:
   instance profiles for EC2, IRSA/Pod Identity for EKS, task roles for ECS, and
   OIDC federation for CI. → `DevOps/github-actions`
-- Humans authenticate through Identity Center (SSO) with short-lived credentials,
+2. Humans authenticate through Identity Center (SSO) with short-lived credentials,
   MFA enforced.
-- **No wildcards in production policies.** `"Action": "s3:*"` on
+3. **No wildcards in production policies.** `"Action": "s3:*"` on
   `"Resource": "*"` is the policy behind most incidents. Grant the specific
   actions on the specific ARNs.
-- Scope by condition: `aws:SourceVpc`, `aws:PrincipalOrgID`, `aws:SecureTransport`.
-- Root account: MFA, no access keys, no daily use, alarm on any use.
-- Separate accounts per environment under Organizations, with SCPs preventing
+4. Scope by condition: `aws:SourceVpc`, `aws:PrincipalOrgID`, `aws:SecureTransport`.
+5. Root account: MFA, no access keys, no daily use, alarm on any use.
+6. Separate accounts per environment under Organizations, with SCPs preventing
   region use, public S3 and CloudTrail deletion. A blast radius that stops at the
   account boundary is the strongest control AWS offers.
 
@@ -70,16 +76,16 @@ resource "aws_s3_bucket_public_access_block" "uploads" {
 }
 ```
 
-- **Block Public Access at the account level**, not just per bucket. Per-bucket
+1. **Block Public Access at the account level**, not just per bucket. Per-bucket
   settings are one console click from being wrong.
-- Encrypt with KMS (`aws:kms`) rather than the default S3-managed key where key
+2. Encrypt with KMS (`aws:kms`) rather than the default S3-managed key where key
   control or audit matters; encryption at rest is on by default but the key
   ownership is not.
-- Enable versioning on anything that matters, plus lifecycle rules to expire
+3. Enable versioning on anything that matters, plus lifecycle rules to expire
   noncurrent versions. → `DevOps/backups`
-- Serve public content through CloudFront with Origin Access Control, never a
+4. Serve public content through CloudFront with Origin Access Control, never a
   public bucket.
-- Turn on S3 server access logging, or CloudTrail `data events`, for buckets
+5. Turn on S3 server access logging, or CloudTrail `data events`, for buckets
   holding personal data.
 
 RDS: `publicly_accessible = false`, encryption at rest, automated backups with a
@@ -97,14 +103,14 @@ VPC 10.0.0.0/16
  └─ isolated subnets → RDS, ElastiCache (no route to the internet)
 ```
 
-- Nothing that holds data sits in a public subnet.
-- Security groups reference **other security groups**, not CIDR ranges:
+1. Nothing that holds data sits in a public subnet.
+2. Security groups reference **other security groups**, not CIDR ranges:
   `source = aws_security_group.api.id` keeps the rule correct as instances change.
-- **Never** open `0.0.0.0/0` on `22` or `3306`/`5432`. Use SSM Session Manager for
+3. **Never** open `0.0.0.0/0` on `22` or `3306`/`5432`. Use SSM Session Manager for
   shell access — no bastion, no open port, and every session is logged.
-- VPC endpoints for S3, DynamoDB, ECR and Secrets Manager keep traffic off the
+4. VPC endpoints for S3, DynamoDB, ECR and Secrets Manager keep traffic off the
   internet and remove NAT charges for it.
-- Plan CIDR ranges before creating VPCs. Overlapping ranges make peering and
+5. Plan CIDR ranges before creating VPCs. Overlapping ranges make peering and
   Transit Gateway impossible later, and resizing a VPC is a rebuild.
 
 ---
@@ -131,18 +137,18 @@ expire**, and it is a permanent, growing charge nobody notices.
 
 # Operations
 
-- Everything in Terraform or CDK. Console changes exist in no backup and drift
+1. Everything in Terraform or CDK. Console changes exist in no backup and drift
   silently. → `DevOps/environments`
-- CloudTrail enabled in all regions, logging to a bucket in a **separate account**
+2. CloudTrail enabled in all regions, logging to a bucket in a **separate account**
   with Object Lock, so a compromised account cannot erase its own trail.
-- GuardDuty, Security Hub and Config with conformance packs — the managed
+3. GuardDuty, Security Hub and Config with conformance packs — the managed
   detections catch the common misconfigurations without you writing rules.
-- Multi-AZ (`multi_az = true` on RDS, subnets in ≥ 2 zones) for anything
+4. Multi-AZ (`multi_az = true` on RDS, subnets in ≥ 2 zones) for anything
   user-facing; multi-region only when the RTO justifies the complexity. → `DevOps/disaster-recovery`
-- Secrets in Secrets Manager or Parameter Store (SecureString), with rotation. Never
+5. Secrets in Secrets Manager or Parameter Store (SecureString), with rotation. Never
   in environment variables committed anywhere, never in an AMI.
   → `Security/secret-management`
-- Service quotas are per-account and per-region (`aws service-quotas
+6. Service quotas are per-account and per-region (`aws service-quotas
   list-service-quotas`); request increases **before** a launch, not during one.
 
 ---

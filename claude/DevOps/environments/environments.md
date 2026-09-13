@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never build a per-environment image. `docker build --build-arg ENV=prod` produces something staging never tested. - Configuration arrives at runtime, from environment variables or a secret store, never from a file baked into the image. - Frontend builds are the awkward case: `NEXT_PUBLIC_*` and equivalent are inlined at build time. Either build per environment for those specific values and accept it, or serve them from a runtime endpoint. Decide deliberately and document it.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for running the same software in several environments. The goal is that a
 change verified in one environment behaves the same in the next — which requires
 that the **only** difference between them is configuration.
@@ -25,11 +36,13 @@ that the **only** difference between them is configuration.
 If the artefact differs, the verification proved nothing. → `DevOps/cicd`
 
 ---
+
 </purpose>
 
 # One artefact, configuration injected
 
 <rules>
+
 ```
 Build once  →  image sha256:abc…  →  staging (config A)  →  production (config B)
 ```
@@ -43,11 +56,13 @@ Build once  →  image sha256:abc…  →  staging (config A)  →  production (
   it, or serve them from a runtime endpoint. Decide deliberately and document it.
 
 ---
+
 </rules>
 
 # Validate configuration at startup
 
 <rules>
+
 ```ts
 const Env = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]),
@@ -73,20 +88,17 @@ runs at 3am, having reported healthy for days.
 ---
 
 ```bash
-</rules>
-
 # A production shell should be unmistakable. Same idea in the app: a banner
-
 # rendered whenever APP_ENV != "production".
-
-<rules>
 export PS1="\[\e[41;97m\] PRODUCTION \[\e[0m\] \w $ "
 ```
+
 </rules>
 
 # The environments and what each is for
 
 <rules>
+
 | Environment | Data | Purpose | External services |
 | --- | --- | --- | --- |
 | Local | Seeded, synthetic | Development | Stubbed or sandboxed |
@@ -108,11 +120,13 @@ Rules:
   grow without limit.
 
 ---
+
 </rules>
 
 # Parity that matters
 
 <rules>
+
 Full production parity is unaffordable. Match the things that change behaviour:
 
 | Must match | Need not match |
@@ -134,11 +148,13 @@ Two that are commonly wrong:
   → `Database/query-optimization`
 
 ---
+
 </rules>
 
 # Production data does not leave production
 
 <rules>
+
 - Never copy a production database into staging or a laptop unmasked. It is a data
   breach whether or not anyone notices.
 - Restore through an **anonymisation** step: replace names, emails, phone numbers
@@ -149,11 +165,13 @@ Two that are commonly wrong:
   staging copy too. → `Database/backup`
 
 ---
+
 </rules>
 
 # Make the environment obvious
 
 <rules>
+
 Acting on production believing it is staging is a recurring and expensive class of
 incident.
 
@@ -180,11 +198,13 @@ binary production/development switch, so a staging deployment must still set
 `NODE_ENV=production` while `APP_ENV=staging` drives everything you control.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Per-environment builds | Staging verified something else | Build once, promote |
@@ -202,11 +222,13 @@ binary production/development switch, so a staging deployment must still set
 | Local pointed at production | One typo destroys real data | Never |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] One artefact is built and promoted unchanged across environments
 - [ ] All configuration is injected at runtime
 - [ ] Build-time-inlined frontend values are an explicit, documented exception
@@ -224,4 +246,5 @@ binary production/development switch, so a staging deployment must still set
 - [ ] Production access is separately granted, time-limited and audited
 - [ ] The environment is visible in the UI, the shell and every log line
 - [ ] Destructive production commands require explicit confirmation
+
 </checklist>

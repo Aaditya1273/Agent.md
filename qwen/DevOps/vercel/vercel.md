@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: vercel
 category: DevOps
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -35,15 +41,15 @@ Framework specifics are `Backend/nextjs` and `Frontend/nextjs`.
 | `NEXT_PUBLIC_*` | Browser and server | **Yes**, at build time |
 | Everything else | Server only | No |
 
-- **Never** prefix a secret with `NEXT_PUBLIC_`. It is inlined into JavaScript
+1. **Never** prefix a secret with `NEXT_PUBLIC_`. It is inlined into JavaScript
   served to every visitor, and rotating it requires a rebuild.
-- `NEXT_PUBLIC_*` values are captured at **build** time. Changing one in the
+2. `NEXT_PUBLIC_*` values are captured at **build** time. Changing one in the
   dashboard does nothing until a redeploy — a recurring source of "I changed it and
   nothing happened".
-- Scope variables per environment (Production, Preview, Development). A preview
+3. Scope variables per environment (Production, Preview, Development). A preview
   deployment holding production credentials means every pull request can write to
   production.
-- Validate all variables at startup and fail the build or boot on a missing one.
+4. Validate all variables at startup and fail the build or boot on a missing one.
   → `DevOps/environments`
 
 ---
@@ -103,29 +109,29 @@ compute helps only when the data is also close.
 
 # Caching and revalidation
 
-- Static and ISR pages are served from the edge; dynamic ones execute per request.
+1. Static and ISR pages are served from the edge; dynamic ones execute per request.
   Read the `next build` output and confirm each route's mode is what you intended.
   A personalised route rendered statically is a data-leak bug, not a performance
   note.
-- Use `revalidateTag`/`revalidatePath` after mutations; stale content after a
+2. Use `revalidateTag`/`revalidatePath` after mutations; stale content after a
   successful write is what users report as "it didn't save".
-- Set `Cache-Control: no-store` on authenticated responses. A cached authenticated
+3. Set `Cache-Control: no-store` on authenticated responses. A cached authenticated
   response served to another visitor is the worst failure mode here.
-- Static assets are content-hashed and cached immutably by the platform — do not
+4. Static assets are content-hashed and cached immutably by the platform — do not
   fight it with custom headers.
 
 ---
 
 # Previews, protection and cost
 
-- Every pull request gets a preview deployment. Treat them as **publicly reachable
+1. Every pull request gets a preview deployment. Treat them as **publicly reachable
   unless protected**: enable Deployment Protection (Vercel Authentication or a
   password) for anything containing real data.
-- Give previews their own database, or a seeded branch database. Pointing previews
+2. Give previews their own database, or a seeded branch database. Pointing previews
   at production means an untested migration runs against real data.
-- Deployments are immutable, so rollback is instant: promote a previous
+3. Deployments are immutable, so rollback is instant: promote a previous
   deployment rather than redeploying. → `DevOps/rollback`
-- Cost drivers, in order: function invocation and duration, edge middleware
+4. Cost drivers, in order: function invocation and duration, edge middleware
   running on **every** request including assets, image optimisation on
   uncontrolled sources, and bandwidth.
   - Scope `middleware.ts` with a tight `matcher` — an unscoped middleware runs on

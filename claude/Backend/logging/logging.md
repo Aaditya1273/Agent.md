@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never log: passwords (even wrong ones), tokens, API keys, session ids, full card numbers, CVVs, government identifiers, or full request/response bodies.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for application logging. A log line exists to answer a question during an
 incident. If it cannot be found, filtered and correlated, it is noise you are
 paying to store.
@@ -27,11 +38,13 @@ and distributions belong in metrics; causality across services belongs in traces
 → `Backend/monitoring`
 
 ---
+
 </purpose>
 
 # Structured, always
 
 <rules>
+
 ```ts
 // Unsearchable — the fields are trapped inside prose
 log.info(`Order ${id} for user ${userId} failed after ${ms}ms`);
@@ -52,11 +65,13 @@ Keep field names consistent across every service: `request_id`, `trace_id`,
 cannot be queried, and a shared schema is what makes cross-service search work.
 
 ---
+
 </rules>
 
 # Levels with a decision attached
 
 <rules>
+
 | Level | Meaning | Action |
 | --- | --- | --- |
 | `error` | Unexpected failure; a human should look | Alert |
@@ -74,11 +89,13 @@ Make the level runtime-configurable per service, so `debug` can be raised during
 an incident without a deploy.
 
 ---
+
 </rules>
 
 # Correlation
 
 <rules>
+
 Every log line carries a request id, and it propagates.
 
 ```ts
@@ -95,11 +112,13 @@ res.set("x-request-id", id);          // echo it so support tickets carry it
 - Include `trace_id` so a log line links to its trace.
 
 ---
+
 </rules>
 
 # Never log secrets or personal data
 
 <rules>
+
 ```ts
 const log = pino({
   redact: {
@@ -124,11 +143,13 @@ card numbers, CVVs, government identifiers, or full request/response bodies.
   → `Security/secret-management`
 
 ---
+
 </rules>
 
 # Log the right events
 
 <rules>
+
 Log at **boundaries and decisions**, not inside loops.
 
 Worth logging:
@@ -148,11 +169,13 @@ Use the route template (`/orders/:id`) as the field value. Interpolated paths ma
 grouping and cardinality control impossible.
 
 ---
+
 </rules>
 
 # Cost and volume
 
 <rules>
+
 Logs are the largest observability bill in most systems and the growth is
 superlinear with traffic.
 
@@ -167,11 +190,13 @@ superlinear with traffic.
   log, but not as a metric label.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | String-interpolated messages | Fields cannot be queried | Structured fields |
@@ -191,11 +216,13 @@ superlinear with traffic.
 | Fixed log level requiring a deploy | Cannot debug during an incident | Runtime-configurable level |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] All logs are structured JSON written to stdout
 - [ ] A real logging library is used, configured with redaction
 - [ ] Field names follow one schema across all services
@@ -212,4 +239,5 @@ superlinear with traffic.
 - [ ] High-volume success paths are sampled; errors are never sampled out
 - [ ] Metrics are emitted as counters, not derived from log lines
 - [ ] Retention is set per log class and matches its actual value
+
 </checklist>

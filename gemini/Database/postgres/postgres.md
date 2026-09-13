@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -173,3 +172,28 @@ provider supports it — an unsupported extension blocks a major-version upgrade
 - [ ] Verify: `work_mem` is sized per node, not per query
 - [ ] Verify: `jsonb` holds only genuinely schemaless data, indexed with GIN
 - [ ] Verify: Extension use is confirmed supported by the hosting provider
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never run `LISTEN/NOTIFY`, session-level advisory locks, or `SET LOCAL`-free `SET` through a transaction-mode pooler. The session that receives the command is not the session that runs the next query.
+- Never store what should be a foreign key inside `jsonb`. There is no referential integrity, and the join will not use an index the way you expect.
+- Never enable an extension in production without checking whether your managed provider supports it — an unsupported extension blocks a major-version upgrade.
+
+- [ ] A transaction-mode pooler sits between the application and the database
+- [ ] Total pool capacity is below `max_connections` with headroom
+- [ ] No session-scoped features are used through a transaction-mode pooler
+- [ ] `statement_timeout` and `idle_in_transaction_session_timeout` are set
+- [ ] `pg_stat_statements` is enabled
+- [ ] `n_dead_tup` and autovacuum recency are monitored
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

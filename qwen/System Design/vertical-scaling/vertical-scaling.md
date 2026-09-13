@@ -5,9 +5,9 @@ Version: 1.0.0
 Target Models
 
 - Qwen3.8-Max
+- Qwen3.8-Flash-Next
 - Qwen3.8-27B
 - Qwen3.8 Family
-- Qwen3 Family
 - Future Qwen Models
 
 ---
@@ -1204,9 +1204,9 @@ Version: 1.0.0
 Target Models
 
 - Qwen3.8-Max
+- Qwen3.8-Flash-Next
 - Qwen3.8-27B
 - Qwen3.8 Family
-- Qwen3 Family
 - Future Qwen Models
 
 ---

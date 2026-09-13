@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -123,13 +130,13 @@ expectations run against the provider's build. → `Testing/integration`
 
 One spec should produce everything, so nothing is written twice:
 
-- **Reference docs** — Redoc, Scalar, Stoplight Elements. Never a hand-written
+1. **Reference docs** — Redoc, Scalar, Stoplight Elements. Never a hand-written
   endpoint table.
-- **Typed clients** — `openapi-typescript` for types, `orval`/`openapi-generator`
+2. **Typed clients** — `openapi-typescript` for types, `orval`/`openapi-generator`
   for full SDKs. Publish them versioned alongside the API.
-- **Mock servers** — Prism serves the spec, so frontend work starts before the
+3. **Mock servers** — Prism serves the spec, so frontend work starts before the
   backend exists.
-- **Postman / Bruno collections** — imported from the spec, not curated by hand.
+4. **Postman / Bruno collections** — imported from the spec, not curated by hand.
 
 Publish the spec at a stable URL (`/openapi.json`), versioned. Integrators, their
 code generators and their AI tooling all read it directly.

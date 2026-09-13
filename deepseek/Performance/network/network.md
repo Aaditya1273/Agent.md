@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -41,14 +48,14 @@ HTTP request      1 RTT
 
 On a 100 ms round trip that is 300–400 ms before anything arrives. Consequences:
 
-- **Every additional origin costs a full connection setup.** Three third-party
+1. **Every additional origin costs a full connection setup.** Three third-party
   domains on a page is roughly a second of setup on mobile.
-- `preconnect` for origins you will definitely use, early; `dns-prefetch` for
+2. `preconnect` for origins you will definitely use, early; `dns-prefetch` for
   likely ones. Do not preconnect to everything — each open connection competes.
-- **HTTP/2 or HTTP/3** multiplexes many requests over one connection, removing
+3. **HTTP/2 or HTTP/3** multiplexes many requests over one connection, removing
   head-of-line blocking at the HTTP layer. HTTP/3 (QUIC) also removes TCP-level
   head-of-line blocking, which matters most on lossy mobile networks.
-- Keep connections alive. Set the server's `keepAliveTimeout` **above** the load
+4. Keep connections alive. Set the server's `keepAliveTimeout` **above** the load
   balancer's idle timeout, or you get intermittent `502`s from close races.
   → `Backend/express`
 
@@ -64,15 +71,15 @@ the single largest avoidable cost in most applications.
 ✅ HTML → (JS ∥ config) → (user ∥ orders)                    2
 ```
 
-- Server-render or return data with the document, so the client does not make a
+1. Server-render or return data with the document, so the client does not make a
   round trip to discover what to request. → `Frontend/server-components`
-- Start independent requests together (`Promise.all`), on the client and the
+2. Start independent requests together (`Promise.all`), on the client and the
   server. A sequential `await` chain in a server component is a server-side
   waterfall.
-- Discovery waterfalls: an import that discovers another import, a JSON manifest
+3. Discovery waterfalls: an import that discovers another import, a JSON manifest
   that names the real asset. Use `modulepreload` and `preload` for known critical
   resources.
-- Do not preload everything — a preloaded resource competes with the one that
+4. Do not preload everything — a preloaded resource competes with the one that
   actually blocks rendering. → `Frontend/performance`
 
 ---
@@ -87,14 +94,14 @@ the single largest avoidable cost in most applications.
 | Removing an unused dependency | Whatever it weighed |
 | Projecting API responses to needed fields | Frequently 50%+ |
 
-- Compress text: Brotli level 11 for static assets at build time, a lower level
+1. Compress text: Brotli level 11 for static assets at build time, a lower level
   for dynamic responses where CPU matters.
-- **Do not compress already-compressed formats** — images, video, `.woff2`. It
+2. **Do not compress already-compressed formats** — images, video, `.woff2`. It
   costs CPU and saves nothing.
-- Compression on responses that reflect user input can leak secrets by size
+3. Compression on responses that reflect user input can leak secrets by size
   (BREACH). Do not compress a response containing a secret alongside
   attacker-controlled content. → `Security/headers`
-- API payload size is a real cost on mobile: return the fields the client needs,
+4. API payload size is a real cost on mobile: return the fields the client needs,
   paginate, and avoid deeply nested expansions nobody reads.
   → `API/pagination`
 
@@ -110,27 +117,27 @@ Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
 Cache-Control: private, no-store                        # authenticated
 ```
 
-- Content-hash asset filenames so they can be cached for a year and a deploy
+1. Content-hash asset filenames so they can be cached for a year and a deploy
   changes the URL.
-- `ETag`/`If-None-Match` turns a repeat request into a 304 with no body — still a
+2. `ETag`/`If-None-Match` turns a repeat request into a 304 with no body — still a
   round trip, so it is second-best to a cache hit.
-- `stale-while-revalidate` serves instantly from cache and refreshes in the
+3. `stale-while-revalidate` serves instantly from cache and refreshes in the
   background.
-- **Never cache an authenticated response in a shared cache.**
+4. **Never cache an authenticated response in a shared cache.**
   → `Performance/caching`
 
 ---
 
 # Move bytes closer
 
-- A CDN turns a 150 ms origin round trip into a 15 ms edge round trip. It is the
+1. A CDN turns a 150 ms origin round trip into a 15 ms edge round trip. It is the
   highest-leverage change available for a geographically distributed audience.
-- Ensure a high cache hit ratio at the edge — a CDN that proxies every request to
+2. Ensure a high cache hit ratio at the edge — a CDN that proxies every request to
   the origin adds a hop and helps nothing.
-- Co-locate compute with data. An edge function querying a database in another
+3. Co-locate compute with data. An edge function querying a database in another
   region pays that latency on every query, which usually cancels the benefit of
   being at the edge. → `DevOps/vercel`
-- For chatty internal services, latency multiplies: a request that makes twenty
+4. For chatty internal services, latency multiplies: a request that makes twenty
   sequential internal calls at 2 ms each is 40 ms of pure network. Batch, or
   co-locate.
 

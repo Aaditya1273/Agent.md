@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -227,3 +226,24 @@ data with factories, not fixtures files. → `Testing/pytest`
 - [ ] Verify: `manage.py check --deploy` passes in CI
 - [ ] Verify: Admin changelists set `list_select_related` and `raw_id_fields`
 - [ ] Verify: Tests use `TestCase` and factories
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Settings split into `base`/`dev`/`prod` modules
+- [ ] Each app owns one concept; no circular model imports
+- [ ] Writes go through `services.py`; views hold no business rules
+- [ ] Every `ForeignKey` sets `on_delete` deliberately
+- [ ] Invariants enforced with `Meta.constraints`
+- [ ] Money stored as integer cents
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -195,3 +194,26 @@ async function onSubmit(values) {
 - [ ] Verify: Unsaved-change warnings and drafts exist for long forms, excluding secrets
 - [ ] Verify: CSRF protection covers every state-changing submission
 - [ ] Verify: No form values are logged
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never use a `<div onClick>` as a submit control — it is not keyboard-operable and does not submit the form.
+
+- [ ] Every form is a real `<form>` with a submit button and named fields
+- [ ] Appropriate `type`, `inputmode` and `autocomplete` are set per field
+- [ ] Native constraint attributes are used where they apply
+- [ ] One schema definition validates on both client and server
+- [ ] Validation runs on blur first, then on change once a field is invalid
+- [ ] Error messages state the problem and the fix
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

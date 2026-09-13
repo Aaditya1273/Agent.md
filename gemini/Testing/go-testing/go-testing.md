@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -217,3 +216,24 @@ func FuzzParse(f *testing.F) {
 - [ ] Verify: `go test -race ./...` runs in CI
 - [ ] Verify: Parsers of untrusted input have a `Fuzz` target with crashers kept as regressions
 - [ ] Verify: Benchmarks are compared with `benchstat`, never a single run
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Tests are table-driven with named `t.Run` subtests
+- [ ] Failure messages include input, got, and want
+- [ ] Subtests call `t.Parallel()` where the code under test is pure or safe
+- [ ] Every helper starts with `t.Helper()` and uses `t.Cleanup`
+- [ ] Temporary files use `t.TempDir()`
+- [ ] Handlers are tested with `httptest.NewRequest` and `NewRecorder`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

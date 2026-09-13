@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for testing beyond expected capacity. `Testing/load` answers "does it meet
 its target". Stress testing answers three different questions:
 
@@ -29,11 +39,13 @@ The third is the one most teams never test, and the one that turns a ten-minute
 spike into a two-hour outage.
 
 ---
+
 </purpose>
 
 # Ramp to failure
 
 <rules>
+
 ```js
 // k6 — climb until something gives. No thresholds: failure is the point.
 export const options = {
@@ -58,11 +70,13 @@ is your real capacity — not the point where the system falls over, which is we
 past the point users abandoned it.
 
 ---
+
 </rules>
 
 # Graceful versus catastrophic
 
 <rules>
+
 | Graceful | Catastrophic |
 | --- | --- |
 | Latency rises smoothly | Latency stays flat, then everything times out |
@@ -116,11 +130,13 @@ await setTimeout(jittered);
 Tooling: `k6` and `vegeta` for volume, `toxiproxy` for injected latency and
 partitions, `pumba` or `chaos-mesh` for killing containers, and `stress-ng` for
 CPU, memory and IO pressure on a host.
+
 </rules>
 
 # Recovery
 
 <rules>
+
 Testing recovery is what distinguishes a stress test from a load test.
 
 After the load drops to zero, watch for:
@@ -139,11 +155,13 @@ Require exponential backoff **with jitter** on every client, and cap total
 attempts.
 
 ---
+
 </rules>
 
 # Failure injection
 
 <rules>
+
 Stress is not only volume. Test the failure modes you will actually meet:
 
 | Injected | Expected |
@@ -159,11 +177,13 @@ Start in a staging environment. Only move to production experiments with a
 hypothesis, a bounded blast radius, an abort condition, and someone watching.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Stopping at the first error | Misses how it breaks and whether it recovers | Ramp past failure, then to zero |
@@ -178,11 +198,13 @@ hypothesis, a bounded blast radius, an abort condition, and someone watching.
 | Assuming recovery | Cold caches cause a second failure | Measure the return to baseline |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Load ramps past the breaking point, not up to the first error
 - [ ] The knee is identified and recorded as real capacity
 - [ ] Failure mode is classified as graceful or catastrophic
@@ -194,4 +216,5 @@ hypothesis, a bounded blast radius, an abort condition, and someone watching.
 - [ ] Client retry logic uses exponential backoff with jitter and an attempt cap
 - [ ] Dependency failure and instance loss are injected, not just volume
 - [ ] Production experiments have a hypothesis, blast radius and abort condition
+
 </checklist>

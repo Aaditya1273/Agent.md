@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -127,10 +134,10 @@ waits. Start it earlier, on a signal that they are about to need it:
       onFocus={() => import("./routes/Reports")} />
 ```
 
-- Prefetch links entering the viewport (`IntersectionObserver`), which is what
+1. Prefetch links entering the viewport (`IntersectionObserver`), which is what
   Next.js `<Link>` does by default.
-- Prefetch the likely next step of a known flow — checkout after the cart.
-- Do **not** prefetch everything: it competes for bandwidth with what is needed
+2. Prefetch the likely next step of a known flow — checkout after the cart.
+3. Do **not** prefetch everything: it competes for bandwidth with what is needed
   now, and on a metered connection it costs the user money. Respect
   `navigator.connection.saveData`.
 
@@ -141,16 +148,16 @@ waits. Start it earlier, on a signal that they are about to need it:
 The failure mode of enthusiastic splitting is sequential loading: chunk A loads,
 renders, and only then requests chunk B.
 
-- Do not nest lazy boundaries where both are always needed together. Load them in
+1. Do not nest lazy boundaries where both are always needed together. Load them in
   parallel:
   ```tsx
   const [Chart, Table] = await Promise.all([import("./Chart"), import("./Table")]);
   ```
-- Keep the **critical path** in the initial chunk: the shell, the router, and
+2. Keep the **critical path** in the initial chunk: the shell, the router, and
   whatever renders above the fold. Splitting the LCP element out delays the metric
   it defines. → `Frontend/performance`
-- Use `modulepreload` for chunks known to be needed immediately after the entry.
-- Every `lazy()` needs a `<Suspense>` boundary and an error boundary — a chunk
+3. Use `modulepreload` for chunks known to be needed immediately after the entry.
+4. Every `lazy()` needs a `<Suspense>` boundary and an error boundary — a chunk
   request can fail on a flaky network, and without a boundary the page blanks.
   Offer a retry.
 

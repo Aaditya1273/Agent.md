@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -218,3 +217,29 @@ test.each([
 - [ ] Verify: Boundary cases are covered with table-driven tests
 - [ ] Verify: Coverage is used diagnostically, not as a target
 - [ ] Verify: No test is skipped to hide flakiness
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never assert on log output, private fields, or the number of times an internal helper ran. Those are free to change.
+- Never mock the unit under test. If a test needs to stub a private method of the class it is testing, the class is doing too much — that is design feedback, not a mocking problem.
+- Never use `sleep` or a fixed timeout to wait for async work. Await the promise, or use the framework's fake timers. A `setTimeout(200)` that passes on your laptop fails on a loaded CI runner.
+- Never share mutable state between tests. Fresh fixtures per test; reset any module-level state in `beforeEach`.
+
+- [ ] Test names describe behaviour, not method names
+- [ ] Each test exercises one behaviour with a single act step
+- [ ] Assertions target observable output, not internal calls
+- [ ] Interaction assertions used only where the side effect is the contract
+- [ ] No third-party SDK is mocked directly
+- [ ] Time, randomness and ordering are controlled, never ambient
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

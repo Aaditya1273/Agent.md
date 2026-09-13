@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 

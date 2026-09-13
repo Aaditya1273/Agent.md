@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -241,3 +240,26 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 - [ ] Verify: Workers drain gracefully on deploy
 - [ ] Verify: Workers tolerate both payload versions during a rollout
 - [ ] Verify: A manual replay and cancel path exists
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never write a job that processes an unbounded set in one execution. It will eventually exceed every timeout you have, and a failure at 90% loses all of it.
+
+- [ ] Jobs are enqueued after commit, or via a transactional outbox
+- [ ] Payloads carry identifiers and a schema version, not serialised entities
+- [ ] Every job is idempotent under repeated execution
+- [ ] Large workloads fan out into small, independently retryable jobs
+- [ ] Long jobs checkpoint progress so retries resume
+- [ ] Every job type has an explicit timeout below the ack deadline
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -184,3 +183,24 @@ against private ranges — including `169.254.169.254`, `127.0.0.0/8`, `10/8`,
 - [ ] Verify: Lockfiles with integrity hashes; CI actions pinned by SHA (A08)
 - [ ] Verify: Auth outcomes and authorisation denials logged and shipped off-host (A09)
 - [ ] Verify: Outbound fetches allow-listed and checked against private IP ranges (A10)
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Every data access is scoped by owner or tenant in the query (A01)
+- [ ] Passwords use `argon2id`; transport is TLS with HSTS (A02)
+- [ ] All queries parameterised; all output contextually encoded (A03)
+- [ ] Abuse cases defined and business limits enforced server-side (A04)
+- [ ] Debug disabled, stack traces stripped, defaults hardened (A05)
+- [ ] Dependency audit runs in CI and fails on high or critical (A06)
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

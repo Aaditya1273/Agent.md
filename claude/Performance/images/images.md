@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never ship GIF for animation. An animated WebP or a muted, looping, `playsinline` MP4 is a fraction of the size. - Quality 75–85 is visually indistinguishable from 100 for most photographs at roughly half the bytes. - Strip metadata (EXIF) — it adds kilobytes and can leak GPS coordinates from user uploads. That is a privacy issue, not only a size one. - SVGs are XML and can contain scripts: sanitise any user-supplied SVG before serving it inline. → `Security/xss`
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for delivering images. Images are usually the largest bytes on a page, the
 LCP element, and the main cause of layout shift — so they affect all three Core
 Web Vitals at once.
@@ -26,11 +37,13 @@ Four levers, in order of impact: **format**, **dimensions**, **loading priority*
 **reserved space**.
 
 ---
+
 </purpose>
 
 # Format and compression
 
 <rules>
+
 | Format | Use for | Relative size |
 | --- | --- | --- |
 | **AVIF** | Photographs, complex images | ~50% of JPEG |
@@ -58,11 +71,13 @@ Four levers, in order of impact: **format**, **dimensions**, **loading priority*
   serving it inline. → `Security/xss`
 
 ---
+
 </rules>
 
 # Serve the right size
 
 <rules>
+
 A 3000px image displayed at 400px wastes roughly 98% of its bytes — and mobile
 users pay for it.
 
@@ -85,11 +100,13 @@ Serve at the device pixel ratio the display needs, not blindly at 2× — the
 difference above 2× is imperceptible and doubles the bytes again.
 
 ---
+
 </rules>
 
 # Priority: the LCP image is special
 
 <rules>
+
 ```html
 <!-- Above the fold: load it first, never lazily -->
 <img src="hero.avif" width="1200" height="630" alt="…"
@@ -110,11 +127,13 @@ difference above 2× is imperceptible and doubles the bytes again.
   not use one for the LCP element.
 
 ---
+
 </rules>
 
 # Reserve the space
 
 <rules>
+
 ```html
 <img src="…" width="800" height="600" />        <!-- intrinsic ratio reserved -->
 ```
@@ -135,11 +154,13 @@ dominant-colour block at the correct aspect ratio is better than empty space, an
 does not shift when replaced.
 
 ---
+
 </rules>
 
 # Delivery
 
 <rules>
+
 - Serve from a CDN with long-lived, immutable caching on content-hashed URLs.
   → `Performance/caching`
 - Use an image service that negotiates format on `Accept` so a browser supporting
@@ -154,11 +175,13 @@ does not shift when replaced.
   → `Backend/background-jobs`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | JPEG/PNG only | Twice the bytes of AVIF | `<picture>` with modern formats |
@@ -180,11 +203,13 @@ does not shift when replaced.
 | No CDN | Every image crosses the ocean | Edge delivery with immutable caching |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Images are served as AVIF or WebP with a fallback
 - [ ] Icons and logos are SVG
 - [ ] No animated GIFs are served
@@ -202,4 +227,5 @@ does not shift when replaced.
 - [ ] Uploads are size-capped and type-checked by content
 - [ ] User uploads are processed in a background job with bounded memory
 - [ ] User-supplied SVGs are sanitised
+
 </checklist>

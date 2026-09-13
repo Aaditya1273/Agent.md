@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for caching. A cache trades **freshness** for **speed**, and the trade is
 only acceptable when you can state how stale data is allowed to be and how it is
 invalidated.
@@ -28,11 +38,13 @@ until the cache misses, which is exactly when load is highest.
 → `Database/query-optimization`
 
 ---
+
 </purpose>
 
 # Know which layer you are in
 
 <rules>
+
 | Layer | Scope | Invalidation | Typical TTL |
 | --- | --- | --- | --- |
 | Browser | One user | Impossible once sent | Immutable assets only |
@@ -57,11 +69,13 @@ Cache-Control: private, no-store                         # authenticated respons
 deploy takes a day to reach users.
 
 ---
+
 </rules>
 
 # Never cache a personalised response in a shared cache
 
 <rules>
+
 This is the highest-impact caching bug in existence: one user's page served to
 another.
 
@@ -75,11 +89,13 @@ another.
   them? → `API/api-security`
 
 ---
+
 </rules>
 
 # Invalidation: decide before you cache
 
 <rules>
+
 Three strategies, and every cached value uses one of them explicitly:
 
 | Strategy | Correctness | Complexity |
@@ -114,11 +130,13 @@ A cache with no stated invalidation mechanism is a bug with a delay fuse. Write
 the mechanism down next to the TTL.
 
 ---
+
 </rules>
 
 # Stampede, and the failure that follows a success
 
 <rules>
+
 When a hot key expires, every concurrent request misses at once and hits the
 origin together. The database that was comfortable at 5% miss rate is not
 comfortable at 100%.
@@ -147,11 +165,13 @@ the decision down and rate-limit the origin accordingly.
 → `Database/redis`
 
 ---
+
 </rules>
 
 # Cache the right things
 
 <rules>
+
 | Good candidate | Poor candidate |
 | --- | --- |
 | Expensive aggregation, rarely changing | A primary-key lookup already sub-millisecond |
@@ -182,11 +202,13 @@ typically a key containing a `requestId`, a timestamp, or a full URL with tracki
 parameters — something that varies more than the value does.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Caching to hide a slow query | Breaks under the load that caused it | Index first |
@@ -206,11 +228,13 @@ parameters — something that varies more than the value does.
 | Cache key missing the tenant | Cross-tenant data exposure | Include every varying dimension |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The underlying operation is correct and indexed before any cache is added
 - [ ] Each cached value names its layer, TTL and invalidation mechanism
 - [ ] Authenticated and personalised responses are never in a shared cache
@@ -225,4 +249,5 @@ parameters — something that varies more than the value does.
 - [ ] Origin load is bounded even at a 100% miss rate
 - [ ] Memory limits and an eviction policy are configured
 - [ ] Hit ratio, eviction rate and memory use are monitored
+
 </checklist>

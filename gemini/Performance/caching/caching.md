@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -212,3 +211,24 @@ parameters — something that varies more than the value does.
 - [ ] Verify: Origin load is bounded even at a 100% miss rate
 - [ ] Verify: Memory limits and an eviction policy are configured
 - [ ] Verify: Hit ratio, eviction rate and memory use are monitored
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] The underlying operation is correct and indexed before any cache is added
+- [ ] Each cached value names its layer, TTL and invalidation mechanism
+- [ ] Authenticated and personalised responses are never in a shared cache
+- [ ] Cache keys include every dimension the value varies on, including tenant
+- [ ] `max-age` and `s-maxage` are set deliberately and differ where appropriate
+- [ ] Immutable assets are content-hashed and cached for a year
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

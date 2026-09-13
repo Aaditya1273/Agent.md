@@ -14,20 +14,32 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for organising and writing tests with pytest. What to assert is
 `Testing/unit`; this package is about the harness: how tests are found, shared,
 isolated and kept fast.
 
 ---
+
 </purpose>
 
 # Layout and configuration
 
 <rules>
+
 ```
 tests/
   conftest.py            # shared fixtures, no tests
@@ -55,11 +67,13 @@ markers = ["slow: takes >1s", "integration: needs the database"]
   is the installed package. → `Backend/python-conventions`
 
 ---
+
 </rules>
 
 # Fixtures and scope
 
 <rules>
+
 ```python
 @pytest.fixture(scope="session")
 def engine():                          # expensive: once per run
@@ -90,11 +104,13 @@ def order(session) -> Order:
   (freezing the clock, disabling network) and nothing else.
 
 ---
+
 </rules>
 
 # Parametrize, don't loop
 
 <rules>
+
 ```python
 @pytest.mark.parametrize(("qty", "discount"), [
     (0, 0), (1, 0), (9, 0), (10, 100), (11, 110),
@@ -111,11 +127,13 @@ def test_bulk_discount(qty: int, discount: int) -> None:
   failing case inside the table, instead of deleting it.
 
 ---
+
 </rules>
 
 # Markers and selection
 
 <rules>
+
 ```bash
 pytest -m "not slow and not integration"     # the pre-commit run
 pytest -m integration                        # CI job with the database
@@ -129,11 +147,13 @@ pytest -x --ff                               # stop at first, run failures first
   always. A bare `skip` is a test that quietly stopped existing.
 
 ---
+
 </rules>
 
 # Mocking at boundaries you own
 
 <rules>
+
 ```python
 def test_sends_receipt(order, mailer_spy):                 # fake of OUR interface
     send_receipt(order, mailer=mailer_spy)
@@ -154,11 +174,13 @@ def test_retries_on_timeout(monkeypatch):
   for CI. → `Testing/unit`
 
 ---
+
 </rules>
 
 # Async tests
 
 <rules>
+
 ```toml
 asyncio_mode = "auto"      # pytest-asyncio: every `async def test_*` just runs
 ```
@@ -175,11 +197,13 @@ finish. Use `pytest.raises` with the specific exception, not `Exception`.
 → `Backend/python-async`
 
 ---
+
 </rules>
 
 # Coverage and speed
 
 <rules>
+
 ```bash
 pytest --cov=src --cov-report=term-missing --cov-fail-under=80   # a floor, not a target
 pytest -n auto                                                    # pytest-xdist
@@ -198,11 +222,13 @@ pytest --durations=10                                             # find the slo
   depends on the wall clock fails at midnight.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Undeclared markers | Typos silently unselect tests | `--strict-markers` |
@@ -223,11 +249,13 @@ pytest --durations=10                                             # find the slo
 | Wall clock in tests | Fails at midnight/DST | Freeze time |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `pyproject.toml` sets `--strict-markers`, `--strict-config`, `filterwarnings = ["error"]`, `xfail_strict`
 - [ ] Every marker declared and used to split unit from integration runs
 - [ ] Fixtures default to function scope; wider scope only for immutable, expensive resources
@@ -241,4 +269,5 @@ pytest --durations=10                                             # find the slo
 - [ ] Coverage floor enforced; number treated as diagnostic
 - [ ] Unit run finishes in seconds; `-n auto` works
 - [ ] Time and randomness are controlled
+
 </checklist>

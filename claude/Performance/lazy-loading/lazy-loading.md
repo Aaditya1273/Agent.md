@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for deferring work. Lazy loading trades a smaller initial payload for a
 later request. That is a good trade when the deferred thing is genuinely not
 needed yet, and a bad one when the user is now waiting for it.
@@ -26,11 +36,13 @@ The distinction that decides every case: **is this needed for the first screen?*
 If yes, deferring it makes the page slower while appearing to optimise it.
 
 ---
+
 </purpose>
 
 # What to defer, and what never to
 
 <rules>
+
 | Defer | Never defer |
 | --- | --- |
 | Below-the-fold images | The LCP image |
@@ -51,11 +63,13 @@ adds `loading="lazy"` to the hero, which delays the very metric it defines:
 → `Performance/images`
 
 ---
+
 </rules>
 
 # Use the platform where it exists
 
 <rules>
+
 ```html
 <img loading="lazy" decoding="async" width="400" height="300" />
 <iframe loading="lazy" title="…"></iframe>
@@ -82,11 +96,13 @@ Scroll handlers fire constantly and force layout reads; `IntersectionObserver` i
 both cheaper and more accurate.
 
 ---
+
 </rules>
 
 # Components
 
 <rules>
+
 ```tsx
 const Editor = lazy(() => import("./Editor"));
 
@@ -106,11 +122,13 @@ const Editor = lazy(() => import("./Editor"));
   waterfall replacing one download. → `Frontend/code-splitting`
 
 ---
+
 </rules>
 
 # Prefetch on intent
 
 <rules>
+
 Deferring is only free if the thing arrives before the user needs it. Start it on
 a signal of intent, not on the click:
 
@@ -128,11 +146,13 @@ a signal of intent, not on the click:
   `prefers-reduced-data`.
 
 ---
+
 </rules>
 
 # Data and third parties
 
 <rules>
+
 - Paginate and load more on demand rather than fetching everything up front, but
   keep the first page in the initial response so the screen is not empty.
   → `API/pagination`
@@ -148,11 +168,13 @@ a signal of intent, not on the click:
   consent. → `Frontend/performance`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Lazy-loading the LCP image | Delays the metric it defines | `fetchpriority="high"` |
@@ -173,11 +195,13 @@ a signal of intent, not on the click:
 | Tracking loaded before consent | Compliance exposure | Consent gate |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Above-the-fold content, the shell and critical CSS are never deferred
 - [ ] The LCP image is prioritised, not lazy-loaded
 - [ ] Below-the-fold images and iframes use native `loading="lazy"`
@@ -193,4 +217,5 @@ a signal of intent, not on the click:
 - [ ] The first page of a list ships with the initial response
 - [ ] Third-party widgets load behind a facade on interaction
 - [ ] Tracking and cookie-setting scripts load only after consent
+
 </checklist>

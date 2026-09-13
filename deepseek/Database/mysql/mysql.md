@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -90,9 +97,9 @@ SELECT * FROM orders WHERE created_at > '2026-01-01' FOR UPDATE;
 
 This causes deadlocks that do not appear on other engines. Options, in order:
 
-- Lock by primary key where possible, and always in a consistent order.
-- Keep transactions short — never hold one across an HTTP call.
-- Set `transaction_isolation = READ-COMMITTED` if gap locks are causing
+1. Lock by primary key where possible, and always in a consistent order.
+2. Keep transactions short — never hold one across an HTTP call.
+3. Set `transaction_isolation = READ-COMMITTED` if gap locks are causing
   contention and your application does not rely on repeatable reads.
 
 Diagnose with:

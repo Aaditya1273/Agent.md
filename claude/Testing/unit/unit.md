@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,24 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never assert on log output, private fields, or the number of times an internal helper ran. Those are free to change.
+- Never mock the unit under test. If a test needs to stub a private method of the class it is testing, the class is doing too much — that is design feedback, not a mocking problem.
+- Never use `sleep` or a fixed timeout to wait for async work. Await the promise, or use the framework's fake timers. A `setTimeout(200)` that passes on your laptop fails on a loaded CI runner.
+- Never share mutable state between tests. Fresh fixtures per test; reset any module-level state in `beforeEach`.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for unit tests: fast, isolated, deterministic checks of a single unit of
 behaviour.
 
@@ -26,11 +40,13 @@ implementation.** A test that breaks when you rename a private method without
 changing behaviour is a maintenance tax, not a safety net.
 
 ---
+
 </purpose>
 
 # Structure
 
 <rules>
+
 Arrange, act, assert — with the act step being exactly one call:
 
 ```js
@@ -53,11 +69,13 @@ test("applies the bulk discount at ten units", () => {
   thing, or it is reimplementing the logic under test.
 
 ---
+
 </rules>
 
 # What to assert
 
 <rules>
+
 Assert the **observable outcome**, not the path taken to it.
 
 ```js
@@ -76,11 +94,13 @@ being published. There, the side effect is the contract.
 helper ran. Those are free to change.
 
 ---
+
 </rules>
 
 # Test doubles
 
 <rules>
+
 Use the least powerful double that works:
 
 | Double | Use | Risk |
@@ -100,11 +120,13 @@ the class it is testing, the class is doing too much — that is design feedback
 not a mocking problem.
 
 ---
+
 </rules>
 
 # Determinism
 
 <rules>
+
 A flaky test is worse than no test: it trains the team to re-run CI until green,
 which is how a real failure gets ignored.
 
@@ -133,11 +155,13 @@ fails on a loaded CI runner.
 module-level state in `beforeEach`.
 
 ---
+
 </rules>
 
 # Framework specifics
 
 <rules>
+
 The assertion you choose changes what the failure tells you:
 
 | Intent | Use | Not |
@@ -158,11 +182,13 @@ Lifecycle hooks: prefer `beforeEach` over `beforeAll` for anything mutable.
 Reset module state and doubles explicitly — `vi.restoreAllMocks()` or
 `jest.restoreAllMocks()` in `afterEach`, and set `restoreMocks: true` in config so
 it cannot be forgotten.
+
 </rules>
 
 # Coverage
 
 <rules>
+
 Coverage measures which lines ran, not whether they were checked. 100% coverage is
 achievable by a suite with no assertions at all.
 
@@ -176,11 +202,13 @@ achievable by a suite with no assertions at all.
   assertion is a maintenance cost pretending to be a safety net.
 
 ---
+
 </rules>
 
 # What belongs in a unit test
 
 <rules>
+
 | Test at unit level | Test elsewhere |
 | --- | --- |
 | Business rules, calculations, validation | Database queries → `Testing/integration` |
@@ -200,11 +228,13 @@ test.each([
 ```
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Asserting on private methods | Breaks on refactor with no bug | Assert observable output |
@@ -219,11 +249,13 @@ test.each([
 | Testing the framework | No value; churns on upgrade | Test your code |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Test names describe behaviour, not method names
 - [ ] Each test exercises one behaviour with a single act step
 - [ ] Assertions target observable output, not internal calls
@@ -235,4 +267,5 @@ test.each([
 - [ ] Boundary cases are covered with table-driven tests
 - [ ] Coverage is used diagnostically, not as a target
 - [ ] No test is skipped to hide flakiness
+
 </checklist>

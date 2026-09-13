@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for putting Cloudflare in front of an application, and for running code at
 its edge. Three jobs, in descending order of value:
 
@@ -26,11 +36,13 @@ its edge. Three jobs, in descending order of value:
 3. **Compute** — Workers for logic that belongs at the edge, not for everything.
 
 ---
+
 </purpose>
 
 # Proxying and origin protection
 
 <rules>
+
 A proxied (orange-cloud) record hides the origin IP. A grey-cloud record publishes
 it, and an attacker who knows it bypasses every protection you configured.
 
@@ -48,21 +60,19 @@ it, and an attacker who knows it bypasses every protection you configured.
   misleading indicator.
 
 ---
+
 </rules>
 
 # Caching: the defaults cache almost nothing
 
 <rules>
+
 By default Cloudflare caches a list of static file extensions and **nothing with a
 query string or a cookie**. Most applications therefore see a low hit ratio and
 conclude the CDN is not helping.
 
 ```
-</rules>
-
 # Cache rule: hashed assets, cached hard, everywhere
-
-<rules>
 When  URI Path matches ^/(assets|_next/static)/
 Then  Cache eligibility: Eligible
       Edge TTL: 1 year   Browser TTL: 1 year
@@ -94,11 +104,13 @@ Measure the hit ratio. Below ~80% on static assets means the rules are wrong, no
 that caching does not apply.
 
 ---
+
 </rules>
 
 # WAF, bots and rate limiting
 
 <rules>
+
 - Enable the managed WAF rulesets, then **watch the logs before enforcing**.
   Shipping a ruleset straight to block will break a legitimate integration whose
   payload looks like an attack.
@@ -116,11 +128,13 @@ that caching does not apply.
   origin, so there is no public admin panel at all.
 
 ---
+
 </rules>
 
 # Workers: know the constraints
 
 <rules>
+
 | Constraint | Value | Consequence |
 | --- | --- | --- |
 | CPU time | ~10–30 ms typical, configurable | Not for heavy computation |
@@ -139,11 +153,7 @@ that caching does not apply.
 - Version and roll back deployments (`wrangler versions`), and use gradual
   deployments for risky changes. → `DevOps/rollback`
 ```toml
-</rules>
-
 # wrangler.toml — bindings, not secrets. Secrets go in `wrangler secret put`.
-
-<rules>
 name = "edge-router"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
@@ -165,11 +175,13 @@ enabled = true
   a module-scope cache is neither reliable nor per-user-safe.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Grey-cloud DNS records | Origin IP published; protections bypassed | Proxy everything; audit records |
@@ -190,11 +202,13 @@ enabled = true
 | No cache-hit-ratio monitoring | The CDN silently does nothing | Track and alert |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every public hostname is proxied; no grey-cloud records remain
 - [ ] The origin accepts traffic only from Cloudflare, or has no inbound ports
 - [ ] Authenticated Origin Pulls are enabled
@@ -215,4 +229,5 @@ enabled = true
 - [ ] Worker storage choice matches the consistency requirement
 - [ ] Worker secrets are set with `wrangler secret`, not committed
 - [ ] Worker deployments are versioned and rollable
+
 </checklist>

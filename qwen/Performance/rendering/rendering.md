@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: rendering
 category: Performance
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -89,17 +95,17 @@ deliver measurements without forcing layout.
 
 # Render less
 
-- **Virtualise long lists.** Rendering 10,000 rows is slow regardless of how cheap
+1. **Virtualise long lists.** Rendering 10,000 rows is slow regardless of how cheap
   each row is. `@tanstack/virtual` or equivalent renders the visible window plus a
   small overscan.
-- **Paginate** rather than rendering everything and hiding most of it with CSS —
+2. **Paginate** rather than rendering everything and hiding most of it with CSS —
   `display: none` still costs DOM nodes and memory.
-- **`content-visibility: auto`** lets the browser skip rendering off-screen
+3. **`content-visibility: auto`** lets the browser skip rendering off-screen
   sections entirely; pair it with `contain-intrinsic-size` so the scrollbar does
   not jump.
-- **CSS containment** (`contain: layout paint`) scopes recalculation to a subtree,
+4. **CSS containment** (`contain: layout paint`) scopes recalculation to a subtree,
   so a change inside a widget cannot force layout of the whole page.
-- Keep the DOM shallow. Deep trees make every style recalculation more expensive.
+5. Keep the DOM shallow. Deep trees make every style recalculation more expensive.
 
 In React specifically: state placed too high re-renders subtrees that do not care,
 and index keys make React reuse the wrong DOM nodes. Both show up as rendering
@@ -112,36 +118,36 @@ cost with no obvious cause. → `Frontend/react`
 INP measures the worst interaction latency users experience: input → processing →
 next paint.
 
-- **Never block the main thread with a long task.** A 300 ms synchronous handler is
+1. **Never block the main thread with a long task.** A 300 ms synchronous handler is
   300 ms of unresponsive UI. Break long work with `scheduler.yield()`, or move it
   to a web worker.
-- Mark non-urgent updates so typing stays responsive:
+2. Mark non-urgent updates so typing stays responsive:
 
 ```tsx
 const [query, setQuery] = useState("");
 const deferred = useDeferredValue(query);      // list lags; input does not
 ```
 
-- Debounce or throttle high-frequency handlers (`input`, `scroll`, `resize`,
+3. Debounce or throttle high-frequency handlers (`input`, `scroll`, `resize`,
   `mousemove`). Use `requestAnimationFrame` for anything that updates visuals.
-- Add `{ passive: true }` to scroll and touch listeners so the browser does not
+4. Add `{ passive: true }` to scroll and touch listeners so the browser does not
   wait to discover whether you will call `preventDefault()`.
-- Respond immediately, even if the work is not finished: show a pending state on
+5. Respond immediately, even if the work is not finished: show a pending state on
   the first frame rather than after the work completes.
-- Honour `prefers-reduced-motion` — for accessibility, and because it removes work.
+6. Honour `prefers-reduced-motion` — for accessibility, and because it removes work.
   → `Testing/accessibility`
 
 ---
 
 # Measure, do not guess
 
-- **DevTools Performance panel** with 4–6× CPU throttling. Look for long tasks
+1. **DevTools Performance panel** with 4–6× CPU throttling. Look for long tasks
   (> 50 ms), forced synchronous layout, and frames exceeding the budget.
-- **React Profiler** for component render counts and durations — but confirm
+2. **React Profiler** for component render counts and durations — but confirm
   against the browser profile, since the cost is often in layout, not in React.
-- **Field data** (`web-vitals`) for INP and CLS at p75, segmented by device class.
+3. **Field data** (`web-vitals`) for INP and CLS at p75, segmented by device class.
   A desktop profile does not represent a mid-range Android phone.
-- Reproduce on a real low-end device before and after. Throttling approximates;
+4. Reproduce on a real low-end device before and after. Throttling approximates;
   hardware is the truth. → `Performance/optimization`
 
 ---

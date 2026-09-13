@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for splitting JavaScript across chunks. The goal is not "smaller bundles"
 in the abstract — it is that a user opening the login page does not download the
 admin dashboard, the chart library and the rich text editor.
@@ -26,11 +36,13 @@ Split badly and you replace one large download with a chain of small sequential
 ones, which is worse. Every rule here is about avoiding that.
 
 ---
+
 </purpose>
 
 # Measure before splitting
 
 <rules>
+
 ```bash
 npx vite-bundle-visualizer            # or @next/bundle-analyzer, rollup-plugin-visualizer
 npx source-map-explorer dist/*.js
@@ -51,11 +63,13 @@ Enforce a budget in CI so the gain does not silently erode:
 ```
 
 ---
+
 </rules>
 
 # Split at routes first
 
 <rules>
+
 Route boundaries are natural: the user is already waiting for a navigation, and
 each route's code is genuinely independent.
 
@@ -77,11 +91,13 @@ but avoid a "vendor" chunk containing everything: a single dependency update the
 invalidates the cache for all of it.
 
 ---
+
 </rules>
 
 # Then split heavy components
 
 <rules>
+
 Worth splitting individually:
 
 | Component | Typical size |
@@ -119,11 +135,13 @@ updated dependencies stays cached across deploys, while lumping everything into
 `vendor` means one patch release invalidates the whole thing for every user.
 
 ---
+
 </rules>
 
 # Prefetch on intent
 
 <rules>
+
 A lazy chunk that only starts downloading when the user clicks means the user
 waits. Start it earlier, on a signal that they are about to need it:
 
@@ -142,11 +160,13 @@ waits. Start it earlier, on a signal that they are about to need it:
   `navigator.connection.saveData`.
 
 ---
+
 </rules>
 
 # Avoid the waterfall you just created
 
 <rules>
+
 The failure mode of enthusiastic splitting is sequential loading: chunk A loads,
 renders, and only then requests chunk B.
 
@@ -164,11 +184,13 @@ renders, and only then requests chunk B.
   Offer a retry.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Splitting before measuring | Effort spread over the wrong modules | Analyse the bundle first |
@@ -186,11 +208,13 @@ renders, and only then requests chunk B.
 | Locale data all bundled | Users download 40 languages to read one | Load the active locale |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The bundle has been analysed and the largest contributors identified
 - [ ] A size budget is enforced in CI
 - [ ] Each route produces its own chunk, verified in the build output
@@ -207,4 +231,5 @@ renders, and only then requests chunk B.
 - [ ] Prefetching respects `saveData` and does not compete with critical resources
 - [ ] Shared chunks are grouped by change frequency, not into one vendor blob
 - [ ] No library is bundled twice at different versions
+
 </checklist>

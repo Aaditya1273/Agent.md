@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -40,11 +46,11 @@ apps/
     migrations/  tests/
 ```
 
-- Each app owns one bounded concept. If `orders/models.py` imports from
+1. Each app owns one bounded concept. If `orders/models.py` imports from
   `billing/models.py` and vice versa, you have one app pretending to be two.
-- `services.py` holds writes (create/update with rules), `selectors.py` holds
+2. `services.py` holds writes (create/update with rules), `selectors.py` holds
   reads. Views parse, call, format — nothing else.
-- `DJANGO_SETTINGS_MODULE=config.settings.prod` in production; `dev.py` imports
+3. `DJANGO_SETTINGS_MODULE=config.settings.prod` in production; `dev.py` imports
   `*` from `base.py` and overrides.
 
 ---
@@ -65,15 +71,15 @@ class Order(models.Model):
         ]
 ```
 
-- Every `ForeignKey` names its `on_delete` deliberately. `CASCADE` on a tenant or
+1. Every `ForeignKey` names its `on_delete` deliberately. `CASCADE` on a tenant or
   user deletes history; `PROTECT` makes the deletion a decision.
-- Invariants go in `Meta.constraints`, enforced by the database, not only in
+2. Invariants go in `Meta.constraints`, enforced by the database, not only in
   `clean()`. → `Database/schema-design`
-- Money is integer cents, never `FloatField`.
-- `makemigrations` output is reviewed like code: rename operations, data
+3. Money is integer cents, never `FloatField`.
+4. `makemigrations` output is reviewed like code: rename operations, data
   migrations, and index additions on large tables (`AddIndexConcurrently` on
   Postgres) are where deploys go wrong. Never edit an applied migration.
-- Data migrations use `apps.get_model()`, not the live model import — the live
+5. Data migrations use `apps.get_model()`, not the live model import — the live
   model may have fields the migration's schema does not.
 
 ---
@@ -92,16 +98,16 @@ orders = (Order.objects.filter(tenant=t)
           .only("id", "status", "customer__email"))
 ```
 
-- `select_related` for forward foreign keys; `prefetch_related` for reverse
+1. `select_related` for forward foreign keys; `prefetch_related` for reverse
   relations and many-to-many. Using the wrong one either explodes the row count
   or issues N queries.
-- Assert query counts in tests: `with self.assertNumQueries(2):`. A view that
+2. Assert query counts in tests: `with self.assertNumQueries(2):`. A view that
   passes at 3 queries and fails at 300 in production is an N+1 you did not test.
-- `.exists()` not `len(qs)`; `.count()` not `len(list(qs))`; `.update()` for bulk
+3. `.exists()` not `len(qs)`; `.count()` not `len(list(qs))`; `.update()` for bulk
   writes instead of a loop of `.save()`.
-- `.iterator(chunk_size=2000)` for exports; a plain loop over a million rows
+4. `.iterator(chunk_size=2000)` for exports; a plain loop over a million rows
   caches every instance in memory.
-- Never call the ORM in a template tag or a model `__str__` that the admin lists —
+5. Never call the ORM in a template tag or a model `__str__` that the admin lists —
   that is a hidden N+1.
 
 ---
@@ -119,13 +125,13 @@ def create_order(request: HttpRequest) -> HttpResponse:
     return redirect(order)
 ```
 
-- Validation lives in a `Form`/`ModelForm` (HTML) or a DRF `Serializer` (JSON).
+1. Validation lives in a `Form`/`ModelForm` (HTML) or a DRF `Serializer` (JSON).
   Reading `request.POST["x"]` directly skips validation and type coercion.
-- Views never contain business rules. A rule in a view is unavailable to the
+2. Views never contain business rules. A rule in a view is unavailable to the
   management command, the Celery task, and the test that needs it.
-- Class-based views for CRUD that fits the generic ones; function views for
+3. Class-based views for CRUD that fits the generic ones; function views for
   anything with branching. Do not subclass `View` five levels deep.
-- `get_object_or_404` with the tenant filter applied — a lookup by `pk` alone is
+4. `get_object_or_404` with the tenant filter applied — a lookup by `pk` alone is
   an IDOR. → `Security/authorization`
 
 ---
@@ -162,11 +168,11 @@ class OrderAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
 ```
 
-- `list_select_related` for every FK shown in `list_display`, or the changelist
+1. `list_select_related` for every FK shown in `list_display`, or the changelist
   is one query per row.
-- `raw_id_fields`/`autocomplete_fields` for any FK with more than a few hundred
+2. `raw_id_fields`/`autocomplete_fields` for any FK with more than a few hundred
   rows; the default `<select>` renders every one.
-- The admin is a staff tool, not a public API. Put it on a non-default path and
+3. The admin is a staff tool, not a public API. Put it on a non-default path and
   behind SSO or an allowlist in production.
 
 ---

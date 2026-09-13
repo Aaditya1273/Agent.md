@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never treat a backup as verified because the job exited zero. Verify the restore.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for backing up everything that is not the database. Database backups are
 `Database/backup`; this covers object storage, cluster state, secrets,
 configuration and the accounts that hold them.
@@ -26,11 +37,13 @@ The definition that governs everything: **a backup is something you have
 restored.** Anything else is a file of unknown quality.
 
 ---
+
 </purpose>
 
 # Inventory the state first
 
 <rules>
+
 Most teams can name the database and stop. The gaps are what break a recovery.
 
 | Asset | Backed up by | Common gap |
@@ -64,11 +77,13 @@ declarative infrastructure: if it is in git, it is recoverable.
 → `DevOps/environments`
 
 ---
+
 </rules>
 
 # Isolate the copies
 
 <rules>
+
 Backups in the same account as production are deleted by the same compromised
 credential that deleted production. This is the ransomware playbook, and it works.
 
@@ -89,13 +104,8 @@ production account ──► backup account (separate credentials, separate root
 - MFA-delete on the bucket where the platform supports it.
 
 ```hcl
-</rules>
-
 # Terraform: the backup bucket, in the backup account. COMPLIANCE mode means
-
 # not even the account root can delete inside the retention window.
-
-<rules>
 resource "aws_s3_bucket" "backups" { bucket = "acme-backups-prod" }
 
 resource "aws_s3_bucket_object_lock_configuration" "backups" {
@@ -124,11 +134,13 @@ at creation. Discovering that during an incident response is too late.
 `3-2-1-1`: three copies, two media types, one off-site, one immutable.
 
 ---
+
 </rules>
 
 # Object storage is not a backup
 
 <rules>
+
 Durability (`99.999999999%`, "eleven nines") protects against hardware failure and
 media decay. It does not protect against a `DELETE` — yours, an attacker's, or a buggy cleanup job.
 
@@ -140,11 +152,7 @@ media decay. It does not protect against a `DELETE` — yours, an attacker's, or
 - Delete markers plus versioning is the recovery path; test it:
 
 ```bash
-</rules>
-
 # Recover a deleted object: remove the delete marker, do not re-upload.
-
-<rules>
 aws s3api list-object-versions --bucket uploads --prefix "tenants/acme/" \
   --query 'DeleteMarkers[?IsLatest==`true`].{K:Key,V:VersionId}' --output text \
 | while read -r key version; do
@@ -156,11 +164,13 @@ Similarly, **replication is not a backup**: a `DROP TABLE` reaches the replica i
 milliseconds. → `Database/replication`
 
 ---
+
 </rules>
 
 # Test the restore, not the backup
 
 <rules>
+
 An untested backup has an unknown and empirically high failure rate.
 
 Run a full restore drill quarterly into an isolated environment, and record:
@@ -178,11 +188,13 @@ perform, from memory, is not a recovery capability. → `DevOps/disaster-recover
 restore.
 
 ---
+
 </rules>
 
 # Monitor absence, not failure
 
 <rules>
+
 A job that stops running emits no failures at all. This is how teams discover,
 mid-incident, that backups stopped three months ago.
 
@@ -208,11 +220,13 @@ Also monitor the **cost** of backup storage: a lifecycle rule that stops expirin
 noncurrent versions shows up as a bill before it shows up anywhere else.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Only the database is backed up | Secrets, DNS, uploads unrecoverable | Inventory all state |
@@ -231,11 +245,13 @@ noncurrent versions shows up as a bill before it shows up anywhere else.
 | No SaaS export path | Discovered during the incident | Test the export |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] A written inventory lists every stateful asset and how it is backed up
 - [ ] The inventory is reviewed quarterly
 - [ ] All infrastructure is declarative and in version control
@@ -252,4 +268,5 @@ noncurrent versions shows up as a bill before it shows up anywhere else.
 - [ ] Alerts fire on backup **age**, not only on job failure
 - [ ] Backup size deviation and configuration drift are alerted on
 - [ ] Backup storage cost is monitored
+
 </checklist>

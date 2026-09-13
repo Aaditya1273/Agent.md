@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: pagination
 category: API
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -93,10 +99,10 @@ editable by anyone. → `Security/authorization`
 
 # Limits
 
-- Always a **default** (`20`) and a **maximum** (`100`). An unbounded `limit` is a
+1. Always a **default** (`20`) and a **maximum** (`100`). An unbounded `limit` is a
   denial-of-service primitive against your own database.
-- Clamp rather than error on an over-large limit, and say so in the docs.
-- Validate that `limit` is a positive integer before it reaches SQL.
+2. Clamp rather than error on an over-large limit, and say so in the docs.
+3. Validate that `limit` is a positive integer before it reaches SQL.
 
 ```ts
 const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
@@ -112,8 +118,8 @@ existed. Do that by default.
 An exact `totalCount` requires a second aggregate query that scans the matching
 set. On a large filtered collection it costs more than the page itself.
 
-- Return `totalCount` only when the client asked for it (`?include=total`).
-- For large sets, an estimate is usually enough — `pg_class.reltuples` for
+1. Return `totalCount` only when the client asked for it (`?include=total`).
+2. For large sets, an estimate is usually enough — `pg_class.reltuples` for
   unfiltered counts, or a capped count (`LIMIT 1000` then "1000+").
 
 ---

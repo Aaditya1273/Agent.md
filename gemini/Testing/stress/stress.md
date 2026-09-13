@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -183,3 +182,24 @@ hypothesis, a bounded blast radius, an abort condition, and someone watching.
 - [ ] Verify: Client retry logic uses exponential backoff with jitter and an attempt cap
 - [ ] Verify: Dependency failure and instance loss are injected, not just volume
 - [ ] Verify: Production experiments have a hypothesis, blast radius and abort condition
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Load ramps past the breaking point, not up to the first error
+- [ ] The knee is identified and recorded as real capacity
+- [ ] Failure mode is classified as graceful or catastrophic
+- [ ] Throughput is checked for collapse, not only latency
+- [ ] Every queue is bounded and load shedding returns `503` with `Retry-After`
+- [ ] Timeouts are shorter at each layer moving downstream
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

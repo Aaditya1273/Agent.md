@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,20 +14,35 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never ship on a server where `sql_mode` omits strict mode. It is the single largest source of silent data corruption in MySQL deployments — an `INSERT` of a 300-character value into `varchar(255)` succeeds, truncated, with a warning nobody reads.
+- Never use `utf8`/`utf8mb3`. It is a three-byte subset that rejects any four-byte codepoint. Use `utf8mb4` for every column, table, connection, and client.
+- Never run a blocking `ALTER` on a large table in business hours. A metadata lock queues behind any open transaction and then blocks every subsequent query on that table, including reads. → `Database/migration`
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules specific to MySQL/MariaDB with InnoDB. Portable schema design is
 `Database/schema-design`. This package covers the defaults that differ from every
 other engine and the ones that lose data quietly.
 
 ---
+
 </purpose>
 
 # Non-negotiable defaults
 
 <rules>
+
 ```sql
 -- Verify before shipping anything
 SELECT @@sql_mode, @@character_set_server, @@collation_server,
@@ -52,11 +67,13 @@ four-byte codepoint. Use `utf8mb4` for every column, table, connection, and
 client.
 
 ---
+
 </rules>
 
 # InnoDB and the clustered index
 
 <rules>
+
 InnoDB stores the table **in** the primary key. Two consequences follow, and they
 drive most MySQL schema decisions:
 
@@ -79,11 +96,13 @@ chronologically. Storing a UUID as `char(36)` costs 36 bytes in the table and 36
 more in **every** secondary index.
 
 ---
+
 </rules>
 
 # Locking
 
 <rules>
+
 InnoDB's default isolation is `REPEATABLE READ`, which is unusual — most engines
 default to `READ COMMITTED`. At `REPEATABLE READ`, InnoDB takes **gap locks**:
 locking not only matching rows but the ranges between them.
@@ -111,11 +130,13 @@ Deadlocks are normal under concurrency. **Retry** the losing transaction — do 
 try to eliminate deadlocks entirely. → `Database/transactions`
 
 ---
+
 </rules>
 
 # Schema changes
 
 <rules>
+
 MySQL 8.0 supports `ALGORITHM=INSTANT` for a growing set of operations (adding a
 nullable column at the end, renaming, changing a default). Anything else copies
 or rebuilds the table, holding a metadata lock.
@@ -133,11 +154,13 @@ lock queues behind any open transaction and then blocks every subsequent query o
 that table, including reads. → `Database/migration`
 
 ---
+
 </rules>
 
 # Replication
 
 <rules>
+
 | Setting | Value | Why |
 | --- | --- | --- |
 | `binlog_format` | `ROW` | `STATEMENT` diverges on non-deterministic functions |
@@ -150,11 +173,13 @@ see it. Route read-after-write to the primary, or use semi-synchronous
 replication. → `Database/replication`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Non-strict `sql_mode` | Silent truncation and zero dates | `STRICT_TRANS_TABLES` |
@@ -169,11 +194,13 @@ replication. → `Database/replication`
 | Treating deadlocks as bugs to eliminate | Unavoidable under concurrency | Retry with backoff |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `sql_mode` includes `STRICT_TRANS_TABLES`
 - [ ] Server, database, table, column and connection charset are all `utf8mb4`
 - [ ] Collation is `utf8mb4_0900_ai_ci` or `utf8mb4_unicode_ci`, not `general_ci`
@@ -185,4 +212,5 @@ replication. → `Database/replication`
 - [ ] Large `ALTER`s use `ALGORITHM=INSTANT` or an online schema-change tool
 - [ ] `binlog_format = ROW` and GTIDs are enabled
 - [ ] Read-after-write traffic is routed to the primary
+
 </checklist>

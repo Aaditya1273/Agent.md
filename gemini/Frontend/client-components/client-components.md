@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -175,3 +174,26 @@ const Editor = dynamic(() => import("./Editor"), { ssr: false, loading: () => <S
 - [ ] Verify: Heavy interactive components are dynamically imported
 - [ ] Verify: `ssr: false` is used only where server rendering is genuinely impossible
 - [ ] Verify: The client bundle has been analysed for unexpected dependencies
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never read `window`, `document`, `localStorage` or `navigator` during render. They are undefined on the server. Read them in an effect or through `useSyncExternalStore`.
+
+- [ ] Every `"use client"` file has a named reason: state, handler, browser API or effect
+- [ ] The directive sits at interactive leaves, never at layouts or pages
+- [ ] Static content is not wrapped inside client components
+- [ ] No browser global is read during render
+- [ ] Time, randomness and environment-dependent values render after mount
+- [ ] Generated ids use `useId()`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

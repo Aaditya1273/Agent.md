@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never report only the numbers from the ramp phase. Measure during the sustained plateau, after caches and pools have warmed.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for testing how a system behaves under load: capacity, latency under
 pressure, and the point at which it degrades.
 
@@ -27,11 +38,13 @@ mix of endpoints, realistic think time, cache misses, and a working set larger
 than memory.
 
 ---
+
 </purpose>
 
 # Test types — pick the question first
 
 <rules>
+
 | Type | Question | Shape |
 | --- | --- | --- |
 | **Smoke** | Does it work at all under minimal load? | 1–5 users, short |
@@ -45,11 +58,13 @@ Soak tests find what nothing else does: memory leaks, connection-pool exhaustion
 disks filling with logs, and token caches that never evict.
 
 ---
+
 </rules>
 
 # Measure percentiles, never averages
 
 <rules>
+
 An average hides the users having a bad time. If 95% of requests take 50ms and 5%
 take 8s, the average is 450ms — a number describing nobody's experience.
 
@@ -80,11 +95,13 @@ export const options = {
 sustained plateau, after caches and pools have warmed.
 
 ---
+
 </rules>
 
 # Making the load realistic
 
 <rules>
+
 - **Model the endpoint mix** from production logs. If 70% of real traffic is a
   read and 5% is checkout, the test should reflect that.
 - **Include think time.** Users pause between actions; removing it produces a
@@ -100,11 +117,13 @@ sustained plateau, after caches and pools have warmed.
   rather than steady-state capacity.
 
 ---
+
 </rules>
 
 # Tooling
 
 <rules>
+
 | Tool | Notes |
 | --- | --- |
 | `k6` | JavaScript scenarios, good thresholds, CI-friendly |
@@ -121,11 +140,7 @@ regardless of response time — which is what real traffic does. Prefer them whe
 the tail is the thing you care about.
 
 ```bash
-</rules>
-
 # Open-workload generator: a fixed arrival rate, immune to coordinated omission.
-
-<rules>
 echo "GET https://api.example.com/invoices" \
   | vegeta attack -rate=500/s -duration=5m -header "Authorization: Bearer $TOKEN" \
   | vegeta report -type='hist[0,10ms,50ms,100ms,500ms,1s,5s]'
@@ -141,11 +156,13 @@ LIMIT 10;
 
 Server-side, pair the run with `pg_stat_statements`, `EXPLAIN ANALYZE` on the
 slowest queries, and traces from OpenTelemetry so client latency maps to a span.
+
 </rules>
 
 # Where the bottleneck usually is
 
 <rules>
+
 In order of frequency:
 
 1. **Database connections.** The pool (`max` in `pg.Pool`, `maximumPoolSize` in
@@ -169,11 +186,13 @@ Instrument the system under test before running. A load test that only produces
 client-side numbers tells you *that* it slowed down, never *where*.
 
 ---
+
 </rules>
 
 # Environment
 
 <rules>
+
 - Test against an environment **shaped like production** — same instance classes,
   same database tier, same replica count. Results from a half-size staging
   environment do not scale linearly.
@@ -186,11 +205,13 @@ client-side numbers tells you *that* it slowed down, never *where*.
   excluded from analytics and billing.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Reporting the mean | Hides the tail where users suffer | `p95`, `p99`, `max` |
@@ -205,11 +226,13 @@ client-side numbers tells you *that* it slowed down, never *where*.
 | Load-testing production unannounced | Real outage, polluted analytics | Agreement, blast radius, kill switch |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The question is chosen first — load, stress, soak, spike or breakpoint
 - [ ] Endpoint mix and pacing are derived from production traffic
 - [ ] Test data volume matches production scale
@@ -222,4 +245,5 @@ client-side numbers tells you *that* it slowed down, never *where*.
 - [ ] The environment is production-shaped and load arrives over the real path
 - [ ] Thresholds are asserted so a regression fails the run
 - [ ] Production tests, if any, are agreed, bounded and reversible
+
 </checklist>

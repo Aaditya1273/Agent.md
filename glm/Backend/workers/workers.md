@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -76,13 +82,13 @@ process.on("SIGTERM", async () => {
 });
 ```
 
-- Stop fetching new work **first**, then drain.
-- The platform's grace period must exceed the longest job timeout, or the drain is
+1. Stop fetching new work **first**, then drain.
+2. The platform's grace period must exceed the longest job timeout, or the drain is
   killed halfway: `terminationGracePeriodSeconds` in Kubernetes, `stopTimeout` in
   ECS. → `DevOps/deployment`
-- Long-running handlers should check a shutdown flag at checkpoints and stop
+3. Long-running handlers should check a shutdown flag at checkpoints and stop
   cleanly rather than being cut off.
-- After the grace period the runtime sends `SIGKILL`. Design so that is survivable
+4. After the grace period the runtime sends `SIGKILL`. Design so that is survivable
   — at-least-once redelivery plus idempotent handlers.
 
 ---
@@ -136,33 +142,33 @@ so a bursty queue does not thrash.
 
 # Health, restarts and failure
 
-- **Readiness**: can it reach the broker and the database?
-- **Liveness**: is the process wedged? Track a `last_progress_timestamp` updated
+1. **Readiness**: can it reach the broker and the database?
+2. **Liveness**: is the process wedged? Track a `last_progress_timestamp` updated
   by the handler loop and fail liveness if it stalls beyond a threshold — an
   always-`200` liveness endpoint never detects a stuck worker.
-- **Never** check dependencies in liveness. A database blip would restart the
+3. **Never** check dependencies in liveness. A database blip would restart the
   entire pool mid-job. → `Backend/monitoring`
-- Set a memory limit and let the platform restart on OOM rather than degrading.
+4. Set a memory limit and let the platform restart on OOM rather than degrading.
   Investigate a repeating OOM as a leak or an unbounded batch.
-- A crash loop must not silently retry a poison message forever — bound attempts
+5. A crash loop must not silently retry a poison message forever — bound attempts
   and dead-letter it. → `Backend/queues`
 
 ---
 
 # Configuration and observability
 
-- Concurrency, pool size, timeouts and rate limits from environment variables, so
+1. Concurrency, pool size, timeouts and rate limits from environment variables, so
   they can be tuned without a code change.
-- Validate configuration at startup and refuse to boot on a bad value.
-- Emit: `jobs_processed_total` by type and outcome, `job_duration_seconds`,
+2. Validate configuration at startup and refuse to boot on a bad value.
+3. Emit: `jobs_processed_total` by type and outcome, `job_duration_seconds`,
   `worker_inflight_jobs`, `db_pool_in_use`, and `queue_oldest_message_seconds`
   per queue.
-- `db_pool_in_use` sitting at `DB_POOL_SIZE` means every handler is queueing for a
+4. `db_pool_in_use` sitting at `DB_POOL_SIZE` means every handler is queueing for a
   connection — the symptom looks like a slow database and is actually
   over-concurrency.
-- `worker_inflight_jobs` stuck below `WORKER_CONCURRENCY` while a backlog grows
+5. `worker_inflight_jobs` stuck below `WORKER_CONCURRENCY` while a backlog grows
   means the broker fetch is the bottleneck, not the handler.
-- Log worker start and stop with the version and configuration in effect — during
+6. Log worker start and stop with the version and configuration in effect — during
   an incident the first question is which build is running.
 
 ```bash

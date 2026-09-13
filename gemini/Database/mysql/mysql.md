@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -172,3 +171,28 @@ replication. → `Database/replication`
 - [ ] Verify: Large `ALTER`s use `ALGORITHM=INSTANT` or an online schema-change tool
 - [ ] Verify: `binlog_format = ROW` and GTIDs are enabled
 - [ ] Verify: Read-after-write traffic is routed to the primary
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never ship on a server where `sql_mode` omits strict mode. It is the single largest source of silent data corruption in MySQL deployments — an `INSERT` of a 300-character value into `varchar(255)` succeeds, truncated, with a warning nobody reads.
+- Never use `utf8`/`utf8mb3`. It is a three-byte subset that rejects any four-byte codepoint. Use `utf8mb4` for every column, table, connection, and client.
+- Never run a blocking `ALTER` on a large table in business hours. A metadata lock queues behind any open transaction and then blocks every subsequent query on that table, including reads. → `Database/migration`
+
+- [ ] `sql_mode` includes `STRICT_TRANS_TABLES`
+- [ ] Server, database, table, column and connection charset are all `utf8mb4`
+- [ ] Collation is `utf8mb4_0900_ai_ci` or `utf8mb4_unicode_ci`, not `general_ci`
+- [ ] All tables use InnoDB with `innodb_file_per_table = ON`
+- [ ] Primary keys are compact and monotonically increasing
+- [ ] UUID keys, where used, are `BINARY(16)` and time-ordered
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -191,3 +190,26 @@ remaining size concern is your own markup, not the stylesheet.
 - [ ] Verify: Dark mode uses token pairs and is set before hydration
 - [ ] Verify: `motion-reduce:` is honoured for animations
 - [ ] Verify: Class ordering is enforced by the Prettier plugin
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never hard-code a brand colour as a hex value in a utility class. When the brand changes, they are unfindable.
+
+- [ ] Design tokens are defined centrally and used instead of arbitrary values
+- [ ] Arbitrary values are rare, one-off and justified
+- [ ] No raw hex colours appear in utility classes
+- [ ] Repeated class strings are extracted into components
+- [ ] `@apply` is limited to a few global primitives
+- [ ] Variants are defined with `cva` or `tailwind-variants`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

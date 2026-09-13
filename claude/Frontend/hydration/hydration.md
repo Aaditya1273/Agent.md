@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for keeping server-rendered HTML and client-rendered output identical.
 
 Hydration attaches React to existing server markup instead of recreating it. When
@@ -26,11 +36,13 @@ server rendering, get none of its benefit, and users can see wrong content befor
 the correction.
 
 ---
+
 </purpose>
 
 # The rule
 
 <rules>
+
 **Given the same props and state, the server and the first client render must
 produce identical output.**
 
@@ -40,11 +52,13 @@ byte-for-byte in production, so a mismatch can be silent — wrong text that
 wrong node.
 
 ---
+
 </rules>
 
 # What reliably breaks it
 
 <rules>
+
 | Cause | Why | Fix |
 | --- | --- | --- |
 | `new Date()`, `Date.now()` | Different instants | Render after mount, or pass a fixed timestamp as a prop |
@@ -63,11 +77,13 @@ by the parser, so the DOM no longer matches what React rendered. `<div>` inside
 do this.
 
 ---
+
 </rules>
 
 # Correct patterns
 
 <rules>
+
 ```tsx
 // 1. Genuinely client-only content: render a placeholder first.
 //    Two renders, but no mismatch and no layout shift if the placeholder matches.
@@ -101,11 +117,13 @@ only**. It is correct for a timestamp; it is not a general fix, and it does not
 make the mismatch go away — it only stops the message.
 
 ---
+
 </rules>
 
 # Streaming and Suspense
 
 <rules>
+
 With streaming SSR, hydration happens progressively per Suspense boundary. Two
 consequences:
 
@@ -120,11 +138,13 @@ Errors thrown during hydration surface as client errors, not server ones. Wrap
 risky subtrees in an error boundary so one broken widget does not blank the page.
 
 ---
+
 </rules>
 
 # Detection
 
 <rules>
+
 - Mismatches are logged in development. **Treat every hydration warning as a bug**,
   not noise — the production consequence is silent.
 - Add an end-to-end test that loads key pages with JavaScript enabled and asserts
@@ -155,11 +175,13 @@ render — avoids the inline script entirely and is preferable where a session
 already exists.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `new Date()` in render | Server and client differ | Pass a timestamp; format after mount |
@@ -177,11 +199,13 @@ already exists.
 | No error boundary around risky subtrees | One failure blanks the page | Add boundaries |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Server and first client render produce identical output for the same props
 - [ ] No date, random value or browser global is evaluated during render
 - [ ] Generated ids come from `useId()`
@@ -196,4 +220,5 @@ already exists.
 - [ ] Interactive elements are native so they work before hydration
 - [ ] Error boundaries wrap subtrees that may fail during hydration
 - [ ] Key pages are tested for console errors with a throttled connection
+
 </checklist>

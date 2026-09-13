@@ -4,9 +4,9 @@ Version: 1.0.0
 
 Target Models
 
+- Mistral Medium 3.5
 - Mistral Large 3
 - Mistral Small 4
-- Devstral
 - Mistral Family
 - Future Mistral Models
 

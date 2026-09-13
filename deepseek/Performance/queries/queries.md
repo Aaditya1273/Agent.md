@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -143,15 +150,15 @@ const prefs  = await getPrefs(id);
 const [user, orders, prefs] = await Promise.all([getUser(id), getOrders(id), getPrefs(id)]);
 ```
 
-- Bound the concurrency. `Promise.all` over 5,000 items opens 5,000 queries and
+1. Bound the concurrency. `Promise.all` over 5,000 items opens 5,000 queries and
   exhausts the connection pool — which presents as "the database is slow" when it
   is actually queueing. → `Database/postgres`
-- Bulk writes: one `INSERT ... VALUES (…),(…),(…)` or `COPY` beats a thousand
+2. Bulk writes: one `INSERT ... VALUES (…),(…),(…)` or `COPY` beats a thousand
   single-row inserts by orders of magnitude.
-- Use a limiter rather than raw `Promise.all` for large sets:
+3. Use a limiter rather than raw `Promise.all` for large sets:
   `pLimit(10)`, a semaphore, or the ORM's own batching. The right bound is the
   free capacity in `DB_POOL_SIZE`, not the number of items.
-- Keep network calls **out of transactions** — an open transaction holds locks and
+4. Keep network calls **out of transactions** — an open transaction holds locks and
   a connection for the duration of someone else's latency.
   → `Database/transactions`
 

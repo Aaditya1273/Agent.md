@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -211,3 +210,28 @@ explicitly, because if they do not, every addition becomes breaking.
 - [ ] Verify: Timestamps are RFC 3339 UTC; money is integer minor units plus currency
 - [ ] Verify: Collections are wrapped in an object, not returned as bare arrays
 - [ ] Verify: Breaking changes are enumerated and gated behind a version
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never mutate state in a `GET`. Proxies, prefetchers, browsers and link scanners issue `GET` freely; a `GET /orders/{id}/delete` will fire on its own.
+- Never return `200` with `{"error": …}` in the body. Every client's error handling keys on the status code, and a `200` error is invisible to retries, alerting, and logs.
+- Never return a bare array as a top-level response body. `{"data": [...]}` leaves room to add pagination metadata without a breaking change.
+
+- [ ] Resources are plural nouns; actions are subresources
+- [ ] Nesting is at most one level deep
+- [ ] Identifiers are opaque, not sequential integers
+- [ ] `GET` is side-effect free everywhere
+- [ ] Expensive or money-moving `POST`s accept `Idempotency-Key`
+- [ ] Status codes are correct, including `401` vs `403` and `422` vs `400`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

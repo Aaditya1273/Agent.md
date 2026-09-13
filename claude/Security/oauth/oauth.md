@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never use `code_challenge_method=plain`. Always `S256`.
+- Never skip `state` because "the code is single-use". Without it, an attacker completes a flow with their own code in the victim's browser and links the victim's session to the attacker's account.
+- Never use the `/userinfo` response as proof of authentication on its own — it is fetched with an access token that may have been issued to a different client. That is the confused-deputy problem OIDC's ID token exists to solve.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for OAuth 2.0/2.1 and OpenID Connect as a client and as a provider.
 
 The distinction that prevents most mistakes: **OAuth is authorisation
@@ -26,11 +39,13 @@ says a client may call an API. It does not say who is logged in. If you need
 identity, use OIDC and validate the **ID token**.
 
 ---
+
 </purpose>
 
 # Use authorization code with PKCE. Nothing else.
 
-<rules>
+<security_rules>
+
 ```
 GET /authorize
   ?response_type=code
@@ -54,11 +69,13 @@ const challenge = crypto.createHash("sha256").update(verifier).digest("base64url
 ```
 
 **Never** use `code_challenge_method=plain`. Always `S256`.
-</rules>
+
+</security_rules>
 
 ## Flows that are removed or forbidden
 
-<rules>
+<security_rules>
+
 | Flow | Status |
 | --- | --- |
 | **Implicit** (`response_type=token`) | **Removed in 2.1.** Token in the URL fragment leaks via history, `Referer` and logs |
@@ -67,11 +84,13 @@ const challenge = crypto.createHash("sha256").update(verifier).digest("base64url
 | Client credentials | Valid, but machine-to-machine only. Never for a user session |
 
 ---
-</rules>
+
+</security_rules>
 
 # Redirect URI
 
-<rules>
+<security_rules>
+
 The redirect URI is the most attacked parameter in OAuth.
 
 - Register the **exact, full URI**. Compare by **exact string match**.
@@ -85,11 +104,13 @@ The redirect URI is the most attacked parameter in OAuth.
   the port ignored per the native-app guidance.
 
 ---
-</rules>
+
+</security_rules>
 
 # `state` and `nonce`
 
-<rules>
+<security_rules>
+
 Both are required and they do different jobs.
 
 | Parameter | Purpose | Validated |
@@ -104,11 +125,13 @@ completes a flow with their own code in the victim's browser and links the
 victim's session to the attacker's account.
 
 ---
-</rules>
+
+</security_rules>
 
 # Validating tokens
 
-<rules>
+<security_rules>
+
 An **ID token** is a JWT and must be validated as one — see `Security/jwt`:
 
 - Signature against the provider's JWKS, with an explicit `algorithms` allow-list
@@ -147,11 +170,13 @@ const res = await fetch(`${ISSUER}/token`, {
 const { id_token, access_token } = await res.json();
 const claims = await verifyIdToken(id_token, { nonce: session.nonce });
 ```
-</rules>
+
+</security_rules>
 
 # Tokens, scopes and storage
 
-<rules>
+<security_rules>
+
 - Request the **narrowest scopes** that work, and request them incrementally as
   features need them.
 - Access tokens short-lived (**5–15 minutes**); refresh tokens rotated on use,
@@ -164,11 +189,13 @@ const claims = await verifyIdToken(id_token, { nonce: session.nonce });
   copy is not revocation.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Implicit flow | Token in the URL fragment; removed in 2.1 | Code + PKCE |
@@ -183,11 +210,13 @@ const claims = await verifyIdToken(id_token, { nonce: session.nonce });
 | Tokens in `localStorage` | Any XSS becomes account takeover | `HttpOnly` cookie via BFF |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Authorization code with PKCE `S256` is the only user-facing flow
 - [ ] Implicit and password grants are disabled
 - [ ] Redirect URIs are registered in full and compared by exact string match
@@ -200,4 +229,5 @@ const claims = await verifyIdToken(id_token, { nonce: session.nonce });
 - [ ] Refresh-token reuse revokes the family
 - [ ] No client secret exists in any browser or mobile bundle
 - [ ] Logout calls the revocation endpoint
+
 </checklist>

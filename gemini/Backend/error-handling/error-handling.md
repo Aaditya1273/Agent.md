@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -198,3 +197,24 @@ human `message` stays free to improve.
 - [ ] Verify: Retries are limited to transient failures, with backoff and jitter
 - [ ] Verify: Retried operations are idempotent or carry an idempotency key
 - [ ] Verify: A circuit breaker protects persistently failing dependencies
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Expected failures are modelled as typed domain errors
+- [ ] One boundary converts errors to responses
+- [ ] Every response carries a `requestId`
+- [ ] Unexpected errors log a full trace exactly once, at `error`
+- [ ] Expected failures do not log at `error`
+- [ ] No stack traces, SQL, driver codes or paths reach the client
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

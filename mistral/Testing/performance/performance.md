@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: performance
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for catching performance regressions before users do. Capacity under
@@ -144,11 +150,7 @@ A regression test tells you *that* it slowed down. Finding *where* needs a profi
 | Slow query | `EXPLAIN ANALYZE`, `pg_stat_statements` |
 
 ```bash
-
 # Node: capture a CPU profile of the real workload, then read the flame graph
-
-[INST] Apply every rule in this section: Node: capture a CPU profile of the real workload, then read the flame graph. [/INST]
-
 node --cpu-prof --cpu-prof-dir=./profiles server.js
 npx speedscope ./profiles/*.cpuprofile
 ```

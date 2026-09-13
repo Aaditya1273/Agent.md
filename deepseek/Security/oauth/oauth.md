@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -69,14 +76,14 @@ const challenge = crypto.createHash("sha256").update(verifier).digest("base64url
 
 The redirect URI is the most attacked parameter in OAuth.
 
-- Register the **exact, full URI**. Compare by **exact string match**.
-- **Never** allow wildcards, prefix matching, or open subpaths.
+1. Register the **exact, full URI**. Compare by **exact string match**.
+2. **Never** allow wildcards, prefix matching, or open subpaths.
   `https://app.example.com/cb` must not match
   `https://app.example.com/cb/../../evil` or
   `https://app.example.com.evil.tld/cb`.
-- **Never** reflect a redirect target from a query parameter after the callback —
+3. **Never** reflect a redirect target from a query parameter after the callback —
   that reintroduces an open redirect and leaks the code.
-- Require HTTPS. `http://localhost` may be permitted for development only, with
+4. Require HTTPS. `http://localhost` may be permitted for development only, with
   the port ignored per the native-app guidance.
 
 ---
@@ -102,12 +109,12 @@ victim's session to the attacker's account.
 
 An **ID token** is a JWT and must be validated as one — see `Security/jwt`:
 
-- Signature against the provider's JWKS, with an explicit `algorithms` allow-list
-- `iss` exactly equals the provider's issuer
-- `aud` contains your `client_id`
-- `exp` not passed, `iat` reasonable
-- `nonce` matches the value you sent
-- `azp` equals your `client_id` when present
+1. Signature against the provider's JWKS, with an explicit `algorithms` allow-list
+2. `iss` exactly equals the provider's issuer
+3. `aud` contains your `client_id`
+4. `exp` not passed, `iat` reasonable
+5. `nonce` matches the value you sent
+6. `azp` equals your `client_id` when present
 
 An **access token** is opaque to the client. **Never** parse it, and never make
 authorisation decisions from its contents in the client. On the resource server,
@@ -141,15 +148,15 @@ const claims = await verifyIdToken(id_token, { nonce: session.nonce });
 
 # Tokens, scopes and storage
 
-- Request the **narrowest scopes** that work, and request them incrementally as
+1. Request the **narrowest scopes** that work, and request them incrementally as
   features need them.
-- Access tokens short-lived (**5–15 minutes**); refresh tokens rotated on use,
+2. Access tokens short-lived (**5–15 minutes**); refresh tokens rotated on use,
   with reuse of a consumed refresh token revoking the whole family.
-- In a browser, keep tokens in an `HttpOnly; Secure; SameSite` cookie via a
+3. In a browser, keep tokens in an `HttpOnly; Secure; SameSite` cookie via a
   backend-for-frontend, not in `localStorage` → `Security/xss`.
-- Store the client secret server-side only. A "confidential" client in a SPA or
+4. Store the client secret server-side only. A "confidential" client in a SPA or
   mobile app is a public client — the secret ships to every user.
-- Support **revocation** (`/revoke`) and honour it on logout. Clearing the client's
+5. Support **revocation** (`/revoke`) and honour it on logout. Clearing the client's
   copy is not revocation.
 
 ---

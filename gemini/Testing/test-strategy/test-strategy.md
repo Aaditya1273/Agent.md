@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -202,3 +201,26 @@ response; extracting the dependency is the right one.
 - [ ] Verify: Unit and integration run on every pull request
 - [ ] Verify: Failure output identifies the problem without reading the test
 - [ ] Verify: Hard-to-test code is treated as a design signal, not a mocking problem
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never write an E2E test for something a unit test can catch. It costs 1,000× the runtime for the same information.
+
+- [ ] The suite shape matches the risk, not a fixed ratio
+- [ ] Each test sits at the cheapest level that would catch its failure
+- [ ] No E2E test covers logic a unit test could
+- [ ] An integration layer exists and covers queries, migrations and HTTP contract
+- [ ] Framework behaviour, trivial accessors and third-party internals are untested
+- [ ] Every bug fix includes a test that failed before the fix
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

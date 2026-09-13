@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for performance work in Go. Go is fast by default; most slow Go programs
 are slow because of allocations, not arithmetic. Every rule here starts with
 measurement — an optimisation without a profile is a guess that makes the code
@@ -26,11 +36,13 @@ harder to read.
 Caching is `Performance/caching`; concurrency is `Backend/go-concurrency`.
 
 ---
+
 </purpose>
 
 # Profile before touching anything
 
 <rules>
+
 ```go
 import _ "net/http/pprof"      // registers /debug/pprof on http.DefaultServeMux
 
@@ -49,18 +61,16 @@ import _ "net/http/pprof"      // registers /debug/pprof on http.DefaultServeMux
 - `go test -cpuprofile cpu.out -bench .` profiles a benchmark without a server.
 
 ---
+
 </rules>
 
 # Benchmarks with benchstat
 
 <rules>
+
 ```sh
 go test -bench BenchmarkParse -benchmem -count 10 > old.txt
-</rules>
-
 # make the change
-
-<rules>
 go test -bench BenchmarkParse -benchmem -count 10 > new.txt
 benchstat old.txt new.txt
 ```
@@ -74,11 +84,13 @@ benchstat old.txt new.txt
   The benchmark is the regression test for the speed-up.
 
 ---
+
 </rules>
 
 # Allocations and escape analysis
 
 <rules>
+
 ```sh
 go build -gcflags=-m ./... 2>&1 | grep "escapes to heap"
 ```
@@ -102,11 +114,13 @@ func newUser() User { return User{} }
   ones the `allocs` profile says matter.
 
 ---
+
 </rules>
 
 # Slices, maps, strings
 
 <rules>
+
 ```go
 out := make([]Item, 0, len(in))          // preallocate: one allocation, not log2(n)
 for _, x := range in { out = append(out, convert(x)) }
@@ -131,11 +145,13 @@ s := sb.String()                         // one allocation for the result
   `for _, v := range` — each iteration copies `v`.
 
 ---
+
 </rules>
 
 # sync.Pool, and when not to
 
 <rules>
+
 ```go
 var bufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
@@ -155,11 +171,13 @@ func encode(v any) ([]byte, error) {
   nothing. Most code should never touch `sync.Pool`.
 
 ---
+
 </rules>
 
 # GC and runtime knobs
 
 <rules>
+
 - `GOGC` (default 100) trades memory for CPU: `GOGC=200` halves GC frequency at
   the cost of a larger heap. Set it per service from a measured heap profile,
   not by folklore.
@@ -173,11 +191,13 @@ func encode(v any) ([]byte, error) {
   `GOGC` setting.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Optimising from intuition | Wrong target; slower, uglier code | Profile with `pprof` first |
@@ -194,11 +214,13 @@ func encode(v any) ([]byte, error) {
 | `GOMAXPROCS` = host CPUs in a limited container | CPU throttling, latency spikes | Match the cgroup limit |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every optimisation started from a `pprof` profile showing the hot spot
 - [ ] `pprof` is served on an internal port, not the public listener
 - [ ] Before/after benchmarks with `-benchmem -count 10` are compared via `benchstat`
@@ -211,4 +233,5 @@ func encode(v any) ([]byte, error) {
 - [ ] Pooled memory is never handed to callers
 - [ ] `GOMEMLIMIT` is set in memory-limited containers; `GOGC` is set from measurement
 - [ ] `GOMAXPROCS` matches the container's CPU limit
+
 </checklist>

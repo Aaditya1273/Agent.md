@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for query filtering on list endpoints. Filtering sits directly on top of the
 database, which makes it the place where API design, SQL injection and query
 performance meet. Three requirements, in priority order:
@@ -27,11 +37,13 @@ performance meet. Three requirements, in priority order:
 3. **Predictable** — the same query means the same thing next release.
 
 ---
+
 </purpose>
 
 # Syntax: pick one and hold it
 
 <rules>
+
 | Style | Example | Trade-off |
 | --- | --- | --- |
 | Flat equality | `?status=paid&currency=EUR` | Simplest; no ranges |
@@ -52,11 +64,13 @@ Repeated parameters mean `IN`, and it should be documented:
 ```
 
 ---
+
 </rules>
 
 # Allowlist the field and the operator
 
 <rules>
+
 This is the whole security story. Never map client input to SQL structure by
 interpolation.
 
@@ -93,11 +107,13 @@ Exposing your internal column names in the API also freezes your schema — the
 alias layer means a column rename is not a breaking change.
 
 ---
+
 </rules>
 
 # Bound the cost
 
 <rules>
+
 An expressive filter language lets a client construct a query nobody planned for.
 
 - Every filterable field must be **indexed**, or explicitly documented as slow and
@@ -131,11 +147,13 @@ filter combination is not index-backed and must be narrowed or indexed before
 release. → `Database/query-optimization`
 
 ---
+
 </rules>
 
 # Semantics worth defining once
 
 <rules>
+
 - **Multiple fields combine with `AND`.** If you need `OR`, add it explicitly
   rather than overloading repeated parameters.
 - **Absent versus empty**: `?status=` should be a `400`, not "match everything" and
@@ -151,11 +169,13 @@ Document every filterable field, its operators and its type in the OpenAPI
 document, so clients and generators see the same contract. → `API/open-api`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Client-supplied column name in SQL | Injection, even with parameterised values | Alias → column allowlist |
@@ -173,11 +193,13 @@ document, so clients and generators see the same contract. → `API/open-api`
 | Undocumented filters | Discovered by trial and error, then depended on | Declare in OpenAPI |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] One filter syntax is used across every list endpoint
 - [ ] Filterable fields come from an explicit allowlist mapping alias → column
 - [ ] Allowed operators are declared per field
@@ -192,4 +214,5 @@ document, so clients and generators see the same contract. → `API/open-api`
 - [ ] Combination semantics, null handling and case sensitivity are documented
 - [ ] The worst legal filter combination has been checked with `EXPLAIN ANALYZE`
 - [ ] Filters are declared in the OpenAPI document
+
 </checklist>

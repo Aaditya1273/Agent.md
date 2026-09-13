@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -98,12 +105,12 @@ module.exports = {
 };
 ```
 
-- Run **at least 3 iterations** and take the median. Single runs on shared CI
+1. Run **at least 3 iterations** and take the median. Single runs on shared CI
   runners are too noisy to gate on.
-- Budget the **bundle** as well as the timings — `size-limit` or
+2. Budget the **bundle** as well as the timings — `size-limit` or
   `bundlesize` catches a 300 KB dependency at the pull request that added it,
   which is the only time it is cheap to remove.
-- Set budgets from **current measured values**, slightly tightened. An aspirational
+3. Set budgets from **current measured values**, slightly tightened. An aspirational
   budget that fails on day one gets disabled on day two.
 
 ---
@@ -112,12 +119,12 @@ module.exports = {
 
 Performance numbers are noisy; most reported "regressions" are measurement error.
 
-- Compare against the **base commit**, not against an absolute from last quarter.
-- Pin CPU throttling and network conditions so runs are comparable.
-- Prefer a **relative threshold** ("no more than 10% slower than base") over an
+1. Compare against the **base commit**, not against an absolute from last quarter.
+2. Pin CPU throttling and network conditions so runs are comparable.
+3. Prefer a **relative threshold** ("no more than 10% slower than base") over an
   absolute one for CI gating.
-- Re-run before believing a single failure. Then look at a trend, not a point.
-- For microbenchmarks use a real harness — `benchmark.js`, `mitata`, `hyperfine` —
+4. Re-run before believing a single failure. Then look at a trend, not a point.
+5. For microbenchmarks use a real harness — `benchmark.js`, `mitata`, `hyperfine` —
   which handles warmup and statistical significance. A `Date.now()` difference
   around a loop measures the JIT warming up.
 

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -180,3 +179,24 @@ Cache-Control: private, no-store                        # authenticated
 - [ ] Verify: A CDN serves static assets with a monitored hit ratio
 - [ ] Verify: Compute is co-located with the data it queries
 - [ ] Verify: Internal service calls are batched rather than sequential
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Performance work targets round trips before bandwidth
+- [ ] Third-party origins are minimised and critical ones are `preconnect`ed
+- [ ] No request waterfall exists on the critical path
+- [ ] Independent requests are issued in parallel on client and server
+- [ ] Data needed for first render arrives with the document
+- [ ] Preloading is deliberate and limited to render-critical resources
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

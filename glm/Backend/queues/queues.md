@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -26,8 +32,8 @@ that happen after the work but before the acknowledgement.
 
 Design for the two facts that are always true:
 
-- **Every message may be delivered more than once.**
-- **Every message may arrive out of order.**
+1. **Every message may be delivered more than once.**
+2. **Every message may arrive out of order.**
 
 ---
 
@@ -101,12 +107,12 @@ your retry budget and delays healthy work behind it.
 Most queues guarantee ordering only within a partition or group key, and only when
 a single consumer processes that key at a time.
 
-- If order matters, use an ordering key (`MessageGroupId`, Kafka partition key,
+1. If order matters, use an ordering key (`MessageGroupId`, Kafka partition key,
   RabbitMQ single active consumer) — and accept that it caps parallelism for that
   key.
-- Better: make handlers **order-independent**. Include a version or `updated_at`
+2. Better: make handlers **order-independent**. Include a version or `updated_at`
   in the payload and discard messages older than the state you already hold.
-- Best for entity updates: treat the message as a **notification** and re-read
+3. Best for entity updates: treat the message as a **notification** and re-read
   current state from the source. Ordering stops mattering entirely.
 
 **Never** assume that publishing A then B means A is processed first. With
@@ -116,16 +122,16 @@ multiple consumers, it usually is not.
 
 # Payloads
 
-- **Small.** Send an id and a version, not a 2 MB document. Large payloads hit
+1. **Small.** Send an id and a version, not a 2 MB document. Large payloads hit
   broker limits and become stale between publish and consume.
-- Where the body is genuinely large, use the **claim-check pattern**: store the
+2. Where the body is genuinely large, use the **claim-check pattern**: store the
   blob in object storage and send its key.
-- **Versioned and additive.** Consumers deploy at different times to producers, so
+3. **Versioned and additive.** Consumers deploy at different times to producers, so
   a new required field breaks in-flight messages. Add optional fields; never
   repurpose an existing one.
-- Include `messageId`, `idempotencyKey`, `occurredAt`, `traceparent` and a schema
+4. Include `messageId`, `idempotencyKey`, `occurredAt`, `traceparent` and a schema
   version in every message.
-- Propagate trace context so a job links back to the request that created it.
+5. Propagate trace context so a job links back to the request that created it.
   → `Backend/monitoring`
 
 ---
@@ -166,13 +172,13 @@ await queue.add("send-receipt", { orderId }, {
 | BullMQ / Redis | `lockDuration`, `stalledInterval` | Failed set with `attempts` exhausted |
 | SNS/SQS fan-out | Per-subscription queue | Per-queue DLQ |
 
-- Bound consumer concurrency, especially where the handler touches the database —
+1. Bound consumer concurrency, especially where the handler touches the database —
   a queue is very good at exhausting a connection pool. → `Database/postgres`
-- Handle shutdown gracefully: stop fetching, finish in-flight messages, then exit.
+2. Handle shutdown gracefully: stop fetching, finish in-flight messages, then exit.
   A `SIGKILL` mid-handler relies on redelivery to avoid losing work.
-- Separate queues by priority and by workload shape. One slow job type must not
+3. Separate queues by priority and by workload shape. One slow job type must not
   block a fast one behind it.
-- Rate-limit calls to external services from consumers; a backlog draining at full
+4. Rate-limit calls to external services from consumers; a backlog draining at full
   speed will exceed a partner's rate limit instantly.
 
 ---

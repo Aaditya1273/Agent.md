@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -105,16 +112,16 @@ Those regexes are the composition rules this policy deliberately rejects.
 
 # Handling in transit and at rest
 
-- **Never** log a password, even at debug level, even on failure. Scrub request
+1. **Never** log a password, even at debug level, even on failure. Scrub request
   bodies before they reach an error reporter.
-- **Never** email a password, new or existing. Send a single-use reset link.
-- **Never** store a recoverable form — if you can display it, so can an attacker.
+2. **Never** email a password, new or existing. Send a single-use reset link.
+3. **Never** store a recoverable form — if you can display it, so can an attacker.
   "Forgot password" must reset, never reveal.
-- Accept passwords only over HTTPS, and only via `POST` body — never a query
+4. Accept passwords only over HTTPS, and only via `POST` body — never a query
   string, where they reach logs and `Referer` headers.
-- Set `autocomplete="current-password"` / `"new-password"` so password managers
+5. Set `autocomplete="current-password"` / `"new-password"` so password managers
   work correctly. Fighting managers pushes users toward weaker, memorable choices.
-- **Never** disable paste on a password field. It exists to defeat password
+6. **Never** disable paste on a password field. It exists to defeat password
   managers and achieves only weaker passwords.
 
 ---
@@ -133,11 +140,11 @@ a recoverable password column.
 
 # Rate limiting and lockout
 
-- Limit attempts per account **and** per IP — see `Security/authentication`.
-- Prefer exponential backoff to a hard lock. A permanent lockout triggered by
+1. Limit attempts per account **and** per IP — see `Security/authentication`.
+2. Prefer exponential backoff to a hard lock. A permanent lockout triggered by
   failures is a denial-of-service primitive against your own users.
-- Apply the same limits to password *change* and *reset*, not only to login.
-- Notify the user by email on password change, from an address they can act on.
+3. Apply the same limits to password *change* and *reset*, not only to login.
+4. Notify the user by email on password change, from an address they can act on.
 
 ---
 

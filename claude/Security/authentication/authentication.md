@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never use `md5`, `sha1`, `sha256`, or any bare digest for passwords. They are designed to be fast, which is the opposite of what is required. A commodity GPU tries billions of SHA-256 candidates per second.
+- Never implement your own salting scheme. `argon2id`, `scrypt` and `bcrypt` generate and embed a per-password salt in the output string. A separate `salt` column is a sign the KDF is being misused.
+- Never apply a "pepper" stored in the same database as the hashes. If it is in the dump, it is not a secret.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for implementing authentication: how to store credentials, how to issue and
 end sessions, and how to fail safely. Scope is **proving who a user is**.
 Deciding what they may then do is `Security/authorization`.
@@ -26,6 +39,7 @@ Assume the database will leak. Every rule here is chosen so that a full dump of
 your `users` table does not hand an attacker working credentials.
 
 ---
+
 </purpose>
 
 # Password storage
@@ -33,6 +47,7 @@ your `users` table does not hand an attacker working credentials.
 ## Use a memory-hard KDF. Never a general-purpose hash.
 
 <purpose>
+
 Correct, in order of preference:
 
 | Algorithm | Parameters | Notes |
@@ -64,30 +79,36 @@ column is a sign the KDF is being misused.
 
 **Never** apply a "pepper" stored in the same database as the hashes. If it is
 in the dump, it is not a secret.
+
 </purpose>
 
 ## Verify in constant time
 
-<rules>
+<security_rules>
+
 Use the library's own verifier — `argon2.verify()`, `bcrypt.compare()`. Never
 compare hashes with `===` or `==`. For any other secret comparison (API keys,
 tokens) use `crypto.timingSafeEqual`.
-</rules>
+
+</security_rules>
 
 ## Rehash on login when parameters change
 
-<rules>
+<security_rules>
+
 Store the full encoded hash string (`$argon2id$v=19$m=19456,t=2,p=1$...`), which
 carries its own parameters. On successful login, if the stored parameters are
 weaker than current policy, rehash the plaintext you already have in memory and
 update the row. This is the only moment the plaintext is available.
 
 ---
-</rules>
+
+</security_rules>
 
 # Password policy
 
-<rules>
+<security_rules>
+
 - **Minimum 8 characters. Maximum at least 64.** A low maximum is a strong signal
   the password is being stored in a fixed-width column, unhashed.
 - **Accept every Unicode character**, including spaces and emoji. Normalise to
@@ -100,13 +121,15 @@ update the row. This is the only moment the plaintext is available.
 - **No forced rotation** on a schedule. Rotate on evidence of compromise only.
 
 ---
-</rules>
+
+</security_rules>
 
 # Sessions
 
 ## Prefer opaque server-side sessions
 
-<rules>
+<security_rules>
+
 A random session identifier in a cookie, with state held server-side, is the
 default. It can be revoked instantly. Use `JWT` only when statelessness is a
 real requirement — and then read `Security/jwt` for its failure modes.
@@ -130,43 +153,47 @@ common authentication mistake in single-page applications.
 
 Generate identifiers with a CSPRNG — `crypto.randomBytes(32)`, not
 `Math.random()`, not a timestamp, not a UUIDv1 (which encodes MAC and time).
-</rules>
+
+</security_rules>
 
 ## Rotate on privilege change
 
-<rules>
+<security_rules>
+
 Issue a **new** session identifier on login, on logout, and on any privilege
 elevation. Reusing the pre-login identifier is session fixation: an attacker who
 plants a known identifier before login holds a valid session after it.
-</rules>
+
+</security_rules>
 
 ## Expire on two clocks
 
-<rules>
+<security_rules>
+
 Enforce both an **idle timeout** and an **absolute lifetime**. Idle timeout alone
 lets a stolen token live indefinitely under automated use.
-</rules>
+
+</security_rules>
 
 ## Logout must destroy server-side state
 
-<rules>
+<security_rules>
+
 Clearing the cookie is not logout. Delete the session record. Otherwise a
 captured token remains valid until natural expiry.
 
 ---
-</rules>
+
+</security_rules>
 
 # Login flow
 
 ## Fail identically for every cause
 
-<rules>
+<security_rules>
+
 ```
-</rules>
-
 # Correct — one message, one status, one timing profile
-
-<rules>
 401  "Invalid email or password."
 ```
 
@@ -177,11 +204,13 @@ hash so both branches take comparable time.
 
 Apply the same rule to password reset and signup: **"If that address exists, we
 have sent a link"** — always, regardless.
-</rules>
+
+</security_rules>
 
 ## Rate limit on two keys
 
-<rules>
+<security_rules>
+
 Limit per-account and per-IP independently. Per-IP alone does not stop a
 distributed credential-stuffing run against one account; per-account alone lets
 one IP spray many accounts.
@@ -189,11 +218,13 @@ one IP spray many accounts.
 Prefer exponential backoff or a temporary lock over a permanent one — a
 permanent lock triggered by failed attempts is a denial-of-service primitive
 against your own users.
-</rules>
+
+</security_rules>
 
 ## Multi-factor
 
-<rules>
+<security_rules>
+
 Offer TOTP (`RFC 6238`) or WebAuthn. **Prefer WebAuthn** — it is phishing-resistant
 because the credential is bound to the origin.
 
@@ -205,11 +236,13 @@ because the credential is bound to the origin.
 - Generate single-use recovery codes at enrolment and hash them like passwords.
 
 ---
-</rules>
+
+</security_rules>
 
 # Password reset
 
-<rules>
+<security_rules>
+
 - Tokens must be **single-use**, **short-lived** (≤ 60 minutes), and CSPRNG-generated.
 - **Store the hash of the reset token**, not the token. A leaked database must not
   yield working reset links.
@@ -218,11 +251,13 @@ because the credential is bound to the origin.
 - Never send the new or existing password by email.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `sha256(password + salt)` | GPU-fast; billions of guesses per second | `argon2id` |
@@ -235,11 +270,13 @@ because the credential is bound to the origin.
 | Forced 90-day rotation | Drives predictable increments | Rotate on compromise only |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Passwords hashed with `argon2id` (`m=19456, t=2, p=1`) or an approved alternative
 - [ ] No bare `md5` / `sha1` / `sha256` anywhere in the credential path
 - [ ] Verification uses the library comparator, never `===`
@@ -256,4 +293,5 @@ because the credential is bound to the origin.
 - [ ] Reset tokens single-use, ≤ 60 minutes, stored hashed
 - [ ] All sessions invalidated on password change
 - [ ] MFA available; WebAuthn preferred; TOTP codes single-use
+
 </checklist>

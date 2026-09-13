@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never trust `X-Forwarded-For` blindly. It is client-settable; an attacker prepends a fake address and evades every per-IP limit. Configure `trust proxy` to the exact number of proxies you run and take the correct position from the right.
+- Never key on `User-Agent`, a cookie the client controls, or a request body field. All are attacker-chosen.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for throttling requests to protect capacity and to slow abuse. Rate
 limiting is a **control on volume**, not a substitute for authentication or
 authorisation.
@@ -27,11 +39,13 @@ most common failure: per-IP alone does not stop distributed credential stuffing
 against one account, and per-account alone lets one host spray many accounts.
 
 ---
+
 </purpose>
 
 # Choosing the key
 
-<rules>
+<security_rules>
+
 | Key | Protects against | Weakness |
 | --- | --- | --- |
 | API key or user id | Per-tenant fairness, quota | Requires authentication first |
@@ -55,11 +69,13 @@ app.set("trust proxy", 1);      // exactly one proxy in front — not `true`
 field. All are attacker-chosen.
 
 ---
-</rules>
+
+</security_rules>
 
 # Algorithms
 
-<rules>
+<security_rules>
+
 | Algorithm | Behaviour | Use |
 | --- | --- | --- |
 | **Token bucket** | Steady refill, allows bursts up to capacity | **Default** — matches real traffic |
@@ -95,11 +111,13 @@ The Lua script matters: read-then-write from application code is a race, and und
 concurrency more requests pass than the limit permits.
 
 ---
-</rules>
+
+</security_rules>
 
 # Distributed state
 
-<rules>
+<security_rules>
+
 - An in-memory counter per process means the real limit is `limit × instances`,
   and it resets on every deploy. Acceptable for a single instance; wrong for
   anything scaled.
@@ -112,11 +130,13 @@ concurrency more requests pass than the limit permits.
   Silently allowing because an exception was swallowed is the common accident.
 
 ---
-</rules>
+
+</security_rules>
 
 # Responding
 
-<rules>
+<security_rules>
+
 ```
 HTTP/1.1 429 Too Many Requests
 RateLimit-Limit: 100
@@ -135,11 +155,13 @@ Retry-After: 30
   `Security/authentication`.
 
 ---
-</rules>
+
+</security_rules>
 
 # Tuning
 
-<rules>
+<security_rules>
+
 - Measure real traffic **before** setting a limit. A limit below the p99 of
   legitimate use is an outage you scheduled for yourself.
 - Set different limits per endpoint class: a search or export endpoint costs
@@ -151,11 +173,13 @@ Retry-After: 30
   and both are worth knowing about.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Trusting `X-Forwarded-For` | Client-settable; trivially spoofed | Configure `trust proxy` precisely |
@@ -170,11 +194,13 @@ Retry-After: 30
 | Permanent lockout on failures | Self-inflicted denial of service | Exponential backoff |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Limits are keyed on account and IP independently for authentication routes
 - [ ] `trust proxy` is set to the exact proxy count; `X-Forwarded-For` is not trusted raw
 - [ ] Algorithm is token bucket or sliding window, never fixed window
@@ -187,4 +213,5 @@ Retry-After: 30
 - [ ] Limits were derived from measured traffic and trialled in observe-only mode
 - [ ] Health checks and internal traffic are exempted by credential
 - [ ] Sustained `429` rates raise an alert
+
 </checklist>

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -84,10 +91,10 @@ return <><label htmlFor={id}>Email</label><input id={id} /></>;
 
 For theme specifically, the two options that avoid a flash:
 
-- Store the preference in a **cookie**, read it server-side, and render the correct
+1. Store the preference in a **cookie**, read it server-side, and render the correct
   markup on the first pass. This is the only approach with no flash and no
   mismatch.
-- Or run a tiny **inline script before hydration** that sets a `data-theme`
+2. Or run a tiny **inline script before hydration** that sets a `data-theme`
   attribute from `localStorage`, and drive styling entirely from CSS so React
   never renders the difference.
 
@@ -102,9 +109,9 @@ make the mismatch go away — it only stops the message.
 With streaming SSR, hydration happens progressively per Suspense boundary. Two
 consequences:
 
-- A boundary whose fallback and content differ in size causes layout shift when it
+1. A boundary whose fallback and content differ in size causes layout shift when it
   resolves. Size skeletons to match. → `Frontend/performance`
-- Interaction before hydration completes is queued by React (selective
+2. Interaction before hydration completes is queued by React (selective
   hydration prioritises the boundary the user touched), but only for React
   handlers. Native behaviour on an unhydrated custom control does nothing — which
   is a reason to prefer real `<button>` and `<a href>` elements.
@@ -116,13 +123,13 @@ risky subtrees in an error boundary so one broken widget does not blank the page
 
 # Detection
 
-- Mismatches are logged in development. **Treat every hydration warning as a bug**,
+1. Mismatches are logged in development. **Treat every hydration warning as a bug**,
   not noise — the production consequence is silent.
-- Add an end-to-end test that loads key pages with JavaScript enabled and asserts
+2. Add an end-to-end test that loads key pages with JavaScript enabled and asserts
   no console error. → `Testing/e2e`
-- Test with a cold cache and a throttled connection, where the pre-hydration
+3. Test with a cold cache and a throttled connection, where the pre-hydration
   window is long enough to see the wrong content.
-- Check pages that depend on time, locale, authentication state and feature flags
+4. Check pages that depend on time, locale, authentication state and feature flags
   specifically — those are where mismatches concentrate.
 
 ```html

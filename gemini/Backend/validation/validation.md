@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -199,3 +198,26 @@ prevents injection.
 - [ ] Verify: Client-supplied URLs are SSRF-guarded before any fetch
 - [ ] Verify: Validation errors list every failure with a field path and a stable code
 - [ ] Verify: Rejected values are not echoed when they may be sensitive
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never write a denylist. `if (input.includes("<script>"))` is bypassed by `<ScRiPt>`, `<img onerror>`, and a hundred other encodings. Enumerate what is allowed.
+
+- [ ] Every request body, query and path parameter is parsed against a schema
+- [ ] Parsing produces a typed value used downstream
+- [ ] Unknown fields are rejected, not ignored
+- [ ] No request object is spread into a database write
+- [ ] Every string, array and number has explicit bounds
+- [ ] Enumerations are closed sets
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

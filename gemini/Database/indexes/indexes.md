@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -176,3 +175,26 @@ ORDER BY pg_relation_size(indexrelid) DESC;
 - [ ] Verify: Unused and redundant indexes are audited and dropped
 - [ ] Verify: Index creation uses `CONCURRENTLY` in production
 - [ ] Verify: `ANALYZE` has run before drawing conclusions from a plan
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never wrap an indexed column in a function in the `WHERE` clause — `WHERE lower(email) = $1` cannot use an index on `email`. Either index the expression or store the normalised value.
+
+- [ ] Indexes were added in response to a measured plan, not speculation
+- [ ] Every foreign key is indexed
+- [ ] Composite indexes order columns equality, then range, then sort
+- [ ] Sort direction in the index matches the `ORDER BY`
+- [ ] No `WHERE` clause wraps an indexed column in a function
+- [ ] Partial indexes are used where queries target a consistent subset
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

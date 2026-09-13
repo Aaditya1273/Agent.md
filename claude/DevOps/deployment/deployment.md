@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for getting a build into production safely. The measure of a good deployment
 process is not that it never fails — it is that a failure is **detected quickly
 and reversed quickly**.
@@ -26,11 +36,13 @@ Optimise for mean time to recovery over mean time between failures. Small, frequ
 deploys are safer than large, rare ones: less changed, so less to bisect.
 
 ---
+
 </purpose>
 
 # Pick a strategy, and know its failure mode
 
 <rules>
+
 | Strategy | Downtime | Rollback | Cost | Note |
 | --- | --- | --- | --- | --- |
 | Recreate | Yes | Redeploy | Low | Only acceptable for internal tools |
@@ -52,11 +64,13 @@ to the new version, compare error rate and latency against the old, and promote 
 abort automatically on the comparison rather than on a human watching a dashboard.
 
 ---
+
 </rules>
 
 # Every change must be backward compatible
 
 <rules>
+
 Because both versions run together, a deploy is only safe if the new code works
 with the old data and the old code survives the new schema.
 
@@ -78,11 +92,13 @@ The same applies to:
   separately, and roll back by flipping the flag rather than redeploying.
 
 ---
+
 </rules>
 
 # Graceful shutdown, or every deploy drops requests
 
 <rules>
+
 ```
 SIGTERM → fail readiness → wait for the load balancer to stop sending traffic
         → finish in-flight requests → close pools → exit 0
@@ -115,11 +131,13 @@ terminationGracePeriodSeconds: 60                     # > preStop + longest requ
 | `keepAliveTimeout` | Node/nginx | Above the LB idle timeout, or `502`s appear |
 
 ---
+
 </rules>
 
 # Health checks that mean the right thing
 
 <rules>
+
 | Probe | Question | May check dependencies |
 | --- | --- | --- |
 | Startup | Has it finished booting? | Yes |
@@ -134,11 +152,13 @@ Readiness should fail during shutdown and during a dependency outage, so traffic
 routes elsewhere without the pod being killed. → `Backend/monitoring`
 
 ---
+
 </rules>
 
 # Verify, then declare success
 
 <rules>
+
 A deploy is not finished when the rollout completes.
 
 - **Smoke test** the critical path against the deployed environment.
@@ -153,11 +173,13 @@ Deploy during working hours, when the people who wrote the change are available.
 A Friday-evening deploy is a Saturday-morning incident with fewer responders.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Large, infrequent releases | Huge blast radius; hard to bisect | Small, frequent deploys |
@@ -177,11 +199,13 @@ A Friday-evening deploy is a Saturday-morning incident with fewer responders.
 | Different artefact per environment | Staging proves nothing | Promote one digest → `DevOps/cicd` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] A deployment strategy is chosen and its failure mode understood
 - [ ] Deploys are small and frequent
 - [ ] Every change works with both the previous and current version running
@@ -198,4 +222,5 @@ A Friday-evening deploy is a Saturday-morning incident with fewer responders.
 - [ ] Rollback is automated on an error-budget breach
 - [ ] The deployed commit SHA is recorded and dashboards are annotated
 - [ ] The same artefact is promoted across environments
+
 </checklist>

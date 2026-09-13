@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for continuous integration and delivery. A pipeline has one job: **give a
 trustworthy answer about whether this change is safe to ship, quickly.**
 
@@ -26,11 +36,13 @@ stop believing it — a red build that gets re-run rather than investigated is w
 than no build.
 
 ---
+
 </purpose>
 
 # Order stages by cost and by what they catch
 
 <rules>
+
 ```
 lint + typecheck   (~30s, parallel)     → fails fast on the cheapest problems
 unit tests         (~2min, parallel)
@@ -48,11 +60,13 @@ Target under ten minutes for the pull-request pipeline. Above that, people batch
 changes and context-switch away, and both make debugging harder.
 
 ---
+
 </rules>
 
 # Build once, promote the artefact
 
 <rules>
+
 ```yaml
 build:
   outputs: { digest: ${{ steps.push.outputs.digest }} }
@@ -72,11 +86,13 @@ Environment differences belong in configuration injected at runtime, never in th
 build. → `DevOps/environments`
 
 ---
+
 </rules>
 
 # Make it reproducible
 
 <rules>
+
 - Pin the toolchain: language version in `.nvmrc`/`.tool-versions`, and the same
   version in CI as in production.
 - Install from the lockfile (`npm ci`, `pip install -r requirements.lock`,
@@ -96,11 +112,13 @@ A cache keyed loosely serves stale dependencies and produces failures that
 disappear when the cache expires — the hardest kind of pipeline bug to diagnose.
 
 ---
+
 </rules>
 
 # Secrets
 
 <rules>
+
 - Secrets come from the platform's secret store, never from the repository, never
   from a `.env` committed "temporarily".
 - Prefer **OIDC federation** over long-lived cloud credentials: the pipeline
@@ -117,11 +135,13 @@ disappear when the cache expires — the hardest kind of pipeline bug to diagnos
   variable to debug it.
 
 ---
+
 </rules>
 
 # Gates worth blocking on
 
 <rules>
+
 | Gate | Blocks | Rationale |
 | --- | --- | --- |
 | Lint and format | Merge | Cheap, deterministic |
@@ -156,11 +176,13 @@ required, and review required.
 | `terraform plan` / `tflint` | Infrastructure drift and misconfiguration |
 
 ---
+
 </rules>
 
 # Deployment
 
 <rules>
+
 - **Automatic to staging** on merge; production either automatic or one-click,
   with the same pipeline.
 - Deploy strategy that can fail safely: rolling with health checks, blue/green, or
@@ -172,11 +194,13 @@ required, and review required.
   During an incident the first question is what is actually running.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Rebuilding per environment | Staging and production differ | Build once, promote the digest |
@@ -197,11 +221,13 @@ required, and review required.
 | Deployed version not recorded | Incident response starts blind | Tag and record per environment |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Cheap checks run first and the pipeline fails fast
 - [ ] Independent stages run in parallel
 - [ ] Pull-request feedback arrives in under ten minutes
@@ -221,4 +247,5 @@ required, and review required.
 - [ ] Migrations run as an ordered step compatible with the running code
 - [ ] Deploys are health-checked and smoke-tested before being declared successful
 - [ ] The deployed commit SHA is recorded per environment
+
 </checklist>

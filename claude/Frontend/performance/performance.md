@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never ship a library for one function. A 70 KB dependency imported for `debounce` is the most common single avoidable regression.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for making a web application fast. Performance work is worth doing only
 against measurements — and against the right ones: field data from real users, not
 a local build on a fast laptop.
@@ -26,11 +37,13 @@ Optimising what you have not measured is how teams ship a 40 KB saving on a page
 whose problem is a 3-second server response.
 
 ---
+
 </purpose>
 
 # Measure the right things
 
 <rules>
+
 | Metric | Target | What it reflects |
 | --- | --- | --- |
 | **LCP** | < 2.5s | When the main content appears |
@@ -52,11 +65,13 @@ the experience of the median mobile user entirely. Test on a mid-range Android
 device with CPU throttling, not on your development machine.
 
 ---
+
 </rules>
 
 # JavaScript is the expensive part
 
 <rules>
+
 A byte of JavaScript costs far more than a byte of image: it must be downloaded,
 parsed, compiled and executed, on the main thread.
 
@@ -81,11 +96,13 @@ const Chart = lazy(() => import("./Chart"));   // loaded when rendered, not at b
 `debounce` is the most common single avoidable regression.
 
 ---
+
 </rules>
 
 # Images and fonts
 
 <rules>
+
 Images are usually the LCP element, and fonts are usually the cause of layout
 shift.
 
@@ -108,11 +125,13 @@ shift.
   shift the layout.
 
 ---
+
 </rules>
 
 # Rendering cost
 
 <rules>
+
 - Virtualise long lists (`@tanstack/virtual`). Rendering 10,000 rows is slow no
   matter how cheap each row is.
 - Keep the main thread free: heavy computation belongs in a web worker.
@@ -125,11 +144,13 @@ shift.
   `prefers-reduced-motion`. → `Frontend/react`
 
 ---
+
 </rules>
 
 # Network and delivery
 
 <rules>
+
 - Cache static assets immutably with content hashes:
   `Cache-Control: public, max-age=31536000, immutable`.
 - HTML is `no-cache` or short-lived; it is what points at the hashed assets.
@@ -142,11 +163,13 @@ shift.
   → `Frontend/server-components`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Optimising without measuring | Effort on the wrong thing | Field data first |
@@ -168,11 +191,13 @@ shift.
 | Client-rendering content pages | LCP cannot be good | Server-render |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] LCP, INP and CLS are collected from real users and reviewed at p75
 - [ ] Metrics are segmented by device class and route
 - [ ] Testing includes a throttled mid-range mobile device
@@ -191,4 +216,5 @@ shift.
 - [ ] Animations use only `transform` and `opacity`, honouring reduced motion
 - [ ] Static assets are content-hashed and cached immutably
 - [ ] Content-heavy pages are server-rendered or statically generated
+
 </checklist>

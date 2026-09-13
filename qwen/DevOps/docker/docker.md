@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: docker
 category: DevOps
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -139,10 +145,10 @@ The shell form wraps the command in `/bin/sh -c`, so your process is not PID 1 a
 often never receives `SIGTERM`. The orchestrator then waits the full grace period
 and `SIGKILL`s — every deploy severs in-flight requests.
 
-- Use the **exec form** (JSON array) for `CMD` and `ENTRYPOINT`.
-- Do not start the process through `npm`, `yarn` or a shell wrapper.
-- If your process spawns children, add `--init` (or `tini`) so zombies are reaped.
-- Handle `SIGTERM` in the application: stop accepting connections, drain, exit.
+1. Use the **exec form** (JSON array) for `CMD` and `ENTRYPOINT`.
+2. Do not start the process through `npm`, `yarn` or a shell wrapper.
+3. If your process spawns children, add `--init` (or `tini`) so zombies are reaped.
+4. Handle `SIGTERM` in the application: stop accepting connections, drain, exit.
   → `Backend/node`
 
 One process per container. Supervisors running several services in one container
@@ -152,15 +158,15 @@ defeat orchestration, scaling and health checking.
 
 # Build, scan and ship
 
-- Build once, promote the **same digest** through environments. Rebuilding per
+1. Build once, promote the **same digest** through environments. Rebuilding per
   environment means staging and production are different images.
-- Tag with the commit SHA, not only `latest`, so a deployed image is traceable.
-- Scan in CI (`trivy image`, `grype`) and fail on high or critical findings; rebuild
+2. Tag with the commit SHA, not only `latest`, so a deployed image is traceable.
+3. Scan in CI (`trivy image`, `grype`) and fail on high or critical findings; rebuild
   regularly to pick up base-image patches.
-- Generate an SBOM and sign the image (`cosign`) where supply-chain provenance
+4. Generate an SBOM and sign the image (`cosign`) where supply-chain provenance
   matters. → `DevOps/cicd`
-- Add a `HEALTHCHECK`, or configure probes in the orchestrator.
-- Set memory limits and configure the runtime to respect them — a JVM or Node
+5. Add a `HEALTHCHECK`, or configure probes in the orchestrator.
+6. Set memory limits and configure the runtime to respect them — a JVM or Node
   heap sized from host memory will be OOM-killed in a limited container.
 
 ---

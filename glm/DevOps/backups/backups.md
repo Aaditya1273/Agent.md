@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -74,16 +80,16 @@ production account ──► backup account (separate credentials, separate root
                           └─ Object Lock, COMPLIANCE mode, 35-day retention
 ```
 
-- A **separate account or subscription**, with its own root credentials and no
+1. A **separate account or subscription**, with its own root credentials and no
   cross-trust that allows deletion.
-- **Immutability**: `s3:ObjectLockMode=COMPLIANCE`, Azure immutable blob policy, or
+2. **Immutability**: `s3:ObjectLockMode=COMPLIANCE`, Azure immutable blob policy, or
   the equivalent. In compliance mode not even the account root can delete inside
   the retention window — that is the property you are buying.
-- Write access one way only: production can write backups; it cannot delete them.
-- Encrypt at rest with a key held **outside** the backup system. Storing the
+3. Write access one way only: production can write backups; it cannot delete them.
+4. Encrypt at rest with a key held **outside** the backup system. Storing the
   decryption key beside the backup is a circular dependency discovered at restore
   time.
-- MFA-delete on the bucket where the platform supports it.
+5. MFA-delete on the bucket where the platform supports it.
 
 ```hcl
 # Terraform: the backup bucket, in the backup account. COMPLIANCE mode means
@@ -122,12 +128,12 @@ at creation. Discovering that during an incident response is too late.
 Durability (`99.999999999%`, "eleven nines") protects against hardware failure and
 media decay. It does not protect against a `DELETE` — yours, an attacker's, or a buggy cleanup job.
 
-- Enable **versioning**, so an overwrite or delete is recoverable.
-- Add a lifecycle rule to expire noncurrent versions, or storage grows without
+1. Enable **versioning**, so an overwrite or delete is recoverable.
+2. Add a lifecycle rule to expire noncurrent versions, or storage grows without
   bound.
-- Cross-region replication for regional failure — but note it replicates deletes
+3. Cross-region replication for regional failure — but note it replicates deletes
   unless configured otherwise.
-- Delete markers plus versioning is the recovery path; test it:
+4. Delete markers plus versioning is the recovery path; test it:
 
 ```bash
 # Recover a deleted object: remove the delete marker, do not re-upload.

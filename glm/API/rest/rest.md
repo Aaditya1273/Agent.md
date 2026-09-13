@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -130,28 +136,28 @@ anything consistent works, as long as it is genuinely consistent.
 }
 ```
 
-- A **machine-readable code** per error, stable across releases. Clients branch on
+1. A **machine-readable code** per error, stable across releases. Clients branch on
   the code, never on the message text.
-- A **`requestId`** in every response — success and failure. It is what turns a
+2. A **`requestId`** in every response — success and failure. It is what turns a
   support ticket into a log search.
-- **Never** leak stack traces, SQL, internal hostnames or library versions in an
+3. **Never** leak stack traces, SQL, internal hostnames or library versions in an
   error body. → `Security/headers`
 
 ---
 
 # Requests and responses
 
-- **`Content-Type: application/json`** on both, and validate it. Reject unknown
+1. **`Content-Type: application/json`** on both, and validate it. Reject unknown
   fields rather than silently ignoring them — a client typo should fail loudly.
-- **Validate at the boundary**, against a schema (`zod`, `pydantic`, JSON Schema),
+2. **Validate at the boundary**, against a schema (`zod`, `pydantic`, JSON Schema),
   before any business logic sees the value.
-- Field naming: pick `camelCase` or `snake_case` and hold it across the entire
+3. Field naming: pick `camelCase` or `snake_case` and hold it across the entire
   surface. Mixed conventions are a permanent tax on every client.
-- Timestamps are RFC 3339 UTC strings: `2026-08-23T14:32:59Z`. Never epoch
+4. Timestamps are RFC 3339 UTC strings: `2026-08-23T14:32:59Z`. Never epoch
   integers, never local time, never a format that varies by endpoint.
-- Money is an integer of minor units plus an ISO 4217 currency code. Never a
+5. Money is an integer of minor units plus an ISO 4217 currency code. Never a
   float, never a formatted string.
-- Enumerations are strings, not integers. `"status": "pending"` survives being
+6. Enumerations are strings, not integers. `"status": "pending"` survives being
   read by a human at 3am; `"status": 2` does not.
 
 **Never** return a bare array as a top-level response body. `{"data": [...]}`
@@ -163,11 +169,11 @@ leaves room to add pagination metadata without a breaking change.
 
 Additive changes are safe. These are not, and require a new version:
 
-- Removing or renaming a field
-- Changing a field's type or nullability
-- Adding a required request field
-- Changing the meaning of an existing value
-- Tightening validation on an existing field
+1. Removing or renaming a field
+2. Changing a field's type or nullability
+3. Adding a required request field
+4. Changing the meaning of an existing value
+5. Tightening validation on an existing field
 
 Clients must ignore unknown response fields — document that expectation
 explicitly, because if they do not, every addition becomes breaking.

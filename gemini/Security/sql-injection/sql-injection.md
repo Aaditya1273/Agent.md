@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -198,3 +197,29 @@ These do not replace parameterisation. They limit the damage when it fails.
 - [ ] Verify: Multi-statement execution is disabled in the driver
 - [ ] Verify: Database errors are logged server-side and never returned to clients
 - [ ] Verify: Statement timeouts are configured
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never build SQL with string concatenation, template literals, `+`, `format()`, `sprintf`, or f-strings — in any language. If the query text varies with user input, the boundary is already broken.
+- Never rely on escaping functions like `mysql_real_escape_string` as your primary defence. They are dialect-specific, charset-sensitive, and historically bypassable — `GBK` multibyte sequences defeated exactly this pattern.
+- Never allow-list by regex (`/^[a-z_]+$/`) instead of an explicit map. A permissive pattern still admits valid identifiers you did not intend to expose, including columns holding password hashes.
+- Never pass user input into `LIKE` without escaping the wildcards. `%` and `_` are pattern metacharacters, and an unescaped `%` turns a lookup into a full scan — a denial-of-service vector even when injection is prevented.
+
+- [ ] Every query sends values as bound parameters, not concatenated text
+- [ ] No template literal, `+`, `format()` or f-string builds SQL from input
+- [ ] Dynamic identifiers and sort direction come from an explicit allow-list map
+- [ ] No `Unsafe` ORM variant receives interpolated input
+- [ ] `LIKE` patterns escape `%` and `_` and declare `ESCAPE`
+- [ ] Stored procedures bind inside `EXECUTE`, never `CONCAT`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

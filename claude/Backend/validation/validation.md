@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never write a denylist. `if (input.includes("<script>"))` is bypassed by `<ScRiPt>`, `<img onerror>`, and a hundred other encodings. Enumerate what is allowed.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for validating input on the server. The principle is one line: **anything
 that crosses a trust boundary is parsed into a known type before any code acts on
 it.**
@@ -26,11 +37,13 @@ Client-side validation is a user-experience feature. It provides no security —
 the client is under the attacker's control. Every rule here is server-side.
 
 ---
+
 </purpose>
 
 # Parse, do not validate
 
 <rules>
+
 Validation that returns a boolean leaves you holding the same untyped value.
 Parsing returns a **new, typed value** that cannot be wrong further down.
 
@@ -61,11 +74,13 @@ you already publish an OpenAPI document, generate the validator from it so the
 spec and the check cannot disagree. → `API/open-api`
 
 ---
+
 </rules>
 
 # `.strict()` is the mass-assignment fix
 
 <rules>
+
 ```ts
 // Without .strict(): { "email": "…", "role": "admin", "credits": 999999 }
 await db.user.update({ where: { id }, data: req.body });   // ← privilege escalation
@@ -84,11 +99,13 @@ This is the same defect as `params.permit` misuse in Rails and
 it is one line to prevent.
 
 ---
+
 </rules>
 
 # Allowlist everything, and bound everything
 
 <rules>
+
 | Input | Rule |
 | --- | --- |
 | Strings | `maxLength` on every one. A `text` field with no cap is a memory vector |
@@ -112,11 +129,13 @@ Compressed request bodies need a decompressed-size cap as well — a 1 KB gzip
 payload can expand to gigabytes.
 
 ---
+
 </rules>
 
 # Shape, then business rules
 
 <rules>
+
 Two distinct layers, and they belong in different places:
 
 | Layer | Checks | Where | Response |
@@ -130,11 +149,13 @@ constraint is the guarantee; the pre-check is only a nicer error message.
 → `Database/schema-design`
 
 ---
+
 </rules>
 
 # Validation is not encoding
 
 <rules>
+
 Validated input is still untrusted **in a different context**. A name that is
 perfectly valid input is still dangerous when concatenated into SQL, a shell
 command, a file path, or HTML.
@@ -149,11 +170,13 @@ Validation reduces the surface. Context-correct encoding is what actually
 prevents injection.
 
 ---
+
 </rules>
 
 # Error responses
 
 <rules>
+
 ```json
 { "code": "validation_failed", "message": "Validation failed", "requestId": "req_01J8Z",
   "errors": [
@@ -170,11 +193,13 @@ prevents injection.
   → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Relying on client-side validation | The client is attacker-controlled | Always validate server-side |
@@ -194,11 +219,13 @@ prevents injection.
 | Rejected values echoed back | May log credentials | Redact |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every request body, query and path parameter is parsed against a schema
 - [ ] Parsing produces a typed value used downstream
 - [ ] Unknown fields are rejected, not ignored
@@ -214,4 +241,5 @@ prevents injection.
 - [ ] Client-supplied URLs are SSRF-guarded before any fetch
 - [ ] Validation errors list every failure with a field path and a stable code
 - [ ] Rejected values are not echoed when they may be sensitive
+
 </checklist>

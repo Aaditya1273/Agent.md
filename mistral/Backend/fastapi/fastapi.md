@@ -14,7 +14,13 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for building a FastAPI service that stays fast and testable past the first
@@ -31,11 +37,7 @@ the ORM is `Database/sqlalchemy`.
 [INST] Apply every rule in this section: App factory and feature routers. [/INST]
 
 ```python
-
 # app/main.py — builds the app. No engine creation at import time.
-
-[INST] Apply every rule in this section: app/main.py — builds the app. No engine creation at import time.. [/INST]
-
 def create_app(settings: Settings) -> FastAPI:
     app = FastAPI(title="Orders", version=settings.version, lifespan=lifespan)
     app.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
@@ -43,9 +45,6 @@ def create_app(settings: Settings) -> FastAPI:
     return app
 
 # app/orders/router.py
-
-[INST] Apply every rule in this section: app/orders/router.py. [/INST]
-
 router = APIRouter()
 
 @router.post("", status_code=201, response_model=OrderOut)
@@ -74,9 +73,6 @@ def get_order_service(session: Session = Depends(get_session)) -> OrderService:
     return OrderService(OrderRepo(session))
 
 # tests
-
-[INST] Apply every rule in this section: tests. [/INST]
-
 app.dependency_overrides[get_session] = lambda: fake_session
 ```
 

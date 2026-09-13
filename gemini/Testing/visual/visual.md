@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -187,3 +186,27 @@ a missing label or an unreachable control → `Testing/accessibility`.
 - [ ] Verify: Every baseline update is reviewed as a diff image by the change owner
 - [ ] Verify: Baselines are versioned with the code
 - [ ] Verify: Accessibility is tested separately, never inferred from pixels
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never generate baselines on a developer laptop and compare them in CI. Font hinting and GPU rasterisation differ, so every screenshot differs. Generate and compare in the same container image, pinned by digest.
+- Never treat a visual test as an accessibility check. Identical pixels can hide a missing label or an unreachable control → `Testing/accessibility`.
+
+- [ ] Baselines are generated and compared in the same pinned container image
+- [ ] Animations, transitions and carets are disabled during capture
+- [ ] Clocks are frozen and random data seeded
+- [ ] Fonts are self-hosted and awaited before capture
+- [ ] Dynamic regions are masked rather than left to vary
+- [ ] Captures target components; page-level shots are reserved for key pages
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

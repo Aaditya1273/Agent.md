@@ -14,8 +14,15 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -43,14 +50,14 @@ if err := db.PingContext(ctx); err != nil {     // this connects; fail fast at s
 }
 ```
 
-- `*sql.DB` is a pool, safe for concurrent use, created once in `main` and
+1. `*sql.DB` is a pool, safe for concurrent use, created once in `main` and
   passed down. **Never** open one per request or per package.
-- `sql.Open` validates nothing. `PingContext` at startup turns a wrong URL into
+2. `sql.Open` validates nothing. `PingContext` at startup turns a wrong URL into
   a startup failure instead of a first-request failure.
-- Size `MaxOpenConns` below the server's limit divided by your replica count.
+3. Size `MaxOpenConns` below the server's limit divided by your replica count.
   Postgres defaults to 100 connections total; ten replicas at 20 each is already
   200.
-- `ConnMaxLifetime` under the load balancer's or proxy's idle timeout prevents
+4. `ConnMaxLifetime` under the load balancer's or proxy's idle timeout prevents
   "connection reset" on a stale socket.
 
 ---
@@ -74,13 +81,13 @@ case err != nil:
 }
 ```
 
-- Use the `…Context` variants exclusively. `db.Query` with no context cannot be
+1. Use the `…Context` variants exclusively. `db.Query` with no context cannot be
   cancelled and will hold a pool slot while a client waits on a dead request.
-- Parameters are always placeholders (`$1` in pgx, `?` in MySQL). String
+2. Parameters are always placeholders (`$1` in pgx, `?` in MySQL). String
   concatenation into SQL is injection, full stop. → `Security/sql-injection`
-- Translate `sql.ErrNoRows` to your own sentinel at the store boundary.
+3. Translate `sql.ErrNoRows` to your own sentinel at the store boundary.
   → `Backend/go-errors`
-- `rows.Close()` after `Query`, and check `rows.Err()` after the loop — an error
+4. `rows.Close()` after `Query`, and check `rows.Err()` after the loop — an error
   mid-iteration is otherwise silent.
 
 ---
@@ -101,13 +108,13 @@ func (s *Store) Place(ctx context.Context, o Order) (err error) {
 }
 ```
 
-- A transaction that is neither committed nor rolled back holds a connection
+1. A transaction that is neither committed nor rolled back holds a connection
   and its locks until the context ends. The `defer` with a named `err` is the
   idiom that guarantees resolution.
-- Keep transactions short: no HTTP calls, no waiting on channels inside one.
-- Pass `tx` (or a small interface both `*sql.DB` and `*sql.Tx` satisfy) into the
+2. Keep transactions short: no HTTP calls, no waiting on channels inside one.
+3. Pass `tx` (or a small interface both `*sql.DB` and `*sql.Tx` satisfy) into the
   functions that must run inside it. **Never** stash a transaction in a context.
-- Choose the isolation level deliberately. `Serializable` needs retry logic on
+4. Choose the isolation level deliberately. `Serializable` needs retry logic on
   `40001`; `ReadCommitted` needs explicit `SELECT … FOR UPDATE` where you read
   then write.
 
@@ -123,11 +130,11 @@ func (s *Store) Place(ctx context.Context, o Order) (err error) {
 | Dynamic query building | `squirrel` or hand-built with placeholders |
 | A full ORM | Only if the team already knows it well; `gorm` hides N+1 and locking |
 
-- Default to `sqlc`: the SQL is reviewable, the generated code is boring, and a
+1. Default to `sqlc`: the SQL is reviewable, the generated code is boring, and a
   schema change breaks the build instead of production.
-- `pgxpool` has its own pool; do not wrap it in `database/sql` unless you need
+2. `pgxpool` has its own pool; do not wrap it in `database/sql` unless you need
   the portable interface.
-- ORMs earn their cost on CRUD-heavy admin tools. On hot paths, the query they
+3. ORMs earn their cost on CRUD-heavy admin tools. On hot paths, the query they
   generate is the query you must read anyway.
 
 ---
@@ -142,11 +149,11 @@ type Order struct {
 }
 ```
 
-- Scan a `NULL` into a plain `string` and the query fails at runtime. Nullable
+1. Scan a `NULL` into a plain `string` and the query fails at runtime. Nullable
   columns get `sql.Null*` or pointer fields.
-- Scan into named fields in a known column order; `SELECT *` breaks silently
+2. Scan into named fields in a known column order; `SELECT *` breaks silently
   when a column is added. List the columns.
-- Time columns: store `timestamptz`, scan into `time.Time`, and set the pool's
+3. Time columns: store `timestamptz`, scan into `time.Time`, and set the pool's
   session time zone to UTC.
 
 ---
@@ -160,14 +167,14 @@ migrations/
   0002_orders_tenant_index.up.sql
 ```
 
-- Migrations are versioned SQL files applied in order by a tool (`golang-migrate`,
+1. Migrations are versioned SQL files applied in order by a tool (`golang-migrate`,
   `goose`, `atlas`), never by the application on startup in a multi-replica
   deployment — two replicas racing to migrate is a corrupted schema.
-- Every migration has a tested `down`, or an explicit comment that it is
+2. Every migration has a tested `down`, or an explicit comment that it is
   irreversible and why.
-- Additive first: add the column, deploy code that writes both, backfill, then
+3. Additive first: add the column, deploy code that writes both, backfill, then
   remove the old column in a later migration. → `Database/migration`
-- `CREATE INDEX CONCURRENTLY` in Postgres cannot run inside a transaction; mark
+4. `CREATE INDEX CONCURRENTLY` in Postgres cannot run inside a transaction; mark
   that migration as non-transactional in your tool.
 
 ---

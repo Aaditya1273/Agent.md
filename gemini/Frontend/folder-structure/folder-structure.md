@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -200,3 +199,24 @@ commit — a move mixed with a behaviour change is unreviewable.
 - [ ] Verify: Path aliases replace deep relative imports
 - [ ] Verify: Import order is enforced automatically
 - [ ] Verify: Restructuring lands as its own commit
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Code is organised by feature, not by file type
+- [ ] Each feature directory contains its components, hooks, API and schemas
+- [ ] Tests, styles and stories are colocated with their source
+- [ ] Each feature exposes a public surface through `index.ts`
+- [ ] Cross-feature imports go through that surface only, enforced by lint
+- [ ] `shared/` never imports from `features/`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

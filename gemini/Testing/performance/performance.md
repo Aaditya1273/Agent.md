@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -176,3 +175,26 @@ predicted, and the time spent on the wrong thing is unrecoverable.
 - [ ] Verify: API latency is reported as percentiles
 - [ ] Verify: Microbenchmarks use a harness that handles warmup
 - [ ] Verify: Optimisation follows a profile, never a guess
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never optimise from a guess. The bottleneck is routinely somewhere nobody predicted, and the time spent on the wrong thing is unrecoverable.
+
+- [ ] LCP, INP, CLS and TTFB are measured, not just a Lighthouse score
+- [ ] Field data is collected from real users via `web-vitals` and `sendBeacon`
+- [ ] Lab budgets run in CI and fail the build when exceeded
+- [ ] At least three runs are taken and the median used
+- [ ] Budgets were derived from current measurements, then tightened
+- [ ] Bundle size is budgeted separately and gated per pull request
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

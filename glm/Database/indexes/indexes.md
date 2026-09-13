@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -42,11 +48,11 @@ stale statistics, so `ANALYZE` before concluding anything.
 
 Always index:
 
-- **Foreign keys.** PostgreSQL does not index them automatically, and an unindexed
+1. **Foreign keys.** PostgreSQL does not index them automatically, and an unindexed
   FK makes every parent `DELETE` scan the child table.
-- **Columns in `WHERE`** on tables that grow.
-- **Join columns** on both sides.
-- **`ORDER BY` columns** where the sort would otherwise be external.
+2. **Columns in `WHERE`** on tables that grow.
+3. **Join columns** on both sides.
+4. **`ORDER BY` columns** where the sort would otherwise be external.
 
 ---
 
@@ -138,11 +144,11 @@ WHERE idx_scan = 0
 ORDER BY pg_relation_size(indexrelid) DESC;
 ```
 
-- **Drop unused indexes.** Verify across a full business cycle — a monthly report
+1. **Drop unused indexes.** Verify across a full business cycle — a monthly report
   may be the only consumer.
-- **Drop redundant ones.** `(a)` is redundant when `(a, b)` exists.
-- Build and drop with `CONCURRENTLY` in production → `Database/migration`.
-- Watch for **duplicate indexes** created by an ORM and a migration independently.
+2. **Drop redundant ones.** `(a)` is redundant when `(a, b)` exists.
+3. Build and drop with `CONCURRENTLY` in production → `Database/migration`.
+4. Watch for **duplicate indexes** created by an ORM and a migration independently.
 
 ---
 

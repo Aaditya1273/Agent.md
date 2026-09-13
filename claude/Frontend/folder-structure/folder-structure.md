@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for laying out a frontend codebase. Structure is a communication tool: it
 tells a new contributor where a change belongs, and it makes an accidental
 dependency visible in a diff.
@@ -25,11 +35,13 @@ dependency visible in a diff.
 The single decision that matters: **organise by feature, not by file type.**
 
 ---
+
 </purpose>
 
 # Colocate by feature
 
 <rules>
+
 ```
 src/
   features/
@@ -61,11 +73,13 @@ Test files, styles and stories live beside the component they cover
 is the file most likely to be forgotten when the component moves.
 
 ---
+
 </rules>
 
 # Enforce the boundaries
 
 <rules>
+
 A structure nobody enforces reverts to a graph within a quarter.
 
 ```js
@@ -93,11 +107,13 @@ Add `dependency-cruiser` or `eslint-plugin-boundaries` for a stricter layered
 model when the codebase warrants it.
 
 ---
+
 </rules>
 
 # Promote to `shared/` on the third use
 
 <rules>
+
 `shared/` is where structure goes to die if anything can enter it.
 
 - Something used by **one** feature lives in that feature.
@@ -114,11 +130,13 @@ say what is inside guarantees unrelated things accumulate there. Name by domain:
 `Button` that knows about orders is not shared.
 
 ---
+
 </rules>
 
 # Naming and imports
 
 <rules>
+
 | Thing | Convention |
 | --- | --- |
 | Component files | `PascalCase.tsx`, matching the exported component |
@@ -154,11 +172,13 @@ missing bundler alias produces a build that type-checks and then fails to
 resolve at runtime.
 
 ---
+
 </rules>
 
 # Signals to restructure
 
 <rules>
+
 - A directory with more than ~15 files is usually two features.
 - A file over ~300 lines is usually two files.
 - A "feature" imported by every other feature is infrastructure — move it to
@@ -171,11 +191,13 @@ Restructure when the signal appears, not on a schedule, and do it as its own
 commit — a move mixed with a behaviour change is unreviewable.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Top-level `components/`, `hooks/`, `utils/` | One change touches four directories | Organise by feature |
@@ -193,11 +215,13 @@ commit — a move mixed with a behaviour change is unreviewable.
 | Directories that grow without limit | Hides that it is two concerns | Split at the signal |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Code is organised by feature, not by file type
 - [ ] Each feature directory contains its components, hooks, API and schemas
 - [ ] Tests, styles and stories are colocated with their source
@@ -213,4 +237,5 @@ commit — a move mixed with a behaviour change is unreviewable.
 - [ ] Path aliases replace deep relative imports
 - [ ] Import order is enforced automatically
 - [ ] Restructuring lands as its own commit
+
 </checklist>

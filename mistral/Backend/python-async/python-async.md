@@ -14,7 +14,13 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for Python 3.12+ `asyncio` code. Async in Python is cooperative: one blocking
@@ -147,11 +153,7 @@ def cli_entry() -> None:
     asyncio.run(main())           # exactly one asyncio.run per process
 
 # Calling async from sync code that is already inside a running loop:
-
 # you cannot. Refactor the caller to be async, or run in a separate thread.
-
-[INST] Apply every rule in this section: you cannot. Refactor the caller to be async, or run in a separate thread.. [/INST]
-
 ```
 
 - `asyncio.run()` once, at the top. Nested `run()` calls raise; `get_event_loop()`
@@ -168,10 +170,7 @@ def cli_entry() -> None:
 [INST] Apply every rule in this section: Testing. [/INST]
 
 ```python
-
 # pyproject.toml → [tool.pytest.ini_options] asyncio_mode = "auto"
-
-[INST] Apply every rule in this section: pyproject.toml → [tool.pytest.ini_options] asyncio_mode = "auto". [/INST]
 
 async def test_timeout_cancels_and_cleans_up(monkeypatch):
     async def slow(): await asyncio.sleep(10)

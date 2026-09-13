@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,20 +14,36 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never construct a `PrismaClient` inside a request handler or a serverless function body. Each instance opens its own pool.
+- Never create an index manually in the database without also declaring it in `schema.prisma`. `prisma migrate dev` diffs against the schema and will generate a `DROP INDEX`.
+- Never run `prisma migrate dev` against a shared or production database. It can drop and recreate the schema when it detects drift.
+- Never use `prisma db push` on anything with data you care about. It has no history and no rollback path.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for Prisma specifically. General ORM discipline is `Database/orm`; this
 covers Prisma's own sharp edges — the client lifecycle, `prisma migrate`, and the
 places where the generated SQL differs from what the schema implies.
 
 ---
+
 </purpose>
 
 # One client, module scope
 
 <rules>
+
 ```ts
 // src/lib/prisma.ts
 import { PrismaClient } from "@prisma/client";
@@ -61,11 +77,13 @@ cannot support. `directUrl` in the datasource block is what `prisma migrate` use
 → `Database/postgres`
 
 ---
+
 </rules>
 
 # Schema modelling
 
 <rules>
+
 ```prisma
 model Order {
   id        String      @id @default(uuid(7)) @db.Uuid
@@ -98,11 +116,13 @@ Prisma does not support `CREATE INDEX CONCURRENTLY`. On a large table, edit the
 generated migration SQL by hand. → `Database/migration`
 
 ---
+
 </rules>
 
 # Migration workflow
 
 <rules>
+
 | Command | Use |
 | --- | --- |
 | `prisma migrate dev` | Local only. Creates the migration and may **reset the database** |
@@ -120,11 +140,13 @@ Review the generated `migration.sql` in the pull request. Prisma will emit a
 column drop or a type change that rewrites the table without flagging the cost.
 
 ---
+
 </rules>
 
 # Queries
 
 <rules>
+
 ```ts
 // Explicit projection — never return the whole entity to an API caller
 const users = await prisma.user.findMany({
@@ -159,11 +181,13 @@ await prisma.order.create({ data: { tenantId, items: { create: lineItems } } });
 out of both. → `Database/transactions`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `new PrismaClient()` per request | Pool per instance; connection exhaustion | Module-scope singleton |
@@ -180,11 +204,13 @@ out of both. → `Database/transactions`
 | Unread generated migration | Silent table rewrite | Review the SQL in the PR |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] A single module-scope `PrismaClient`, cached on `globalThis` in development
 - [ ] Serverless deployments use a pooled URL with `pgbouncer=true` and `directUrl`
 - [ ] `@db.Timestamptz` on every `DateTime`; `BigInt` minor units for money
@@ -197,4 +223,5 @@ out of both. → `Database/transactions`
 - [ ] All list queries paginate; deep pagination uses `cursor`
 - [ ] Responses are projected with `select`, never the raw model
 - [ ] Transactions contain no network calls
+
 </checklist>

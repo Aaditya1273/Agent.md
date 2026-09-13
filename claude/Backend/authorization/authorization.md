@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for enforcing who may do what, in a backend service. Authentication
 establishes identity (`Backend/authentication`); authorization decides what that
 identity may do. Policy modelling is `Security/authorization`; this package is
@@ -27,11 +37,13 @@ The dominant failure is not a wrong policy. It is a **missing check on one
 endpoint** — an authenticated request that returns somebody else's row.
 
 ---
+
 </purpose>
 
 # Scope the query; do not check afterwards
 
 <rules>
+
 ```ts
 // Broken — authenticated, authorized for nothing in particular
 const order = await db.order.findUnique({ where: { id: req.params.id } });
@@ -60,11 +72,13 @@ Return `404` rather than `403` for objects the caller may not see — a `403`
 confirms the object exists. → `API/api-security`
 
 ---
+
 </rules>
 
 # One layer owns the decision
 
 <rules>
+
 Authorization belongs in the **service layer**, where the domain objects are, not
 scattered across controllers and templates.
 
@@ -91,11 +105,13 @@ Note also that a role check is not a permission check — `admin` on one tenant 
 not `admin` on another.
 
 ---
+
 </rules>
 
 # Model: roles, then attributes
 
 <rules>
+
 Start with **RBAC**: roles carry permissions, users hold roles, scoped to a
 tenant. It covers most systems and is easy to reason about and to display.
 
@@ -117,11 +133,13 @@ Rules that hold regardless of the model:
   `costBasisCents`. Project explicit fields.
 
 ---
+
 </rules>
 
 # The checks people forget
 
 <rules>
+
 | Path | Commonly missed |
 | --- | --- |
 | `PATCH`/`PUT` | Ownership checked on read, not on write |
@@ -139,11 +157,13 @@ A background job acting on behalf of a user must carry that user's scope, not
 run unrestricted.
 
 ---
+
 </rules>
 
 # Test denial, not just permission
 
 <rules>
+
 Authorization tests that only assert the happy path prove nothing. The valuable
 assertion is that a request **fails**.
 
@@ -163,11 +183,13 @@ test("a member of tenant B cannot read tenant A's order", async () => {
   an attack or a broken deploy. → `Security/audit-log`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Fetch then compare ownership | One missed branch leaks data | Scope inside the query |
@@ -187,11 +209,13 @@ test("a member of tenant B cannot read tenant A's order", async () => {
 | Denials not logged | Attacks and regressions unnoticed | Log actor, action, resource |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every data access is scoped to the caller inside the query
 - [ ] Tenant scope comes from the session and never from client input
 - [ ] Repository or row-level security makes an unscoped query impossible
@@ -209,4 +233,5 @@ test("a member of tenant B cannot read tenant A's order", async () => {
 - [ ] Denial tests exist for every protected resource type
 - [ ] A fail-closed test asserts new routes are protected by default
 - [ ] Every denial is logged with actor, action, resource and source
+
 </checklist>

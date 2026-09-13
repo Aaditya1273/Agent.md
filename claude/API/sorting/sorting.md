@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,20 +14,32 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for sorting on list endpoints. Sorting looks trivial and produces two
 serious bugs: a client-controlled column name reaching SQL, and a non-deterministic
 order that makes pagination silently skip rows.
 
 ---
+
 </purpose>
 
 # Syntax
 
 <rules>
+
 ```
 GET /v1/orders?sort=-createdAt          descending
 GET /v1/orders?sort=status,-createdAt   multi-key, in priority order
@@ -42,11 +54,13 @@ a **default sort**; an endpoint with no default returns rows in whatever order t
 database found them, which changes between releases and between replicas.
 
 ---
+
 </rules>
 
 # Allowlist, always
 
 <rules>
+
 ```ts
 const SORTABLE = {
   createdAt: "created_at",
@@ -79,11 +93,13 @@ Aliases also decouple the API from the schema, so renaming `total_cents` is not 
 breaking change. → `API/filtering`
 
 ---
+
 </rules>
 
 # Determinism is mandatory
 
 <rules>
+
 **Every sort must end in a unique tiebreaker.** Without one, rows with equal sort
 values may come back in any order — and a different order on the next page.
 
@@ -105,11 +121,13 @@ sort key. A cursor is valid only for the sort it was issued with — validate th
 or reset pagination when the sort changes.
 
 ---
+
 </rules>
 
 # Index every sortable field
 
 <rules>
+
 A sort without a matching index makes the database read and sort the entire
 matching set for every page.
 
@@ -127,11 +145,13 @@ Verify with `EXPLAIN (ANALYZE, BUFFERS)` that no `Sort` node appears for any
 allowed sort combination.
 
 ---
+
 </rules>
 
 # Nulls, text and case
 
 <rules>
+
 - **Null placement is engine-specific.** Postgres puts `NULL` first on `DESC`;
   MySQL puts it last. State it explicitly (`NULLS LAST`) so behaviour does not
   change with the database.
@@ -148,11 +168,13 @@ allowed sort combination.
   alphabetically.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Client sort key interpolated into SQL | Injection — parameters cannot bind identifiers | Allowlist map |
@@ -171,11 +193,13 @@ allowed sort combination.
 | Internal column names exposed | Renames become breaking changes | Alias layer |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] One sort syntax is used across every list endpoint
 - [ ] Every endpoint has a documented default sort
 - [ ] Sort keys come from an allowlist mapping alias → column
@@ -190,4 +214,5 @@ allowed sort combination.
 - [ ] Text collation and case handling are declared, indexed and documented
 - [ ] Enumerations sort by an explicit rank, not alphabetically
 - [ ] Sortable fields are declared in the OpenAPI document
+
 </checklist>

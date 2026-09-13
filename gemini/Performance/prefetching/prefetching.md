@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -173,3 +172,24 @@ if (c?.saveData || /2g/.test(c?.effectiveType ?? "")) return;   // do not prefet
 - [ ] Verify: Prefetch targets are cacheable, not `no-store`
 - [ ] Verify: Authenticated and personalised URLs are never speculatively fetched
 - [ ] Verify: The effect of prefetching on navigation timing is measured
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Every `preload` specifies `as`, and fonts include `crossorigin`
+- [ ] Preloading is limited to render-blocking resources
+- [ ] `preconnect` is used only for origins certain to be needed
+- [ ] Future navigations use `prefetch`, not `preload`
+- [ ] Prefetching is triggered by hover, focus or a known flow step
+- [ ] Speculation rules start at conservative eagerness
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -204,3 +203,26 @@ binary production/development switch, so a staging deployment must still set
 - [ ] Verify: Production access is separately granted, time-limited and audited
 - [ ] Verify: The environment is visible in the UI, the shell and every log line
 - [ ] Verify: Destructive production commands require explicit confirmation
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never build a per-environment image. `docker build --build-arg ENV=prod` produces something staging never tested. - Configuration arrives at runtime, from environment variables or a secret store, never from a file baked into the image. - Frontend builds are the awkward case: `NEXT_PUBLIC_*` and equivalent are inlined at build time. Either build per environment for those specific values and accept it, or serve them from a runtime endpoint. Decide deliberately and document it.
+
+- [ ] One artefact is built and promoted unchanged across environments
+- [ ] All configuration is injected at runtime
+- [ ] Build-time-inlined frontend values are an explicit, documented exception
+- [ ] Environment variables are schema-validated at startup
+- [ ] The process refuses to start on missing or malformed configuration
+- [ ] No secret has a default value
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

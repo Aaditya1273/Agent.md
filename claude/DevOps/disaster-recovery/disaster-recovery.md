@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for surviving a major failure: a region outage, a destructive mistake, a
 ransomware event, or the loss of a critical third party.
 
@@ -26,11 +36,13 @@ document that has never been executed is a hypothesis, and it is usually wrong i
 ways only a drill reveals.
 
 ---
+
 </purpose>
 
 # Start with two numbers, per service
 
 <rules>
+
 | Term | Question | Determines |
 | --- | --- | --- |
 | **RPO** | How much data may we lose? | Backup and replication strategy |
@@ -51,11 +63,13 @@ architecture or change the number. An aspirational RTO nobody has measured is
 worse than an honest one.
 
 ---
+
 </rules>
 
 # Enumerate the scenarios
 
 <rules>
+
 Plan for causes, because the response differs:
 
 | Scenario | Response |
@@ -84,50 +98,36 @@ or a destructive `UPDATE` can be caught before it applies — and the recovery i
 promotion rather than a multi-hour restore. → `Database/replication`
 
 ---
+
 </rules>
 
 # Write runbooks that work at 3am
 
 <rules>
-```markdown
-</rules>
 
+```markdown
 # Runbook: Primary database region failure
 
 ## Detect
-
-<rules>
 - `pg_up == 0` for 2 minutes in `eu-west-1`, or the RDS event stream shows failover
 - Confirm: `pg_isready -h $PRIMARY_HOST` from a bastion outside the region
-</rules>
 
 ## Decide
-
-<rules>
 - Promote if the primary is unreachable for > 5 minutes. Decision owner: on-call.
 - No approval required.
-</rules>
 
 ## Act
-
-<rules>
 1. Verify the standby's replay position:  SELECT pg_last_wal_replay_lsn();
 2. Promote:  aws rds failover-db-cluster --db-cluster-identifier prod
 3. Update the connection secret and restart consumers
 4. Verify writes:  psql -c "INSERT INTO healthcheck …"
 5. Re-point surviving replicas
-</rules>
 
 ## Verify
-
-<rules>
 - Error rate returns to baseline within 5 minutes
 - Write path confirmed by the synthetic check
-</rules>
 
 ## Communicate
-
-<rules>
 - Status page within 10 minutes; update every 30
 ```
 
@@ -148,11 +148,13 @@ down — a runbook hosted only in the wiki that runs in the failed cluster is
 useless exactly when needed.
 
 ---
+
 </rules>
 
 # Define incident roles
 
 <rules>
+
 Under pressure, unassigned work does not happen and everyone debugs at once.
 
 | Role | Responsibility |
@@ -182,11 +184,13 @@ every recovery action requiring SSO is blocked. Store them offline, require two
 people to open them, and alert on use.
 
 ---
+
 </rules>
 
 # Drill, or it does not work
 
 <rules>
+
 | Drill | Frequency |
 | --- | --- |
 | Restore a database from backup to a scratch environment | Monthly |
@@ -197,11 +201,7 @@ people to open them, and alert on use.
 | Incident tabletop with a scenario nobody prepared for | Quarterly |
 
 ```bash
-</rules>
-
 # Time every drill. The measured number replaces the aspirational RTO.
-
-<rules>
 START=$(date -u +%s)
 ./runbooks/restore-db.sh --target-time "2026-08-23T14:32:59Z" --into scratch
 psql "$SCRATCH_URL" -c "SELECT count(*) FROM orders;"        # sanity, not proof
@@ -213,13 +213,8 @@ Run drills **against the runbook as written**, with someone who did not write it
 and time them. Every drill's output is a corrected runbook and a corrected RTO.
 
 ```yaml
-</rules>
-
 # A chaos experiment states its hypothesis and its abort condition up front.
-
 # Without both, it is not an experiment — it is an outage you caused.
-
-<rules>
 hypothesis: "Losing one of three API pods does not raise the 5xx rate above 0.1%."
 method:     { action: pod-delete, namespace: prod, label: app=api, count: 1 }
 abort_if:   "sum(rate(http_requests_total{status=~'5..'}[1m])) / sum(rate(http_requests_total[1m])) > 0.01"
@@ -236,11 +231,13 @@ completion; a postmortem whose actions are never done is theatre.
 → `Review/postmortem`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No stated RPO/RTO | No basis for any recovery decision | Agree and document per tier |
@@ -259,11 +256,13 @@ completion; a postmortem whose actions are never done is theatre.
 | Action items never tracked | The same incident recurs | Owners and dates |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] RPO and RTO are agreed and documented per service tier
 - [ ] The architecture actually meets the stated numbers, verified by drill
 - [ ] Failure scenarios are enumerated, including human error and compromise
@@ -280,4 +279,5 @@ completion; a postmortem whose actions are never done is theatre.
 - [ ] Every drill produces runbook corrections
 - [ ] Chaos experiments run with a hypothesis and an abort condition
 - [ ] Every incident produces a blameless postmortem with tracked actions
+
 </checklist>

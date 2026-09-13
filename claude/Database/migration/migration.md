@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never issue a single `UPDATE` across a large table. It holds a long transaction, bloats the table, and blocks vacuum.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for changing a database schema in a running system.
 
 The governing constraint: **during a deploy, old and new application code run at
@@ -26,11 +37,13 @@ before it and the code after it. A migration that is only valid with the new cod
 causes errors for the duration of the rollout.
 
 ---
+
 </purpose>
 
 # Expand, migrate, contract
 
 <rules>
+
 Never change a column in place. Split it across releases:
 
 | Phase | Deploy | Schema | Code |
@@ -46,11 +59,13 @@ them into one release is how a rename takes the site down.
 breaks every running instance of the old code the instant it commits.
 
 ---
+
 </rules>
 
 # Locks are the danger
 
 <rules>
+
 The migration that reads harmlessly is often the one that takes an
 `ACCESS EXCLUSIVE` lock and queues every query behind it.
 
@@ -94,11 +109,13 @@ SET statement_timeout = '30s';
 ```
 
 ---
+
 </rules>
 
 # Backfilling
 
 <rules>
+
 **Never** issue a single `UPDATE` across a large table. It holds a long
 transaction, bloats the table, and blocks vacuum.
 
@@ -119,11 +136,13 @@ WHERE id IN (
 - Watch replication lag while it runs and pause when it grows.
 
 ---
+
 </rules>
 
 # Reversibility
 
 <rules>
+
 - Every migration needs a **tested** `down`. An untested rollback is a rollback
   that fails during an incident.
 - **Destructive steps are irreversible in practice.** `DROP COLUMN` loses the data;
@@ -135,11 +154,13 @@ WHERE id IN (
   unverified backup is a hope.
 
 ---
+
 </rules>
 
 # Practice
 
 <rules>
+
 - Migrations live **in version control** beside the code and run in CI on a
   restored copy of production-shaped data. That is how you learn migration 47
   fails on a table with real rows. → `Testing/integration`
@@ -153,11 +174,13 @@ WHERE id IN (
   lock; confirm yours does.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `RENAME COLUMN` in one deploy | Old code breaks instantly | Expand-migrate-contract |
@@ -172,11 +195,13 @@ WHERE id IN (
 | Contracting in the same release | No safe window to revert | Wait; drop later |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every change is compatible with both old and new application code
 - [ ] Renames and type changes are split across expand, migrate and contract
 - [ ] Indexes are created `CONCURRENTLY` and outside a transaction
@@ -189,4 +214,5 @@ WHERE id IN (
 - [ ] No applied migration is ever edited
 - [ ] Destructive steps happen only after the new path is proven
 - [ ] A verified backup exists before any destructive change
+
 </checklist>

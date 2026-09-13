@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for fetching resources before the user asks. Done well, a navigation feels
 instant. Done badly, prefetching competes with the resources that are actually
 blocking the current page, and costs users money on metered connections.
@@ -26,11 +36,13 @@ The governing question for every hint: **does this compete with something the us
 needs right now?** If yes, it is a regression, not an optimisation.
 
 ---
+
 </purpose>
 
 # The hints, and what each actually does
 
 <rules>
+
 | Hint | Does | Cost if wrong |
 | --- | --- | --- |
 | `dns-prefetch` | Resolves DNS only | Negligible |
@@ -57,11 +69,13 @@ Preload only what blocks the first render: typically one font and the LCP image.
 Everything else competes with them. → `Performance/fonts`
 
 ---
+
 </rules>
 
 # Prefetch on intent, not on load
 
 <rules>
+
 Prefetching every link on a page wastes bandwidth on the majority nobody clicks.
 Use signals that precede the click:
 
@@ -86,11 +100,13 @@ For known funnels, prefetch the next step as soon as the user enters the current
 one — the checkout bundle should already be there when they finish the cart.
 
 ---
+
 </rules>
 
 # Speculation rules
 
 <rules>
+
 ```html
 <script type="speculationrules">
 {
@@ -120,11 +136,13 @@ conversion is genuinely predictable.
   destination, not ten.
 
 ---
+
 </rules>
 
 # Respect the user's constraints
 
 <rules>
+
 ```ts
 const c = (navigator as any).connection;
 if (c?.saveData || /2g/.test(c?.effectiveType ?? "")) return;   // do not prefetch
@@ -142,11 +160,13 @@ if (c?.saveData || /2g/.test(c?.effectiveType ?? "")) return;   // do not prefet
   creates load nobody asked for. → `Performance/caching`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `preload` without `as` | No priority; fetched twice | Always specify `as` |
@@ -166,11 +186,13 @@ if (c?.saveData || /2g/.test(c?.effectiveType ?? "")) return;   // do not prefet
 | Prefetching without measuring | May be pure cost | Measure navigation timing |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every `preload` specifies `as`, and fonts include `crossorigin`
 - [ ] Preloading is limited to render-blocking resources
 - [ ] `preconnect` is used only for origins certain to be needed
@@ -184,4 +206,5 @@ if (c?.saveData || /2g/.test(c?.effectiveType ?? "")) return;   // do not prefet
 - [ ] Prefetch targets are cacheable, not `no-store`
 - [ ] Authenticated and personalised URLs are never speculatively fetched
 - [ ] The effect of prefetching on navigation timing is measured
+
 </checklist>

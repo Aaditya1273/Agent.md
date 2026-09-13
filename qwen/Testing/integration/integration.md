@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: integration
 category: Testing
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -41,12 +47,12 @@ process.env.DATABASE_URL = container.getConnectionUri();
 await migrate();                       // run real migrations, not a schema dump
 ```
 
-- Use **Testcontainers**, Docker Compose, or a dedicated test instance. Pin the
+1. Use **Testcontainers**, Docker Compose, or a dedicated test instance. Pin the
   **same major version** as production.
-- **Run the real migrations** in the test setup. This is how you learn that
+2. **Run the real migrations** in the test setup. This is how you learn that
   migration 47 fails on a table with data — a class of failure no other test
   catches.
-- **Never** substitute SQLite for Postgres or MySQL. The dialects differ where
+3. **Never** substitute SQLite for Postgres or MySQL. The dialects differ where
   bugs live.
 
 ---
@@ -158,14 +164,14 @@ none of which a direct handler call exercises.
 Integration tests are slower by nature; keep them from becoming the reason nobody
 runs the suite.
 
-- **Start containers once per run**, not per test file. Reuse across the suite.
-- **Parallelise by worker** with a schema or database each.
-- Seed the **minimum** needed. A 500-row fixture where 2 rows suffice costs on
+1. **Start containers once per run**, not per test file. Reuse across the suite.
+2. **Parallelise by worker** with a schema or database each.
+3. Seed the **minimum** needed. A 500-row fixture where 2 rows suffice costs on
   every test.
-- Keep the ratio sane: many unit tests, a meaningful layer of integration tests, a
+4. Keep the ratio sane: many unit tests, a meaningful layer of integration tests, a
   handful of end-to-end tests. Inverting that produces a suite that takes 40
   minutes and gets skipped.
-- Run them on **every pull request**, not nightly. A failure found a day later has
+5. Run them on **every pull request**, not nightly. A failure found a day later has
   already been built on.
 
 ---

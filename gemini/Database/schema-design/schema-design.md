@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -195,3 +194,28 @@ For audit history, append to a separate table rather than overwriting.
 - [ ] Verify: Uniqueness enforced by the database, not by an application read-then-write
 - [ ] Verify: Soft-deleted tables use partial unique indexes
 - [ ] Verify: Denormalised columns have a stated maintenance mechanism
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never use an email address, username, or phone number as a primary key. They change, and the change cascades through every foreign key in the system.
+- Never use `uuid` v4 as a clustered/primary key on a high-insert table without measuring — random insertion order fragments the index and inflates write amplification. `uuid` v7 gives you opacity and locality together.
+- Never store a comma-separated list in a column. It cannot be indexed, joined, or constrained. Use a join table.
+
+- [ ] Every table declares a primary key
+- [ ] Keys are surrogate and opaque where rows are externally visible
+- [ ] Money stored as integer minor units with an explicit currency column
+- [ ] All timestamps are `timestamptz`
+- [ ] Columns are `NOT NULL` unless "unknown" is a real domain state
+- [ ] Enumerations constrained by `CHECK` or a native enum, never free text
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never read `window`, `document`, `localStorage` or `navigator` during render. They are undefined on the server. Read them in an effect or through `useSyncExternalStore`.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for `"use client"` components. Every one of them costs download, parse and
 execution time on the user's device, so each should exist for a reason that can be
 named: state, an event handler, a browser API, or an effect.
@@ -26,11 +37,13 @@ The server side is `Frontend/server-components`; hydration specifics are
 `Frontend/hydration`.
 
 ---
+
 </purpose>
 
 # `"use client"` is an entry point, not a file marker
 
 <rules>
+
 ```tsx
 "use client";
 import { Chart } from "heavy-charting-lib";     // 180 KB — now in the bundle
@@ -57,11 +70,13 @@ export default async function Page() {
 ```
 
 ---
+
 </rules>
 
 # Justify each one
 
 <rules>
+
 A client component needs at least one of:
 
 | Reason | Example |
@@ -79,11 +94,13 @@ button should be a server component containing a small client `<CopyButton>`, no
 a client component containing a card.
 
 ---
+
 </rules>
 
 # Hydration must match
 
 <rules>
+
 React renders on the server and then attaches on the client. If the two produce
 different HTML, React discards the server markup and re-renders — losing the
 performance benefit and, in some cases, producing visibly wrong content.
@@ -115,11 +132,13 @@ Use `useId()` for generated ids that must be stable across the boundary — a ra
 id will differ between server and client. → `Frontend/hydration`
 
 ---
+
 </rules>
 
 # Props and data
 
 <rules>
+
 - Props from a server component are **serialised into the HTML**. Pass the minimum,
   and never pass anything the user should not see.
 - Functions cannot cross the boundary, except Server Action references.
@@ -130,11 +149,13 @@ id will differ between server and client. → `Frontend/hydration`
   bundle those children — that is the composition escape hatch for heavy content.
 
 ---
+
 </rules>
 
 # Keep the bundle honest
 
 <rules>
+
 - Lazy-load heavy interactive components so they are not in the initial payload:
 
 ```tsx
@@ -150,11 +171,13 @@ const Editor = dynamic(() => import("./Editor"), { ssr: false, loading: () => <S
   paid by the user, on their device. → `Frontend/performance`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `"use client"` on a layout or page | The whole subtree ships to the browser | Mark interactive leaves |
@@ -171,11 +194,13 @@ const Editor = dynamic(() => import("./Editor"), { ssr: false, loading: () => <S
 | Not checking what a client file imports | One icon drags in a library | Bundle analysis |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every `"use client"` file has a named reason: state, handler, browser API or effect
 - [ ] The directive sits at interactive leaves, never at layouts or pages
 - [ ] Static content is not wrapped inside client components
@@ -188,4 +213,5 @@ const Editor = dynamic(() => import("./Editor"), { ssr: false, loading: () => <S
 - [ ] Heavy interactive components are dynamically imported
 - [ ] `ssr: false` is used only where server rendering is genuinely impossible
 - [ ] The client bundle has been analysed for unexpected dependencies
+
 </checklist>

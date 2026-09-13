@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -203,3 +202,24 @@ async def test_timeout_cancels_and_cleans_up(monkeypatch):
 - [ ] Verify: Fan-out bounded with a `Semaphore`
 - [ ] Verify: Exactly one `asyncio.run()` per process
 - [ ] Verify: Tests run in `asyncio_mode = "auto"` with `AsyncMock`; no real sleeps
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Async chosen for I/O concurrency, not for CPU work
+- [ ] No blocking call inside any `async def`; debug mode used to find them
+- [ ] Sync work offloaded with `asyncio.to_thread`, sparingly
+- [ ] Related tasks run under `TaskGroup`; no bare `gather`
+- [ ] Every `create_task` result is retained
+- [ ] `CancelledError` is cleaned up and re-raised, never swallowed
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

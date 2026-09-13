@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -128,23 +135,23 @@ the meta tag.
 <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
 ```
 
-- `<html lang="en">` on every page, matching the actual content language.
+1. `<html lang="en">` on every page, matching the actual content language.
   Screen readers choose pronunciation from it. → `Testing/accessibility`
-- `<meta name="viewport" content="width=device-width, initial-scale=1">` — required
+2. `<meta name="viewport" content="width=device-width, initial-scale=1">` — required
   for mobile rendering, and its absence is a mobile-usability failure.
-- `dir="rtl"` where the content requires it.
+3. `dir="rtl"` where the content requires it.
 
 ---
 
 # Do not leak through metadata
 
-- Metadata is public. Never put an internal identifier, an email address, a draft
+1. Metadata is public. Never put an internal identifier, an email address, a draft
   title, or anything user-specific into a tag on a public page.
-- Pages behind authentication should be `noindex` and should not generate social
+2. Pages behind authentication should be `noindex` and should not generate social
   cards containing the user's data.
-- A `404` must return a real `404` status **and** `noindex` — a soft 404 returning
+3. A `404` must return a real `404` status **and** `noindex` — a soft 404 returning
   `200` with generic metadata gets indexed as a real page. → `Frontend/routing`
-- Do not include version numbers, framework fingerprints or build paths in
+4. Do not include version numbers, framework fingerprints or build paths in
   `<meta>` tags.
 
 ---

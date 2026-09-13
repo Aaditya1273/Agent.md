@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -104,13 +111,13 @@ FROM pg_stat_replication;
 
 Common causes of a lag spike, in order of frequency:
 
-- A long-running query on the replica conflicting with WAL replay (Postgres will
+1. A long-running query on the replica conflicting with WAL replay (Postgres will
   either cancel the query or pause replay, depending on
   `max_standby_streaming_delay`).
-- A bulk write, index build, or `VACUUM` on the primary generating WAL faster than
+2. A bulk write, index build, or `VACUUM` on the primary generating WAL faster than
   the replica can apply it.
-- Single-threaded apply on the replica — enable parallel apply where available.
-- Network saturation between regions.
+3. Single-threaded apply on the replica — enable parallel apply where available.
+4. Network saturation between regions.
 
 Alert on lag **before** it matters — a replica three minutes behind is a
 three-minute data-loss window if the primary fails now.

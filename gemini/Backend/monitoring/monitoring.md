@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -233,3 +232,26 @@ Separate the two, because they mean different things to the orchestrator:
 - [ ] Verify: Every paging alert is user-affecting, actionable, urgent and has a runbook
 - [ ] Verify: Alerts are reviewed monthly and unused ones deleted
 - [ ] Verify: Liveness and readiness probes are separate; liveness checks no dependencies
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never use as a metric label: user id, order id, email, session id, full URL path, raw error message, or a timestamp. Those are log fields and trace attributes, where high cardinality is the point.
+
+- [ ] Latency, traffic, errors and saturation are instrumented for every service
+- [ ] Latency is a histogram with buckets chosen for the SLO
+- [ ] Metric labels are bounded; no ids or raw paths as labels
+- [ ] Business-level metrics exist alongside infrastructure metrics
+- [ ] Dependency call rate, errors and latency are tracked per dependency
+- [ ] Queue depth and oldest-message age are monitored
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -181,3 +180,24 @@ document, so clients and generators see the same contract. → `API/open-api`
 - [ ] Verify: Combination semantics, null handling and case sensitivity are documented
 - [ ] Verify: The worst legal filter combination has been checked with `EXPLAIN ANALYZE`
 - [ ] Verify: Filters are declared in the OpenAPI document
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] One filter syntax is used across every list endpoint
+- [ ] Filterable fields come from an explicit allowlist mapping alias → column
+- [ ] Allowed operators are declared per field
+- [ ] Operators resolve through a fixed map, never string interpolation
+- [ ] Values are type-coerced and rejected with `400` when invalid
+- [ ] All values are passed as bound parameters
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

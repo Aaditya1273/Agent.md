@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: graphql
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for building a GraphQL API. GraphQL moves query construction from the server
@@ -35,11 +41,7 @@ A public GraphQL endpoint without cost controls is an open denial-of-service
 target. All four controls below are needed — none is sufficient alone.
 
 ```graphql
-
 # Without depth limiting, this recurses until the server dies
-
-[INST] Apply every rule in this section: Without depth limiting, this recurses until the server dies. [/INST]
-
 query { user { friends { friends { friends { friends { id } } } } } }
 ```
 

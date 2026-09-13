@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -192,3 +191,24 @@ func encode(v any) ([]byte, error) {
 - [ ] Verify: Pooled memory is never handed to callers
 - [ ] Verify: `GOMEMLIMIT` is set in memory-limited containers; `GOGC` is set from measurement
 - [ ] Verify: `GOMAXPROCS` matches the container's CPU limit
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Every optimisation started from a `pprof` profile showing the hot spot
+- [ ] `pprof` is served on an internal port, not the public listener
+- [ ] Before/after benchmarks with `-benchmem -count 10` are compared via `benchstat`
+- [ ] Benchmark inputs are realistic in size
+- [ ] Hot-path allocations are identified with the `allocs` profile and `-gcflags=-m`
+- [ ] Slices and maps of known size are preallocated
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -42,13 +49,13 @@ test("applies the bulk discount at ten units", () => {
 });
 ```
 
-- **Name the behaviour, not the method.** `"returns 404 when the invoice belongs
+1. **Name the behaviour, not the method.** `"returns 404 when the invoice belongs
   to another tenant"` beats `"test findInvoice"`. The name is what you read when
   it fails at 3am.
-- **One logical assertion per test.** Several `expect` calls checking one outcome
+2. **One logical assertion per test.** Several `expect` calls checking one outcome
   are fine; testing two unrelated behaviours in one test is not — the first
   failure hides the second.
-- **No branching.** An `if` or a loop in a test means it is testing more than one
+3. **No branching.** An `if` or a loop in a test means it is testing more than one
   thing, or it is reimplementing the logic under test.
 
 ---
@@ -155,13 +162,13 @@ it cannot be forgotten.
 Coverage measures which lines ran, not whether they were checked. 100% coverage is
 achievable by a suite with no assertions at all.
 
-- Use it to **find untested code**, never as a target to hit.
-- A useful floor is around **80% on changed lines**; chasing the last few percent
+1. Use it to **find untested code**, never as a target to hit.
+2. A useful floor is around **80% on changed lines**; chasing the last few percent
   drives tests of trivial getters.
-- **Mutation testing** (`stryker`, `mutmut`) measures assertion quality directly:
+3. **Mutation testing** (`stryker`, `mutmut`) measures assertion quality directly:
   it changes the code and checks whether a test notices. A surviving mutant is a
   line that is covered but unverified.
-- **Never** write a test purely to raise coverage. A test with no meaningful
+4. **Never** write a test purely to raise coverage. A test with no meaningful
   assertion is a maintenance cost pretending to be a safety net.
 
 ---

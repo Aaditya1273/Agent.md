@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,20 +14,33 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never remove a version without per-consumer usage data. Log the version on every request, aggregate by API key, and contact the remaining callers directly. Removing a version you have not measured is how an unannounced outage happens.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for evolving a published API. The goal is not to avoid change — it is to
 make change predictable, so integrators can plan. Every version you support is a
 permanent maintenance cost, so the second goal is to need as few as possible.
 
 ---
+
 </purpose>
 
 # What is breaking
 
 <rules>
+
 | Change | Breaking |
 | --- | --- |
 | Adding an optional response field | No |
@@ -53,11 +66,13 @@ Rule of thumb: if a request that worked yesterday now fails, or a response a
 client parsed yesterday now fails to parse, it is breaking.
 
 ---
+
 </rules>
 
 # Where the version goes
 
 <rules>
+
 | Location | Example | Trade-off |
 | --- | --- | --- |
 | URL path | `/v1/orders` | Visible, cacheable, trivially routable. **Default.** |
@@ -79,11 +94,13 @@ explicit opt-in upgrade. This is what lets you ship breaking changes without
 breaking anyone.
 
 ---
+
 </rules>
 
 # Prefer expansion to a new version
 
 <rules>
+
 A new major version doubles your test surface and your on-call burden. Before
 cutting one, check whether the change fits inside the current version:
 
@@ -98,11 +115,13 @@ Reserve a major version for changes that genuinely cannot coexist — a
 restructured resource model, a changed authentication scheme.
 
 ---
+
 </rules>
 
 # Deprecation
 
 <rules>
+
 Announce, signal, then remove. Never remove without all three.
 
 ```
@@ -134,19 +153,17 @@ advance — surface the integrations whose owners never read email, while the fi
 is still cheap.
 
 ---
+
 </rules>
 
 # Contract enforcement
 
 <rules>
+
 Version drift is a testing problem before it is a policy problem.
 
 ```bash
-</rules>
-
 # Fail the build on a breaking OpenAPI change
-
-<rules>
 oasdiff breaking spec/v1.openapi.yaml spec/v1.openapi.new.yaml --fail-on ERR
 ```
 
@@ -157,11 +174,7 @@ oasdiff breaking spec/v1.openapi.yaml spec/v1.openapi.new.yaml --fail-on ERR
 - Publish a changelog per version with dates, and link it from the docs.
 
 ```yaml
-</rules>
-
 # .github/workflows/api-contract.yml
-
-<rules>
 - name: Detect breaking API changes
   run: |
     git show origin/main:spec/v1.openapi.yaml > /tmp/base.yaml
@@ -182,11 +195,13 @@ Record the version on every request as a structured log field
 field is what makes a removal decision defensible. → `Backend/logging`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No version at all | The first breaking change strands every client | Version from the first release |
@@ -202,11 +217,13 @@ field is what makes a removal decision defensible. → `Backend/logging`
 | No OpenAPI diff in CI | Breaks ship unnoticed | `oasdiff` gate |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] A version identifier is present from the first public release
 - [ ] The major version is in the URL path, or a documented pinned-per-account scheme
 - [ ] The API surface is versioned as a whole, not per endpoint
@@ -219,4 +236,5 @@ field is what makes a removal decision defensible. → `Backend/logging`
 - [ ] The sunset window is at least 12 months for a public API
 - [ ] Brownouts are scheduled and announced before removal
 - [ ] CI fails on a breaking OpenAPI diff within a version
+
 </checklist>

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,24 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never rely on `pg_dump` alone for a production database. It is a logical snapshot of one instant with no way to reach any other instant, and restoring one is slow because it rebuilds every index.
+- Never treat a replica as a backup. `DROP TABLE` replicates in milliseconds. → `Database/replication`
+- Never count a backup as verified because the job exited zero. Verify the restore, not the backup.
+- Never back up production data into a developer's environment unmasked. Restore to staging through an anonymisation step, or restore into an access-controlled environment.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for backing up a database. The only meaningful definition: **a backup is
 something you have restored.** Everything else is a file of unknown quality.
 
@@ -31,11 +45,13 @@ out restoring a 2 TB dump on a fresh host. If you cannot meet the numbers, chang
 the architecture or change the numbers — do not leave them aspirational.
 
 ---
+
 </purpose>
 
 # Point-in-time recovery, not just dumps
 
 <rules>
+
 | Method | RPO | Restores to | Suitable for |
 | --- | --- | --- | --- |
 | `pg_dump` nightly | 24 hours | The dump instant | Small databases, dev seeding |
@@ -47,18 +63,11 @@ PITR is what lets you restore to 14:32:59 — one second before the migration th
 deleted the column.
 
 ```bash
-</rules>
-
 # Postgres: continuous archiving
-
-<rules>
 archive_mode = on
 archive_command = 'pgbackrest --stanza=main archive-push %p'
-</rules>
 
 # Base backup, then restore to a moment
-
-<rules>
 pgbackrest --stanza=main backup --type=full
 pgbackrest --stanza=main --type=time --target='2026-08-23 14:32:59+00' restore
 ```
@@ -78,11 +87,13 @@ is slow because it rebuilds every index.
 → `Database/replication`
 
 ---
+
 </rules>
 
 # The restore drill
 
 <rules>
+
 An untested backup has a failure rate that is unknown and, empirically, high.
 
 Run a restore on a schedule — monthly at minimum — into a scratch environment,
@@ -100,11 +111,13 @@ particular person can perform, from memory, is not a recovery capability.
 restore, not the backup.
 
 ---
+
 </rules>
 
 # Retention and the 3-2-1 rule
 
 <rules>
+
 Three copies, on two media types, one off-site — and, for ransomware, one
 **immutable**.
 
@@ -116,11 +129,7 @@ Three copies, on two media types, one off-site — and, for ransomware, one
 | Yearly | As legally required | Retention obligations |
 
 ```
-</rules>
-
 # pgbackrest — expiry is declarative; the tool prunes, not a cron job with rm
-
-<rules>
 repo1-retention-full=4
 repo1-retention-diff=14
 repo1-retention-archive=7
@@ -142,11 +151,13 @@ data in backups. Document how it is honoured, usually by policy: the request is
 re-applied on restore rather than by editing backup archives.
 
 ---
+
 </rules>
 
 # Encryption and secrets
 
 <rules>
+
 - Encrypt at rest and in transit. Managed KMS, not a key file beside the archive.
 - Store the decryption key **outside** the backup system, and outside the
   database it protects.
@@ -159,11 +170,13 @@ to staging through an anonymisation step, or restore into an access-controlled
 environment.
 
 ---
+
 </rules>
 
 # Monitoring
 
 <rules>
+
 Alert on the **absence** of a recent successful backup, not on job failure. A job
 that stops running emits no failures at all — this is how teams discover, during
 an incident, that backups stopped three months ago.
@@ -175,11 +188,7 @@ FROM pg_stat_archiver;
 ```
 
 ```bash
-</rules>
-
 # Backup age in seconds — export this as a gauge, alert above 26h for a daily job
-
-<rules>
 pgbackrest --stanza=main --output=json info \
   | jq '.[0].backup[-1].timestamp.stop'
 ```
@@ -194,11 +203,13 @@ pgbackrest --stanza=main --output=json info \
 | `pg_wal` directory size | Growing steadily — archiving has stalled |
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Never restoring | Unknown, high failure rate | Scheduled restore drill |
@@ -214,11 +225,13 @@ pgbackrest --stanza=main --output=json info \
 | Hand-rolled `archive_command` | Silent archive failure fills the disk | `pgbackrest` / `wal-g` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] RPO and RTO are written down and agreed with the business
 - [ ] Point-in-time recovery is configured, not just periodic dumps
 - [ ] Archiving uses a proven tool, and archive failures alert
@@ -231,4 +244,5 @@ pgbackrest --stanza=main --output=json info \
 - [ ] Alerts fire on backup **age**, not only on job failure
 - [ ] The restore runbook is written and has been followed by a second person
 - [ ] Restores into lower environments pass through anonymisation
+
 </checklist>

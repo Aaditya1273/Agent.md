@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: Apple-design-analysis
-description: A photography-first interface that turns marketing into a museum gallery. Edge-to-edge product tiles alternate light and dark canvases, framed by SF Pro Display headlines with negative letter-spacing and a single Action Blue (#0066cc) interactive color. UI chrome recedes so the product can speak — no decorative gradients, no shadows on chrome, only the one signature drop-shadow under product imagery resting on a surface.
+description: A photography-first interface that turns marketing into a museum gallery, updated for Apple's 2026 Liquid Glass design language. Edge-to-edge product tiles alternate light and dark canvases, framed by SF Pro Display headlines with negative letter-spacing and a single Action Blue (#0066cc) interactive color. UI chrome recedes so the product can speak — no decorative gradients, no shadows on chrome, only the one signature drop-shadow under product imagery. Liquid Glass translucent materials add depth through refraction and dynamic tinting on iOS 26+ and visionOS surfaces.
 
 colors:
   primary: "#0066cc"
@@ -25,6 +25,78 @@ colors:
   surface-chip-translucent: "#d2d2d7"
   on-primary: "#ffffff"
   on-dark: "#ffffff"
+
+system-colors:
+  red: "#FF3B30"
+  red-dark: "#FF453A"
+  orange: "#FF9500"
+  orange-dark: "#FF9F0A"
+  yellow: "#FFCC00"
+  yellow-dark: "#FFD60A"
+  green: "#34C759"
+  green-dark: "#30D158"
+  mint: "#00C7BE"
+  mint-dark: "#63E6E2"
+  teal: "#30B0C7"
+  teal-dark: "#40CBE0"
+  cyan: "#32ADE6"
+  cyan-dark: "#64D2FF"
+  blue: "#007AFF"
+  blue-dark: "#0A84FF"
+  indigo: "#5856D6"
+  indigo-dark: "#5E5CE6"
+  purple: "#AF52DE"
+  purple-dark: "#BF5AF2"
+  pink: "#FF2D55"
+  pink-dark: "#FF375F"
+  brown: "#A2845E"
+  brown-dark: "#AC8E68"
+  system-gray-1: "#8E8E93"
+  system-gray-2: "#AEAEB2"
+  system-gray-3: "#C7C7CC"
+  system-gray-4: "#D1D1D6"
+  system-gray-5: "#E5E5EA"
+  system-gray-6: "#F2F2F7"
+  system-gray-1-dark: "#8E8E93"
+  system-gray-2-dark: "#636366"
+  system-gray-3-dark: "#48484A"
+  system-gray-4-dark: "#3A3A3C"
+  system-gray-5-dark: "#2C2C2E"
+  system-gray-6-dark: "#1C1C1E"
+
+liquid-glass:
+  background-blur: "20px"
+  tint-opacity: "0.45"
+  refraction-intensity: "0.8"
+  saturation: "180%"
+  noise-texture: "0.02"
+  transparency-range: "0–100%"
+  depth-base-blur: "8px"
+  depth-elevated-blur: "20px"
+  depth-floating-blur: "40px"
+  tint-adaptation: "samples dominant background color"
+
+product-accents:
+  iphone-natural-titanium: "#A8A7A2"
+  iphone-blue-titanium: "#394C5F"
+  iphone-white-titanium: "#F0ECE5"
+  iphone-black-titanium: "#3C3B37"
+  iphone-desert-titanium: "#BFA48F"
+  macbook-space-black: "#1E1E1E"
+  macbook-silver: "#E3E4E5"
+  macbook-starlight: "#F0E4D3"
+  macbook-midnight: "#2E3642"
+  imac-blue: "#6B9CDB"
+  imac-green: "#AAD4B5"
+  imac-pink: "#EAAFB5"
+  imac-silver: "#E3E4E5"
+  imac-yellow: "#F2D58F"
+  imac-orange: "#E8956D"
+  imac-purple: "#B4A7D6"
+  watch-midnight: "#2B2D33"
+  watch-starlight: "#E8DDD0"
+  watch-silver: "#D4D4D8"
+  watch-product-red: "#C1272D"
 
 typography:
   hero-display:
@@ -273,6 +345,8 @@ components:
     padding: 64px
 ---
 
+<overview>
+
 ## Overview
 
 Apple's web presence is a masterclass in **reverent product photography framed by near-invisible UI**. Every page is a stack of edge-to-edge product "tiles" — alternating light and dark canvases, each centered on a hero headline, a one-line tagline, two tiny blue pill CTAs, and an impossibly crisp product render. Nothing competes with the product. Typography is confident but quiet; color is either pure white, an off-white parchment, or a near-black tile; interactive elements are a single, quiet blue.
@@ -281,15 +355,23 @@ Density is unusually low even by contemporary SaaS standards. Each tile occupies
 
 Store and shop surfaces retain the same chassis but switch modes. The product configurator (iPhone 17 Pro, accessories grid) introduces a tight grid of white utility cards at `{rounded.lg}` (18px) radius with a thin border, paired with a persistent thin sub-nav strip. The environment page leans darker and more editorial. Across all five surfaces the typographic system, spacing rhythm, and the single blue accent are consistent — this is one design language expressed at different volumes.
 
+**2026 Design Language Evolution — Liquid Glass.** Starting with iOS 26 and macOS Tahoe (WWDC 2025–2026), Apple introduced **Liquid Glass** — a translucent material system that replaces flat opaque chrome with refractive, depth-aware surfaces. On-device UI elements (tab bars, navigation bars, sidebars, floating panels) render as glass-like layers that sample and tint the content beneath them, creating a sense of physical depth. The web presence on apple.com has not adopted Liquid Glass wholesale — the marketing site retains its photography-first, flat-tile aesthetic — but product demo pages, embedded app previews, and iOS/visionOS documentation surfaces increasingly reference the material. The `{liquid-glass}` tokens in this package capture the material's properties for use in app-like web surfaces that need to match Apple's native platform feel.
+
 **Key Characteristics:**
 - Photography-first presentation; UI recedes so the product can speak.
 - Alternating full-bleed tile sections: white/parchment ↔ near-black, with the color change itself acting as the section divider.
-- Single blue accent (`{colors.primary}` — #0066cc) carries every interactive element. No second brand color exists.
+- Single blue accent (`{colors.primary}` — #0066cc) carries every interactive element on apple.com. No second brand color exists.
+- Apple's system color rainbow (`{system-colors}`) powers iOS/macOS app UI — 13 hues plus 6 grays, each with light and dark variants.
+- Product marketing pages break the single-accent rule with product-specific finish colors (`{product-accents}`) — titanium, space black, starlight.
 - Two button grammars: tiny blue pill CTAs (`{rounded.pill}`) and compact utility rects (`{rounded.sm}`).
 - SF Pro Display + SF Pro Text — negative letter-spacing at display sizes for the signature "Apple tight" headline feel.
 - Whisper-soft elevation used only when a product image needs to breathe — exactly one drop-shadow in the entire system.
 - Tight two-row nav: slim `{component.global-nav}` + product-specific `{component.sub-nav-frosted}` with persistent right-aligned primary CTA.
 - Section rhythm across multiple pages: light hero → dark product tile → light utility tile → dark tile → parchment footer — a predictable pulse.
+
+</overview>
+
+<colors>
 
 ## Colors
 
@@ -324,6 +406,188 @@ Store and shop surfaces retain the same chassis but switch modes. The product co
 
 ### Brand Gradient
 **No decorative gradients.** Atmospheric depth on product photography (the iPhone 17 Pro camera plate, the Apple Watch bands, AirPods reflections) is inherent to the imagery, not a CSS gradient overlay. The environment page's hero uses photographic atmosphere (mountain vista at dawn) but no gradient tokens are defined. Apple is the rare luxury-brand site with zero gradient-based design tokens.
+
+</colors>
+
+<system-colors>
+
+## System Colors — Apple's Rainbow Palette
+
+Apple's platform design (iOS, macOS, iPadOS, watchOS, visionOS) uses a **13-hue rainbow system** plus **6 neutral grays**, each with separate light-mode and dark-mode variants. These are the semantic color tokens that power every native app. On the web, they appear on product demo pages, embedded app previews, and any surface aiming to match native platform feel.
+
+### The 13 System Hues
+
+| Name | Light | Dark | Typical Use |
+|---|---|---|---|
+| **Red** | `{system-colors.red}` #FF3B30 | `{system-colors.red-dark}` #FF453A | Destructive actions, errors, badges |
+| **Orange** | `{system-colors.orange}` #FF9500 | `{system-colors.orange-dark}` #FF9F0A | Warnings, activity indicators |
+| **Yellow** | `{system-colors.yellow}` #FFCC00 | `{system-colors.yellow-dark}` #FFD60A | Stars, highlights, caution states |
+| **Green** | `{system-colors.green}` #34C759 | `{system-colors.green-dark}` #30D158 | Success, completion, health, FaceTime |
+| **Mint** | `{system-colors.mint}` #00C7BE | `{system-colors.mint-dark}` #63E6E2 | Fresh/new indicators, wellness |
+| **Teal** | `{system-colors.teal}` #30B0C7 | `{system-colors.teal-dark}` #40CBE0 | Communication, connectivity |
+| **Cyan** | `{system-colors.cyan}` #32ADE6 | `{system-colors.cyan-dark}` #64D2FF | Information, links in native UI |
+| **Blue** | `{system-colors.blue}` #007AFF | `{system-colors.blue-dark}` #0A84FF | Primary actions, navigation, default tint |
+| **Indigo** | `{system-colors.indigo}` #5856D6 | `{system-colors.indigo-dark}` #5E5CE6 | Focus, concentration, deep work |
+| **Purple** | `{system-colors.purple}` #AF52DE | `{system-colors.purple-dark}` #BF5AF2 | Creativity, personal, Shortcuts |
+| **Pink** | `{system-colors.pink}` #FF2D55 | `{system-colors.pink-dark}` #FF375F | Hearts, favorites, feminine accents |
+| **Brown** | `{system-colors.brown}` #A2845E | `{system-colors.brown-dark}` #AC8E68 | Outdoors, natural, Maps terrain |
+
+### The 6 System Grays
+
+| Token | Light | Dark |
+|---|---|---|
+| `{system-colors.system-gray-1}` | #8E8E93 | #8E8E93 |
+| `{system-colors.system-gray-2}` | #AEAEB2 | #636366 |
+| `{system-colors.system-gray-3}` | #C7C7CC | #48484A |
+| `{system-colors.system-gray-4}` | #D1D1D6 | #3A3A3C |
+| `{system-colors.system-gray-5}` | #E5E5EA | #2C2C2E |
+| `{system-colors.system-gray-6}` | #F2F2F7 | #1C1C1E |
+
+Gray-1 is constant across appearances; grays 2–6 invert — lighter in light mode, darker in dark mode.
+
+### Semantic Label Colors
+
+These are not fixed hexes — they adapt to the current appearance, contrast level, and vibrancy setting.
+
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `label` | #000000 | #FFFFFF | Primary text |
+| `secondaryLabel` | rgba(60,60,67,0.60) | rgba(235,235,245,0.60) | Subtitles, secondary info |
+| `tertiaryLabel` | rgba(60,60,67,0.30) | rgba(235,235,245,0.30) | Placeholder text |
+| `quaternaryLabel` | rgba(60,60,67,0.18) | rgba(235,235,245,0.18) | Disabled text |
+| `systemBackground` | #FFFFFF | #000000 | Root background |
+| `secondarySystemBackground` | #F2F2F7 | #1C1C1E | Grouped content |
+| `tertiarySystemBackground` | #FFFFFF | #2C2C2E | Elevated grouped content |
+| `separator` | rgba(60,60,67,0.29) | rgba(84,84,88,0.65) | Hairlines, dividers |
+| `opaqueSeparator` | #C6C6C8 | #38383A | Non-transparent dividers |
+
+### Dynamic Color Adaptation Rules
+- System colors automatically adjust for **accessibility contrast settings** (Increase Contrast) by increasing saturation and darkening light-mode variants.
+- On **vibrant backgrounds** (Liquid Glass surfaces), system colors increase saturation to remain legible against blurred underlays.
+- In **dark mode**, warm hues (red, orange, yellow) shift slightly toward brighter, more saturated variants to maintain perceived brightness.
+- The web equivalent: use CSS `@media (prefers-color-scheme: dark)` to switch between light and dark hex values; use `@media (prefers-contrast: more)` to apply the high-contrast variants.
+
+</system-colors>
+
+<product-accents>
+
+## Product-Specific Color Accents
+
+Apple's web marketing pages break the single-accent rule on **product configurator and hero surfaces**. When a customer is choosing a finish, color, or band, the page adopts that product's actual color palette. These are not brand accent colors — they are photographic finish representations used in color swatches, device renders, and configurator chips.
+
+### iPhone Titanium Finishes
+| Finish | Token | Hex | Swatch Use |
+|---|---|---|---|
+| Natural Titanium | `{product-accents.iphone-natural-titanium}` | #A8A7A2 | Configurator chip fill, hero render tint |
+| Blue Titanium | `{product-accents.iphone-blue-titanium}` | #394C5F | Muted steel-blue, reads dark in small swatches |
+| White Titanium | `{product-accents.iphone-white-titanium}` | #F0ECE5 | Warm off-white, needs a hairline border on white canvas |
+| Black Titanium | `{product-accents.iphone-black-titanium}` | #3C3B37 | Near-black, distinct from `{colors.surface-tile-1}` |
+| Desert Titanium | `{product-accents.iphone-desert-titanium}` | #BFA48F | Warm sand tone |
+
+### MacBook Finishes
+| Finish | Token | Hex |
+|---|---|---|
+| Space Black | `{product-accents.macbook-space-black}` | #1E1E1E |
+| Silver | `{product-accents.macbook-silver}` | #E3E4E5 |
+| Starlight | `{product-accents.macbook-starlight}` | #F0E4D3 |
+| Midnight | `{product-accents.macbook-midnight}` | #2E3642 |
+
+### iMac Colors
+Seven-color range: `{product-accents.imac-blue}` #6B9CDB · `{product-accents.imac-green}` #AAD4B5 · `{product-accents.imac-pink}` #EAAFB5 · `{product-accents.imac-silver}` #E3E4E5 · `{product-accents.imac-yellow}` #F2D58F · `{product-accents.imac-orange}` #E8956D · `{product-accents.imac-purple}` #B4A7D6.
+
+### Apple Watch Case & Band Finishes
+| Finish | Token | Hex |
+|---|---|---|
+| Midnight | `{product-accents.watch-midnight}` | #2B2D33 |
+| Starlight | `{product-accents.watch-starlight}` | #E8DDD0 |
+| Silver | `{product-accents.watch-silver}` | #D4D4D8 |
+| (PRODUCT)RED | `{product-accents.watch-product-red}` | #C1272D |
+
+**Usage rules:**
+- Product accent colors appear **only** on product configurator pages, hero renders, and color swatch chips — never as UI accent or link colors.
+- On a configurator page, the selected finish color may tint the page hero background to create an immersive product-color-forward experience.
+- Color swatch chips are rendered as circular fills (`{rounded.full}`) at 28–36px diameter, with a 2px `{colors.primary-focus}` ring on the selected swatch.
+- The interactive "click me" signal remains `{colors.primary}` (Action Blue) even on configurator pages — product accents are visual, not functional.
+
+</product-accents>
+
+<liquid-glass>
+
+## Liquid Glass Material System
+
+**Liquid Glass** is Apple's translucent material design language introduced with iOS 26, macOS Tahoe, and visionOS 2 (WWDC 2025–2026). It replaces flat, opaque chrome with refractive glass-like surfaces that dynamically sample, blur, and tint the content behind them.
+
+### Core Properties
+
+| Property | Token | Value | Description |
+|---|---|---|---|
+| Background blur | `{liquid-glass.background-blur}` | 20px | Gaussian blur applied to the underlying content |
+| Tint opacity | `{liquid-glass.tint-opacity}` | 0.45 | Opacity of the adaptive tint layer |
+| Refraction intensity | `{liquid-glass.refraction-intensity}` | 0.8 | Degree of light-bending distortion at material edges |
+| Saturation boost | `{liquid-glass.saturation}` | 180% | Vibrancy increase applied to sampled background |
+| Noise texture | `{liquid-glass.noise-texture}` | 0.02 | Subtle grain for physical glass feel |
+| Transparency range | `{liquid-glass.transparency-range}` | 0–100% | User-adjustable via Settings > Accessibility > Display |
+
+### Depth Layering Model
+
+Liquid Glass defines three depth tiers, each with progressively stronger blur and tint:
+
+| Tier | Blur | Tint Opacity | Use |
+|---|---|---|---|
+| **Base** | `{liquid-glass.depth-base-blur}` 8px | 0.30 | Inline panels, segmented controls, minor chrome |
+| **Elevated** | `{liquid-glass.depth-elevated-blur}` 20px | 0.45 | Navigation bars, tab bars, sidebars, sheets |
+| **Floating** | `{liquid-glass.depth-floating-blur}` 40px | 0.60 | Modals, popovers, floating action buttons |
+
+### Tint Adaptation
+- `{liquid-glass.tint-adaptation}`: The material samples the dominant color from the content beneath it and applies that as a tint — a photo of a sunset produces warm amber glass; a dark code editor produces smoky gray glass.
+- The tint layer sits between the blur and the surface content: `[content below] → [blur] → [tint] → [surface content above]`.
+- On light backgrounds, the glass reads as frosted white. On dark backgrounds, it reads as smoky translucent black. On colorful backgrounds, it picks up the color.
+
+### Transparency Slider (Accessibility)
+Apple introduced a system-wide **Transparency slider** (Settings > Accessibility > Display & Text Size) that lets users dial the glass effect from fully transparent (0% — maximum glass effect) to fully opaque (100% — solid backgrounds, no blur). Designs must degrade gracefully across this range:
+- At 0%: Full Liquid Glass with blur, refraction, and tint.
+- At 50%: Reduced blur, increased tint opacity, material reads as semi-frosted.
+- At 100%: Solid opaque background, no blur, no tint — equivalent to pre-Liquid-Glass chrome.
+
+### Web Approximation
+The closest CSS approximation of Liquid Glass for web surfaces:
+
+```css
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.45);   /* tint color + opacity */
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;                      /* Apple's native glass uses continuous corners */
+  box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.04);
+}
+
+.liquid-glass-dark {
+  background: rgba(28, 28, 30, 0.55);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+
+@media (prefers-reduced-transparency) {
+  .liquid-glass,
+  .liquid-glass-dark {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(242, 242, 247, 0.97);  /* near-opaque fallback */
+  }
+}
+```
+
+### Where Liquid Glass Appears
+- **Native apps (iOS 26+):** Tab bars, navigation bars, sidebars, toolbars, segmented controls, floating panels, notification cards.
+- **apple.com:** The existing `{component.sub-nav-frosted}` and `{component.floating-sticky-bar}` are proto-Liquid-Glass — they use `backdrop-filter: saturate(180%) blur(20px)` on parchment-tinted backgrounds. Full Liquid Glass (with refraction and tint adaptation) has not yet replaced these on the marketing site.
+- **App Store / product demo embeds:** Embedded iOS app previews on apple.com render with Liquid Glass materials when showing native UI.
+- **visionOS:** Every surface in visionOS is a glass panel — Liquid Glass is the *only* material in spatial computing.
+
+</liquid-glass>
+
+<typography>
 
 ## Typography
 
@@ -370,6 +634,10 @@ SF Pro is Apple's proprietary system font. When building off-system:
 - Nudge `letter-spacing` down by `-0.01em` on display sizes to re-create the Apple tight feel; Inter's default tracking runs slightly wider than SF Pro.
 - For body text, tighten line-height by `0.03` (from 1.47 → 1.44) when substituting Inter — Inter's taller x-height needs less leading.
 
+</typography>
+
+<layout>
+
 ## Layout
 
 ### Spacing System
@@ -388,6 +656,10 @@ SF Pro is Apple's proprietary system font. When building off-system:
 ### Whitespace Philosophy
 Apple's whitespace is the product's pedestal. Every tile begins with at least 64px of air above its headline and 48–64px below. Product renders are never crowded; the nearest content to a product image is at least 40px away. The footer is the only area that breaks this — there, Apple goes deliberately dense to make the full information architecture visible at a glance.
 
+</layout>
+
+<elevation>
+
 ## Elevation & Depth
 
 | Level | Treatment | Use |
@@ -396,13 +668,22 @@ Apple's whitespace is the product's pedestal. Every tile begins with at least 64
 | Soft hairline | 1px `rgba(0, 0, 0, 0.08)` border | Utility cards, sub-nav frosted-glass separator |
 | Backdrop blur | `backdrop-filter: blur(N)` on Parchment 80% | Sub-nav and the iPhone buy floating sticky bar |
 | Product shadow | `rgba(0, 0, 0, 0.22) 3px 5px 30px 0` | Product renders resting on a surface (the only true "shadow" in the system) |
+| Liquid Glass Base | `backdrop-filter: saturate(180%) blur(8px)` | Inline chrome, segmented controls (native app surfaces) |
+| Liquid Glass Elevated | `backdrop-filter: saturate(180%) blur(20px)` | Navigation bars, tab bars, sidebars (native app surfaces) |
+| Liquid Glass Floating | `backdrop-filter: saturate(180%) blur(40px)` | Modals, popovers, floating panels (native app surfaces) |
 
 **Shadow philosophy.** Apple uses **exactly one** drop-shadow, and it is applied to photographic product imagery — never to cards, never to buttons, never to text. Elevation in the UI comes from (a) surface-color change (light tile ↔ dark tile) and (b) backdrop-blur on sticky bars. The single shadow is about giving the product weight, not about UI hierarchy.
+
+**Liquid Glass depth model.** On native platforms (iOS 26+), the Liquid Glass material system replaces the color-change elevation model with a blur-depth model. Deeper surfaces use more blur and stronger tint, creating a z-axis hierarchy through optical density rather than shadow or border. On the web (apple.com marketing), the existing `{component.sub-nav-frosted}` and `{component.floating-sticky-bar}` are the only surfaces using blur-based elevation — the rest of the site relies on color alternation. Use the Liquid Glass depth tiers when building app-like web experiences that need to match native platform feel.
 
 ### Decorative Depth
 - **Atmospheric imagery** on the environment page (photographic vista) supplies mood; no CSS gradient involved.
 - **Edge-to-edge tile alternation** creates rhythm without borders or shadows — the color change itself is the divider.
 - **Backdrop-filter blur** on `{component.sub-nav-frosted}` and `{component.floating-sticky-bar}` creates a "floating over content" effect that's functional, not decorative.
+
+</elevation>
+
+<shapes>
 
 ## Shapes
 
@@ -424,6 +705,10 @@ Apple's whitespace is the product's pedestal. Every tile begins with at least 64
 - **Accessory grid**: square 1:1 crops at `{rounded.lg}` (18px) radius, light neutral backgrounds, product centered with 20–40px internal padding.
 - **No rounded imagery in hero tiles** — images are full-bleed rectangular. Rounding (`{rounded.sm}`, `{rounded.lg}`) appears only on inline card imagery.
 - Lazy-loading via responsive `srcset` and `sizes` across all breakpoints; CDN-optimized WebP.
+
+</shapes>
+
+<components>
 
 ## Components
 
@@ -485,7 +770,46 @@ Error and validation states were not surfaced in the analyzed pages.
 
 **`footer`** — Background `{colors.canvas-parchment}` (#f5f5f7), text `{colors.ink-muted-80}`. Link columns in `{typography.dense-link}` (17px / 400 / 2.41 line-height — the relaxed leading is what makes the dense columns scannable). Column headings in `{typography.caption-strong}` (14px / 600). Legal row at the very bottom in `{typography.fine-print}` (12px / 400) with `{colors.ink-muted-48}` text. Vertical padding 64px.
 
+</components>
+
+<motion>
+
+## Motion & Micro-interactions
+
+Apple's motion design follows **spring-based physics** — every animation feels like it has mass and responds to inertia rather than following a linear or ease-in-out curve.
+
+### Universal Press State
+- **`transform: scale(0.95)`** on every button press. This is the single most consistent micro-interaction on apple.com. Duration: 100ms ease-out on press, 200ms spring-back on release.
+- Buttons do not change color on press — they physically shrink. The color stays constant; the motion carries the feedback.
+
+### Scroll Reveals
+- **Fade-in-up:** Content tiles reveal as the user scrolls into them. Elements translate from `translateY(20px)` + `opacity: 0` to their resting position. Triggered at ~80% viewport intersection.
+- **Stagger:** When multiple elements in a tile reveal together, they stagger by 60–100ms each. Left-to-right or top-to-bottom order.
+- **Duration:** 600–800ms per element, using a cubic-bezier curve approximating a critically damped spring: `cubic-bezier(0.25, 0.46, 0.45, 0.94)`.
+
+### Parallax
+- Hero product renders exhibit subtle parallax on scroll — the product image scrolls at ~0.85× the page speed, creating a gentle depth effect.
+- Parallax is disabled at `prefers-reduced-motion: reduce`.
+
+### Carousel / Swipe
+- Product image carousels (iPhone buy page) use momentum-based swipe with deceleration matching iOS scroll physics.
+- Snap points align to each product image center.
+- Carousel dots indicate position but are not interactive on mobile — swipe is the primary control.
+
+### Page Transitions
+- apple.com does not use SPA-style page transitions — each page is a full load. Navigation feels instant because above-fold content is pre-rendered and hero images are eagerly loaded.
+- Sub-nav persistence across product pages (iPhone overview → iPhone specs → iPhone buy) creates continuity without animation.
+
+### Accessibility
+- All motion respects `prefers-reduced-motion: reduce`. When enabled: scroll reveals appear immediately (no translate, no opacity transition), parallax is disabled, and button press states use `opacity: 0.7` instead of `scale(0.95)`.
+
+</motion>
+
+<rules>
+
 ## Do's and Don'ts
+
+<do>
 
 ### Do
 - Use `{colors.primary}` (Action Blue #0066cc) for every interactive element — links, pill CTAs, focus signals — and nothing else. The single accent is non-negotiable.
@@ -496,6 +820,14 @@ Error and validation states were not surfaced in the analyzed pages.
 - Apply the single product-shadow (`rgba(0, 0, 0, 0.22) 3px 5px 30px`) only to product renders resting on a surface — never on cards, buttons, or text.
 - Use `transform: scale(0.95)` as the active/press state on every button — it's the system-wide micro-interaction.
 - Keep the global nav `{colors.surface-black}` (true black) — it's the only place pure black appears on most pages.
+- Use `{system-colors}` for app-like UI surfaces that need to match iOS/macOS native conventions — red for errors, green for success, yellow for warnings.
+- Use `{product-accents}` only on configurator pages to represent actual product finishes — never as decorative UI color.
+- Apply Liquid Glass (`backdrop-filter: saturate(180%) blur(20px)`) on floating/sticky chrome that needs to feel native-platform-contemporary. Always provide a `prefers-reduced-transparency` fallback.
+- Respect `prefers-reduced-motion` on all scroll reveals and parallax effects.
+
+</do>
+
+<dont>
 
 ### Don't
 - Don't introduce a second accent color; every "click me" signal is `{colors.primary}` (Action Blue).
@@ -506,6 +838,16 @@ Error and validation states were not surfaced in the analyzed pages.
 - Don't tighten line-height below 1.47 for body copy — the editorial leading is part of the brand.
 - Don't mix radii grammars — use `{rounded.sm}` for compact utility, `{rounded.lg}` for utility cards, `{rounded.pill}` for pills, and nothing in between (except the rare `{rounded.md}` Pearl Button).
 - Don't use `{colors.primary-on-dark}` (Sky Link Blue) on light surfaces — it's the dark-tile-only variant. Action Blue is for light surfaces.
+- Don't use `{system-colors}` as decorative accents — they are semantic: red means destructive/error, green means success/go, yellow means caution.
+- Don't apply Liquid Glass blur to full-bleed content tiles — blur is for floating chrome (nav bars, sticky bars, modals), not for content surfaces.
+- Don't use `{product-accents}` as button or link colors — they represent physical materials, not interactive states.
+- Don't override the transparency slider fallback — users who set `prefers-reduced-transparency` have chosen opaque surfaces for accessibility reasons.
+
+</dont>
+
+</rules>
+
+<responsive>
 
 ## Responsive Behavior
 
@@ -542,6 +884,10 @@ The structural breakpoints that matter for agents: 1440px (content lock), 1068px
 - Product renders maintain their 1:1 or 4:3 aspect ratios across breakpoints; only scale changes.
 - Lazy-loading is default; the above-fold hero loads eagerly.
 
+</responsive>
+
+<checklist>
+
 ## Iteration Guide
 
 1. Focus on ONE component at a time. Reference its YAML key directly (`{component.product-tile-dark}`, `{component.search-input}`).
@@ -551,6 +897,14 @@ The structural breakpoints that matter for agents: 1440px (content lock), 1068px
 5. Display headlines stay SF Pro Display 600 with negative letter-spacing. Body stays SF Pro Text 400 at 17px. The boundary is unbreakable.
 6. The single drop-shadow (`rgba(0, 0, 0, 0.22) 3px 5px 30px`) is reserved for product photography only.
 7. When in doubt about emphasis: alternate surface (light → dark tile) before adding chrome.
+8. For native-platform-feel surfaces: use Liquid Glass depth tiers (`base` → `elevated` → `floating`) instead of shadows or borders.
+9. Product accent colors belong in configurator UIs only — never in buttons, links, or navigation.
+10. System rainbow colors are semantic — match them to meaning (red = destructive, green = success), not to aesthetics.
+11. Always provide `prefers-reduced-motion` and `prefers-reduced-transparency` fallbacks.
+
+</checklist>
+
+<gaps>
 
 ## Known Gaps
 
@@ -560,3 +914,9 @@ The structural breakpoints that matter for agents: 1440px (content lock), 1068px
 - Dark-mode counterparts for store and accessories utility cards were not surfaced on the analyzed pages; the system documented is the daytime/light-dominant variant Apple ships by default.
 - Atmospheric photography (environment page mountain vista) is a content asset, not a design token; the documented `{component.environment-quote-card}` describes the structural surface only.
 - The exact backdrop-filter blur radius on `{component.sub-nav-frosted}` and `{component.floating-sticky-bar}` is platform-dependent; production CSS uses `saturate(180%) blur(20px)` as a typical baseline but the value isn't formalized as a token.
+- Liquid Glass refraction and noise texture effects cannot be fully replicated in CSS — the web approximation uses `backdrop-filter` which covers blur and saturation but not light-bending distortion or grain. Native-fidelity Liquid Glass requires platform rendering (UIKit, SwiftUI, RealityKit).
+- Product accent hex values are sampled from product photography and marketing materials — actual hardware finishes vary under different lighting conditions. Treat these as representative, not colorimetrically exact.
+- The `{system-colors}` light/dark pairs are from Apple's Human Interface Guidelines (2026 revision). High-contrast accessibility variants exist but are not documented here — they increase saturation and shift lightness by ~10–15%.
+- Apple Watch band colors expand seasonally; the `{product-accents}` section documents the permanent case finishes, not seasonal bands.
+
+</gaps>

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -201,3 +200,27 @@ In Cypress the equivalents are `cy.findByRole`, `cy.intercept`, `cy.session` and
 - [ ] Verify: Retries are at most one, and flake rate is tracked per test
 - [ ] Verify: Flaky tests are quarantined rather than skipped
 - [ ] Verify: Browser versions are pinned in CI
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never select by CSS class or DOM position. Both encode presentation, which is the thing most likely to change without any behaviour changing.
+- Never use a fixed timeout to wait for anything. If you cannot express the condition, the application is missing an observable signal — add one rather than guessing at a duration.
+
+- [ ] The suite covers critical journeys only, not exhaustive permutations
+- [ ] Selectors use role, label or `data-testid` — never CSS position or XPath
+- [ ] No fixed timeout appears anywhere; waits express a real condition
+- [ ] Test data is created via API or factory, uniquely per run
+- [ ] Authentication is seeded from stored state, with one real login test
+- [ ] Each test is independent and can run in isolation
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

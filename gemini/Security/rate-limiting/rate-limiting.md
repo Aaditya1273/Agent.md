@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -174,3 +173,27 @@ Retry-After: 30
 - [ ] Verify: Limits were derived from measured traffic and trialled in observe-only mode
 - [ ] Verify: Health checks and internal traffic are exempted by credential
 - [ ] Verify: Sustained `429` rates raise an alert
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never trust `X-Forwarded-For` blindly. It is client-settable; an attacker prepends a fake address and evades every per-IP limit. Configure `trust proxy` to the exact number of proxies you run and take the correct position from the right.
+- Never key on `User-Agent`, a cookie the client controls, or a request body field. All are attacker-chosen.
+
+- [ ] Limits are keyed on account and IP independently for authentication routes
+- [ ] `trust proxy` is set to the exact proxy count; `X-Forwarded-For` is not trusted raw
+- [ ] Algorithm is token bucket or sliding window, never fixed window
+- [ ] Counter updates are atomic under concurrency
+- [ ] State is shared across instances, not per-process memory
+- [ ] Store-unavailable behaviour is a deliberate, logged decision
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

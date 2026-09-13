@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never use a `<div onClick>` as a submit control — it is not keyboard-operable and does not submit the form.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for building forms. Forms are where accessibility, validation, state
 management and security all meet, and where users lose work.
 
@@ -26,11 +37,13 @@ convenience, never a control.** Every rule below assumes the server validates
 independently. → `Backend/validation`
 
 ---
+
 </purpose>
 
 # Use the platform
 
 <rules>
+
 ```html
 <form action="/orders" method="post">
   <label for="email">Email address</label>
@@ -58,11 +71,13 @@ framework — a form that works before JavaScript loads.
 and does not submit the form.
 
 ---
+
 </rules>
 
 # Validate at the right moment
 
 <rules>
+
 Validating on every keystroke tells the user their email is invalid after the
 first character. Validating only on submit hides errors until the end.
 
@@ -90,11 +105,13 @@ Message rules: say what is wrong **and how to fix it**. "Invalid input" is not a
 message. Never blame the user, and never clear what they typed.
 
 ---
+
 </rules>
 
 # Errors must be announced, not just coloured
 
 <rules>
+
 ```html
 <input aria-invalid="true" aria-describedby="pw-error" />
 <p id="pw-error" role="alert">Password must be at least 12 characters.</p>
@@ -111,11 +128,13 @@ message. Never blame the user, and never clear what they typed.
   requirements, and breaks autofill. → `Testing/accessibility`
 
 ---
+
 </rules>
 
 # Submission
 
 <rules>
+
 ```tsx
 async function onSubmit(values) {
   setStatus("submitting");                     // disable the button, show progress
@@ -143,11 +162,13 @@ async function onSubmit(values) {
   whether it worked.
 
 ---
+
 </rules>
 
 # Security
 
 <rules>
+
 - Never trust anything from the client: not hidden fields, not `disabled`
   attributes, not `readonly` values. All are editable in devtools.
 - Cross-site request forgery protection on every state-changing submission.
@@ -159,11 +180,13 @@ async function onSubmit(values) {
   users choose weaker passwords. Use `new-password` instead.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Client-side validation as the control | Trivially bypassed | Server validates independently |
@@ -185,11 +208,13 @@ async function onSubmit(values) {
 | Logging form payloads | Password disclosure | Never log values |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every form is a real `<form>` with a submit button and named fields
 - [ ] Appropriate `type`, `inputmode` and `autocomplete` are set per field
 - [ ] Native constraint attributes are used where they apply
@@ -208,4 +233,5 @@ async function onSubmit(values) {
 - [ ] Unsaved-change warnings and drafts exist for long forms, excluding secrets
 - [ ] CSRF protection covers every state-changing submission
 - [ ] No form values are logged
+
 </checklist>

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,24 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never set `shell: true` to make a command "work". It reintroduces the parser you just removed. If you need a pipeline, build it with two processes and connect their streams rather than handing a string to `sh -c`.
+- Never try to sanitise your way to safety by stripping metacharacters. The set differs per shell, quoting rules are subtle, and encodings differ. Escaping helpers such as `shlex.quote` exist for the case where a shell is genuinely unavoidable — treat that as a last resort, not a default.
+- Never let input decide which binary runs. Allow-list the command:
+- Never resolve the binary through `PATH` in a privileged context. `PATH` may be attacker-influenced. Use an absolute path — `/usr/bin/convert`. - Reset the child environment rather than inheriting it. `LD_PRELOAD`, `PYTHONPATH`, `NODE_OPTIONS` and `IFS` all change behaviour:
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for invoking external processes safely. The rule underneath everything:
 **never let user input reach a shell.**
 
@@ -26,11 +40,13 @@ control characters. Remove the shell and almost every injection vector goes with
 it.
 
 ---
+
 </purpose>
 
 # Pass arguments as an array, never a string
 
-<rules>
+<security_rules>
+
 ```js
 // WRONG — a shell parses this. `file` can contain `; rm -rf /`
 exec(`convert ${file} out.png`);
@@ -61,11 +77,13 @@ helpers such as `shlex.quote` exist for the case where a shell is genuinely
 unavoidable — treat that as a last resort, not a default.
 
 ---
-</rules>
+
+</security_rules>
 
 # Arguments that start with a dash
 
-<rules>
+<security_rules>
+
 Even with an argument array, a value beginning with `-` may be read as an option:
 
 ```js
@@ -87,11 +105,13 @@ Most GNU tools honour `--`. Where a program does not, prefix relative paths with
 `./` so they cannot be read as flags.
 
 ---
-</rules>
+
+</security_rules>
 
 # Choosing the program itself
 
-<rules>
+<security_rules>
+
 - **Never** let input decide which binary runs. Allow-list the command:
 
 ```js
@@ -115,11 +135,13 @@ execFile("/usr/bin/convert", ["--", input, output], {
 ```
 
 ---
-</rules>
+
+</security_rules>
 
 # Indirect injection
 
-<rules>
+<security_rules>
+
 Command injection frequently arrives through something other than a command
 string:
 
@@ -132,11 +154,13 @@ string:
 - **Environment values** interpolated into a script by a later stage.
 
 ---
-</rules>
+
+</security_rules>
 
 # Reducing the blast radius
 
-<rules>
+<security_rules>
+
 Assume the guard fails and limit what a successful injection achieves:
 
 - Run as an unprivileged user; never `root`.
@@ -149,11 +173,13 @@ Assume the guard fails and limit what a successful injection achieves:
   arguments. Log it, return something generic.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `exec(\`cmd ${input}\`)` | A shell parses `;`, `\|`, `$()` | `execFile("cmd", [input])` |
@@ -167,11 +193,13 @@ Assume the guard fails and limit what a successful injection achieves:
 | Returning `stderr` to the client | Leaks paths and versions | Log it; return generic |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] No `exec`, `system`, `shell_exec` or `shell: true` receives input
 - [ ] Every invocation passes an argument array
 - [ ] `--` terminates options where the program supports it
@@ -182,4 +210,5 @@ Assume the guard fails and limit what a successful injection achieves:
 - [ ] The process runs unprivileged and, where possible, sandboxed
 - [ ] Filenames and `git` refs are validated and never taken from the client verbatim
 - [ ] `stderr` is logged server-side and never returned to the caller
+
 </checklist>

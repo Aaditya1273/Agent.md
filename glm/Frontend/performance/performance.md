@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -57,16 +63,16 @@ device with CPU throttling, not on your development machine.
 A byte of JavaScript costs far more than a byte of image: it must be downloaded,
 parsed, compiled and executed, on the main thread.
 
-- **Measure the bundle in CI** and fail the build on a regression
+1. **Measure the bundle in CI** and fail the build on a regression
   (`size-limit`, `bundlesize`). Growth is otherwise invisible until it is large.
-- **Analyse before optimising** (`@next/bundle-analyzer`, `rollup-plugin-visualizer`).
+2. **Analyse before optimising** (`@next/bundle-analyzer`, `rollup-plugin-visualizer`).
   It is usually one dependency, not a hundred small things.
-- Route-level code splitting first, then component-level for genuinely heavy
+3. Route-level code splitting first, then component-level for genuinely heavy
   things — a chart library, a rich text editor, a date picker.
-- Check for duplicate copies of the same library at different versions.
-- Prefer platform APIs: `Intl.DateTimeFormat` instead of a date library,
+4. Check for duplicate copies of the same library at different versions.
+5. Prefer platform APIs: `Intl.DateTimeFormat` instead of a date library,
   `fetch` instead of a client, `structuredClone` instead of a deep-clone helper.
-- Load third-party scripts with `defer` or `async`, from a consent gate, and
+6. Load third-party scripts with `defer` or `async`, from a consent gate, and
   audit them regularly — analytics and tag managers are frequently the largest
   script on the page and nobody owns them.
 
@@ -90,45 +96,45 @@ shift.
 <img src="below.avif" width="400" height="300" alt="…" loading="lazy" />
 ```
 
-- **Always set `width` and `height`** (or `aspect-ratio`). Without them the layout
+1. **Always set `width` and `height`** (or `aspect-ratio`). Without them the layout
   shifts when the image loads — the main cause of CLS.
-- `loading="lazy"` on everything below the fold; **never** on the LCP image, which
+2. `loading="lazy"` on everything below the fold; **never** on the LCP image, which
   needs `fetchpriority="high"`.
-- Serve AVIF or WebP with `srcset`/`sizes` so a phone does not download a
+3. Serve AVIF or WebP with `srcset`/`sizes` so a phone does not download a
   desktop-sized image.
-- Fonts: `font-display: swap`, `preload` the one font used above the fold, subset
+4. Fonts: `font-display: swap`, `preload` the one font used above the fold, subset
   it, and self-host. `@import` from a third party costs an extra connection and
   round trip before any text renders.
-- Declare `size-adjust`/`ascent-override` on the fallback font so the swap does not
+5. Declare `size-adjust`/`ascent-override` on the fallback font so the swap does not
   shift the layout.
 
 ---
 
 # Rendering cost
 
-- Virtualise long lists (`@tanstack/virtual`). Rendering 10,000 rows is slow no
+1. Virtualise long lists (`@tanstack/virtual`). Rendering 10,000 rows is slow no
   matter how cheap each row is.
-- Keep the main thread free: heavy computation belongs in a web worker.
-- Debounce or throttle high-frequency handlers; use `useDeferredValue` to keep
+2. Keep the main thread free: heavy computation belongs in a web worker.
+3. Debounce or throttle high-frequency handlers; use `useDeferredValue` to keep
   input responsive while an expensive list catches up.
-- Avoid layout thrash — batch DOM reads and writes rather than interleaving them.
-- Animate `transform` and `opacity` only; animating `width`, `top` or `box-shadow`
+4. Avoid layout thrash — batch DOM reads and writes rather than interleaving them.
+5. Animate `transform` and `opacity` only; animating `width`, `top` or `box-shadow`
   triggers layout or paint on every frame.
-- Prefer CSS to JavaScript for animation, and honour
+6. Prefer CSS to JavaScript for animation, and honour
   `prefers-reduced-motion`. → `Frontend/react`
 
 ---
 
 # Network and delivery
 
-- Cache static assets immutably with content hashes:
+1. Cache static assets immutably with content hashes:
   `Cache-Control: public, max-age=31536000, immutable`.
-- HTML is `no-cache` or short-lived; it is what points at the hashed assets.
-- Serve from a CDN close to users; compress with Brotli.
-- `preconnect` to critical third-party origins; `preload` genuinely critical
+2. HTML is `no-cache` or short-lived; it is what points at the hashed assets.
+3. Serve from a CDN close to users; compress with Brotli.
+4. `preconnect` to critical third-party origins; `preload` genuinely critical
   resources only — over-preloading competes with the resources that matter.
-- Prefetch the next likely route on intent (hover, viewport), not everything.
-- Server-render or statically generate content-heavy pages; a client-rendered page
+5. Prefetch the next likely route on intent (hover, viewport), not everything.
+6. Server-render or statically generate content-heavy pages; a client-rendered page
   cannot have a good LCP because nothing renders until the JavaScript arrives.
   → `Frontend/server-components`
 

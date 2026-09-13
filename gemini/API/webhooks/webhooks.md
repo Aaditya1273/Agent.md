@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -194,3 +193,27 @@ webhook system has.
 - [ ] Verify: A dead-letter view with manual replay exists
 - [ ] Verify: Unknown event types are ignored rather than rejected
 - [ ] Verify: Customer-supplied destination URLs are validated against SSRF
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never sign a re-serialised body. `JSON.stringify(req.body)` reorders keys and changes whitespace; the receiver's HMAC will not match. Sign and verify the exact bytes on the wire.
+- Never trust any field in the body — including a `user_id` or an amount — before the signature verifies. And never process an unverified payload "just to log it": that is still parsing attacker-controlled input.
+
+- [ ] Every delivery is HMAC-signed over the raw body, id and timestamp
+- [ ] Multiple concurrent signatures are supported for secret rotation
+- [ ] Receivers verify against the raw bytes, before parsing
+- [ ] A timestamp tolerance window rejects replays
+- [ ] Signature comparison is constant-time with a length check
+- [ ] Receivers acknowledge fast and process asynchronously
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

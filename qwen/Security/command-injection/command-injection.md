@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: command-injection
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -87,7 +93,7 @@ Most GNU tools honour `--`. Where a program does not, prefix relative paths with
 
 # Choosing the program itself
 
-- **Never** let input decide which binary runs. Allow-list the command:
+1. **Never** let input decide which binary runs. Allow-list the command:
 
 ```js
 const ALLOWED = { thumbnail: "convert", probe: "ffprobe" };
@@ -95,9 +101,9 @@ const bin = ALLOWED[req.body.action];
 if (!bin) throw new Error("unsupported action");
 ```
 
-- **Never** resolve the binary through `PATH` in a privileged context. `PATH` may
+2. **Never** resolve the binary through `PATH` in a privileged context. `PATH` may
   be attacker-influenced. Use an absolute path — `/usr/bin/convert`.
-- Reset the child environment rather than inheriting it. `LD_PRELOAD`,
+3. Reset the child environment rather than inheriting it. `LD_PRELOAD`,
   `PYTHONPATH`, `NODE_OPTIONS` and `IFS` all change behaviour:
 
 ```js
@@ -116,13 +122,13 @@ execFile("/usr/bin/convert", ["--", input, output], {
 Command injection frequently arrives through something other than a command
 string:
 
-- **Filenames.** A user-supplied name reaching `tar`, `zip`, `git`, or a shell
+1. **Filenames.** A user-supplied name reaching `tar`, `zip`, `git`, or a shell
   glob. Generate server-side names; never persist the client's.
-- **`git` arguments.** A branch or remote beginning with `--upload-pack=` executes
+2. **`git` arguments.** A branch or remote beginning with `--upload-pack=` executes
   a program. Validate against `^[A-Za-z0-9._/-]+$` and reject leading `-`.
-- **Archive extraction.** Entries may contain `../` or absolute paths, or be
+3. **Archive extraction.** Entries may contain `../` or absolute paths, or be
   symlinks pointing outside the destination — see `Security/path-traversal`.
-- **Environment values** interpolated into a script by a later stage.
+4. **Environment values** interpolated into a script by a later stage.
 
 ---
 
@@ -130,13 +136,13 @@ string:
 
 Assume the guard fails and limit what a successful injection achieves:
 
-- Run as an unprivileged user; never `root`.
-- Set `timeout` and `maxBuffer` on every child process. Unbounded output and
+1. Run as an unprivileged user; never `root`.
+2. Set `timeout` and `maxBuffer` on every child process. Unbounded output and
   never-exiting children are denial of service.
-- Confine to a container, a `chroot`, or a sandbox with no network access when
+3. Confine to a container, a `chroot`, or a sandbox with no network access when
   the tool does not need one.
-- Give the process a working directory containing only what it needs.
-- **Never** return raw `stderr` to the user — it leaks paths, versions and
+4. Give the process a working directory containing only what it needs.
+5. **Never** return raw `stderr` to the user — it leaks paths, versions and
   arguments. Log it, return something generic.
 
 ---

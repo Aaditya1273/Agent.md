@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never access a relation inside a loop. That single rule prevents most of this class.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for the queries an application issues. Plan reading and index design are
 `Database/query-optimization` and `Database/indexes`; this covers what the code
 does — how many queries, how much data, and how it is shaped.
@@ -26,11 +37,13 @@ The dominant cost in most applications is not a slow query. It is **too many
 queries**, each individually fast.
 
 ---
+
 </purpose>
 
 # Count queries per request
 
 <rules>
+
 ```ts
 // One request, 143 queries. Every one is 0.4ms and the endpoint takes 900ms.
 ```
@@ -59,11 +72,13 @@ This single test catches almost every N+1 that would otherwise ship. Code review
 does not catch them reliably, because the query is invisible at the call site.
 
 ---
+
 </rules>
 
 # N+1: the default failure of every ORM
 
 <rules>
+
 ```ts
 // 1 + N queries. The loop is invisible as a performance problem.
 const posts = await db.post.findMany();
@@ -87,11 +102,13 @@ that batches within a tick and deduplicates keys. → `API/graphql`
 class.
 
 ---
+
 </rules>
 
 # Ask for less
 
 <rules>
+
 | Habit | Cost |
 | --- | --- |
 | `SELECT *` | Moves columns nobody reads; defeats index-only scans |
@@ -116,11 +133,13 @@ Projection is also a security control: a default full-entity fetch that reaches 
 JSON response is how password hashes leak. → `Backend/validation`
 
 ---
+
 </rules>
 
 # Pagination is a performance decision
 
 <rules>
+
 `OFFSET 100000` makes the database produce and discard 100,000 rows before
 returning 20. The cost grows with depth, so the deepest pages — usually crawlers
 and exports — are the most expensive requests you serve.
@@ -137,11 +156,13 @@ Also: `COUNT(*)` over a filtered set is a second full scan. Make total counts
 opt-in, or return an estimate. → `API/pagination`
 
 ---
+
 </rules>
 
 # Batch, and do independent work concurrently
 
 <rules>
+
 ```ts
 // Sequential — 3 round trips of latency for 3 independent queries
 const user   = await getUser(id);
@@ -165,11 +186,13 @@ const [user, orders, prefs] = await Promise.all([getUser(id), getOrders(id), get
   → `Database/transactions`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No query-count instrumentation | N+1 is invisible until production | Log and assert counts |
@@ -189,11 +212,13 @@ const [user, orders, prefs] = await Promise.all([getUser(id), getOrders(id), get
 | Testing against small datasets | Plans and costs differ entirely | Production-shaped data |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Query count and total query time are logged per request
 - [ ] Integration tests assert a bounded query count on key endpoints
 - [ ] No relation is fetched inside a loop
@@ -208,4 +233,5 @@ const [user, orders, prefs] = await Promise.all([getUser(id), getOrders(id), get
 - [ ] Bulk writes use multi-row inserts or `COPY`
 - [ ] No network call happens inside a transaction
 - [ ] Performance is verified against production-shaped data volumes
+
 </checklist>

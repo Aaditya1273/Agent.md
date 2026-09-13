@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -74,10 +81,10 @@ jobs:
       id-token: write     # only this job gets OIDC
 ```
 
-- Set `permissions` explicitly at the top. The default is broad, and a compromised
+1. Set `permissions` explicitly at the top. The default is broad, and a compromised
   action inherits it.
-- Grant elevated scopes per **job**, never workflow-wide.
-- Use **OIDC federation** to assume a cloud role rather than storing long-lived
+2. Grant elevated scopes per **job**, never workflow-wide.
+3. Use **OIDC federation** to assume a cloud role rather than storing long-lived
   keys:
 
 ```yaml
@@ -119,19 +126,19 @@ concurrency:
   cancel-in-progress: true          # superseded pushes stop wasting runners
 ```
 
-- `concurrency` with `cancel-in-progress` on pull-request workflows; never on
+1. `concurrency` with `cancel-in-progress` on pull-request workflows; never on
   deploy workflows, where cancelling mid-deploy leaves a partial rollout.
-- Cache keyed on the lockfile hash, with a restore-key fallback:
+2. Cache keyed on the lockfile hash, with a restore-key fallback:
 
 ```yaml
 - uses: actions/setup-node@v4
   with: { node-version: 22, cache: npm }     # built-in, keyed on the lockfile
 ```
 
-- Use `paths` filters so a documentation change does not run the full test matrix.
-- Shard slow suites across a matrix; `fail-fast: false` when you want every shard's
+3. Use `paths` filters so a documentation change does not run the full test matrix.
+4. Shard slow suites across a matrix; `fail-fast: false` when you want every shard's
   result rather than the first failure.
-- Prefer `npm ci` over `npm install`, and keep `actions/cache` keys off branch
+5. Prefer `npm ci` over `npm install`, and keep `actions/cache` keys off branch
   names — a loosely keyed cache serves stale dependencies and produces failures
   that vanish on expiry.
 
@@ -139,15 +146,15 @@ concurrency:
 
 # Structure and operations
 
-- Extract shared logic into **reusable workflows** (`workflow_call`) or composite
+1. Extract shared logic into **reusable workflows** (`workflow_call`) or composite
   actions. Copy-pasted YAML across ten repositories drifts immediately.
-- Use `environment:` for deployments to get required reviewers, wait timers and
+2. Use `environment:` for deployments to get required reviewers, wait timers and
   environment-scoped secrets.
-- Mask anything sensitive (`::add-mask::`) and never `echo` a secret to debug.
+3. Mask anything sensitive (`::add-mask::`) and never `echo` a secret to debug.
   Workflow logs are readable by anyone with repository read access.
-- Set `timeout-minutes` on every job. The default is six hours, and a hung job
+4. Set `timeout-minutes` on every job. The default is six hours, and a hung job
   holds a runner for all of it.
-- Set `defaults.run.shell: bash` and start scripts with `set -euo pipefail` —
+5. Set `defaults.run.shell: bash` and start scripts with `set -euo pipefail` —
   otherwise a failing command in the middle of a multi-line `run` is ignored.
 
 ---

@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -224,3 +223,24 @@ pytest --durations=10                                             # find the slo
 - [ ] Verify: Coverage floor enforced; number treated as diagnostic
 - [ ] Verify: Unit run finishes in seconds; `-n auto` works
 - [ ] Verify: Time and randomness are controlled
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] `pyproject.toml` sets `--strict-markers`, `--strict-config`, `filterwarnings = ["error"]`, `xfail_strict`
+- [ ] Every marker declared and used to split unit from integration runs
+- [ ] Fixtures default to function scope; wider scope only for immutable, expensive resources
+- [ ] Database tests run inside a rolled-back transaction fixture
+- [ ] `conftest.py` per layer; `autouse` reserved for clock and network guards
+- [ ] Tables of cases use `parametrize` with `ids`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

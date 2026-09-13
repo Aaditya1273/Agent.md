@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -66,20 +72,20 @@ be indexed.
 
 Sources of accidental duplication, all common:
 
-- `http` and `https`; `www` and apex — pick one and `301` the rest.
-- Trailing slash inconsistency (`/about` and `/about/`).
-- Tracking parameters (`?utm_source=…`) creating infinite variants.
-- Uppercase and lowercase paths on a case-sensitive server.
-- Pagination and filtered views of the same collection.
+1. `http` and `https`; `www` and apex — pick one and `301` the rest.
+2. Trailing slash inconsistency (`/about` and `/about/`).
+3. Tracking parameters (`?utm_source=…`) creating infinite variants.
+4. Uppercase and lowercase paths on a case-sensitive server.
+5. Pagination and filtered views of the same collection.
 
 Rules:
 
-- A self-referencing canonical on every indexable page, absolute, matching exactly
+6. A self-referencing canonical on every indexable page, absolute, matching exactly
   the URL you want indexed.
-- Filtered and sorted views (`?status=paid&sort=-createdAt`) canonicalise to the
+7. Filtered and sorted views (`?status=paid&sort=-createdAt`) canonicalise to the
   unfiltered collection, or are `noindex`.
-- Never change a URL without a `301`. → `Frontend/routing`
-- `hreflang` for localised variants, and every variant must point back at all the
+8. Never change a URL without a `301`. → `Frontend/routing`
+9. `hreflang` for localised variants, and every variant must point back at all the
   others including itself.
 
 ---
@@ -94,13 +100,13 @@ Rules:
 <meta name="twitter:card" content="summary_large_image" />
 ```
 
-- Generate metadata **server-side**. A `<title>` set in `useEffect` is not seen by
+1. Generate metadata **server-side**. A `<title>` set in `useEffect` is not seen by
   most crawlers or by social preview bots at all.
-- Unique per page. Duplicated titles and descriptions across a catalogue are one
+2. Unique per page. Duplicated titles and descriptions across a catalogue are one
   of the most common technical SEO faults.
-- Open Graph images must be **absolute URLs** — relative ones silently fail in
+3. Open Graph images must be **absolute URLs** — relative ones silently fail in
   every social preview.
-- `robots` meta only where you mean it. A stray `noindex` shipped to production
+4. `robots` meta only where you mean it. A stray `noindex` shipped to production
   will remove a site from search results, and it is a genuinely recurring
   incident. → `Frontend/metadata`
 
@@ -137,16 +143,16 @@ Disallow: /admin/
 Sitemap: https://example.com/sitemap.xml
 ```
 
-- `robots.txt` blocks **crawling**, not indexing. A blocked URL can still be
+1. `robots.txt` blocks **crawling**, not indexing. A blocked URL can still be
   indexed from external links — and because it cannot be crawled, the `noindex`
   tag on it is never seen. To keep a page out of the index, allow crawling and use
   `noindex`.
-- Generate the sitemap from the route table, include `lastmod`, and split above
+2. Generate the sitemap from the route table, include `lastmod`, and split above
   50,000 URLs.
-- Never block CSS or JavaScript in `robots.txt` — crawlers need them to render.
-- Fix crawl waste: infinite calendars, faceted-filter URL explosion, and session
+3. Never block CSS or JavaScript in `robots.txt` — crawlers need them to render.
+4. Fix crawl waste: infinite calendars, faceted-filter URL explosion, and session
   ids in URLs consume crawl budget that should go to real pages.
-- Return real status codes: `404` for missing, `410` for permanently gone, `301`
+5. Return real status codes: `404` for missing, `410` for permanently gone, `301`
   for moved. A "not found" page returning `200` is a soft 404 and gets indexed.
 
 ---

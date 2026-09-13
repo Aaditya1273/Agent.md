@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -41,14 +47,14 @@ internal/
   platform/postgres/
 ```
 
-- `cmd/<binary>/main.go` parses flags, builds dependencies, calls `run(ctx)`,
+1. `cmd/<binary>/main.go` parses flags, builds dependencies, calls `run(ctx)`,
   and exits. Nothing else lives in `main`.
-- `internal/` is enforced by the compiler: no other module can import it. Put
+2. `internal/` is enforced by the compiler: no other module can import it. Put
   everything there unless you are deliberately publishing an API.
-- **Never** create `pkg/`, `utils/`, `common/`, `helpers/`, or `models/`. A
+3. **Never** create `pkg/`, `utils/`, `common/`, `helpers/`, or `models/`. A
   package named for what it *is* rather than what it *does* attracts everything
   and depends on everything.
-- One module per repo. Nested modules exist for a reason (separate versioning),
+4. One module per repo. Nested modules exist for a reason (separate versioning),
   and that reason is rarely yours.
 
 ---
@@ -66,10 +72,10 @@ type Service struct{}
 func New(store Store) *Service
 ```
 
-- Short, lowercase, one word, no underscores: `orders`, `httpx`, `postgres`.
-- The package name is part of every identifier. `orders.New`, `orders.Store`,
+1. Short, lowercase, one word, no underscores: `orders`, `httpx`, `postgres`.
+2. The package name is part of every identifier. `orders.New`, `orders.Store`,
   `orders.ErrNotFound` — never `orders.NewOrdersStore`.
-- Package `main` is for binaries only; nothing imports it.
+3. Package `main` is for binaries only; nothing imports it.
 
 ---
 
@@ -85,12 +91,12 @@ type Store interface {
 }
 ```
 
-- Define the interface where it is consumed, sized to what that consumer calls.
+1. Define the interface where it is consumed, sized to what that consumer calls.
   A two-method interface is easy to fake in a test; a twenty-method one is not.
-- Return concrete types, accept interfaces: `func New(s Store) *Service`.
-- **Never** write an interface with a single implementation "for testing" before
+2. Return concrete types, accept interfaces: `func New(s Store) *Service`.
+3. **Never** write an interface with a single implementation "for testing" before
   a test needs it. `*postgres.Store` passed directly is fine until it isn't.
-- The bigger the interface, the weaker the abstraction. `io.Reader` is one method.
+4. The bigger the interface, the weaker the abstraction. `io.Reader` is one method.
 
 ---
 
@@ -106,13 +112,13 @@ var buf bytes.Buffer
 func (s *Service) Place(ctx context.Context, o Order) error
 ```
 
-- Design types so the zero value is usable. `sync.Mutex`, `bytes.Buffer`,
+1. Design types so the zero value is usable. `sync.Mutex`, `bytes.Buffer`,
   `http.Client` all work uninitialised; aim for that.
-- If a type needs invariants, give it a constructor `New…` and keep the struct
+2. If a type needs invariants, give it a constructor `New…` and keep the struct
   fields unexported so callers cannot build an invalid one.
-- Pass small structs by value; pass anything with a mutex, a channel, or more than
+3. Pass small structs by value; pass anything with a mutex, a channel, or more than
   a few words by pointer.
-- **Never** store a `context.Context` in a struct. It is a parameter, always
+4. **Never** store a `context.Context` in a struct. It is a parameter, always
   first: `func (s *Service) Get(ctx context.Context, id string)`.
 
 ---
@@ -126,13 +132,13 @@ staticcheck ./...              # honnef.co/go/tools/cmd/staticcheck
 go test -race ./...
 ```
 
-- `gofmt` is not a style preference; unformatted code does not merge. Run it in
+1. `gofmt` is not a style preference; unformatted code does not merge. Run it in
   CI, not in review comments.
-- `go vet` catches printf mismatches, copied locks, unreachable code. `staticcheck`
+2. `go vet` catches printf mismatches, copied locks, unreachable code. `staticcheck`
   catches the rest. Both are cheap; both are mandatory.
-- Pin the Go version in `go.mod` (`go 1.22`) and in CI. Use `go mod tidy` before
+3. Pin the Go version in `go.mod` (`go 1.22`) and in CI. Use `go mod tidy` before
   every commit; a dirty `go.sum` in a PR is a review failure.
-- Dependencies: `go get` only what the standard library cannot do. Check
+4. Dependencies: `go get` only what the standard library cannot do. Check
   `net/http`, `encoding/json`, `log/slog`, `testing` first — they cover most of
   what people reach for a framework to get.
 
@@ -148,13 +154,13 @@ type Config struct {
 }
 ```
 
-- Read config once in `main`, into a struct, and pass it down. **Never** call
+1. Read config once in `main`, into a struct, and pass it down. **Never** call
   `os.Getenv` from inside a package — it hides the dependency and makes tests
   order-dependent.
-- Fail at startup on missing required values with a message naming the variable.
+2. Fail at startup on missing required values with a message naming the variable.
   A service that starts with an empty `DATABASE_URL` fails at first request, at
   3am, with a worse message.
-- Flags for things an operator changes per run; environment for deployment
+3. Flags for things an operator changes per run; environment for deployment
   values; files only when the config is large and structured.
 
 ---
@@ -167,14 +173,14 @@ logger.Info("order placed", "order_id", o.ID, "tenant", o.Tenant, "total_cents",
 logger.Error("payment failed", "err", err, "order_id", o.ID)
 ```
 
-- `log/slog` is in the standard library since 1.21. Use it; do not add a logging
+1. `log/slog` is in the standard library since 1.21. Use it; do not add a logging
   dependency.
-- Structured key-value pairs, never `fmt.Sprintf` into the message. The message
+2. Structured key-value pairs, never `fmt.Sprintf` into the message. The message
   is a constant; the variables are attributes.
-- Pass a `*slog.Logger` down as a dependency or carry a request-scoped one via
+3. Pass a `*slog.Logger` down as a dependency or carry a request-scoped one via
   `logger.With("request_id", id)`. **Never** use the package-level default in
   library code.
-- Log at the edge (handler, job runner), not at every layer. A wrapped error
+4. Log at the edge (handler, job runner), not at every layer. A wrapped error
   carries the context up; logging it three times on the way is noise.
 
 ---

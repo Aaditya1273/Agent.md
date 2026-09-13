@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: authorization
 category: Backend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -104,11 +110,11 @@ function is simpler and faster.
 
 Rules that hold regardless of the model:
 
-- **Deny by default.** An action with no matching policy is denied.
-- **Least privilege.** New roles start with nothing.
-- **Check every time**, on every request. A permission cached in a JWT is stale
+1. **Deny by default.** An action with no matching policy is denied.
+2. **Least privilege.** New roles start with nothing.
+3. **Check every time**, on every request. A permission cached in a JWT is stale
   the moment access is revoked.
-- **Field-level too.** Reading an order does not imply reading its
+4. **Field-level too.** Reading an order does not imply reading its
   `costBasisCents`. Project explicit fields.
 
 ---
@@ -146,11 +152,11 @@ test("a member of tenant B cannot read tenant A's order", async () => {
 });
 ```
 
-- One denial test per protected resource type, at minimum.
-- A test that enumerates every route and asserts an unauthenticated request is
+1. One denial test per protected resource type, at minimum.
+2. A test that enumerates every route and asserts an unauthenticated request is
   rejected catches the new endpoint someone forgot to protect. Make it fail
   closed: new routes must be added to an explicit public allowlist.
-- Log every denial with actor, action, resource and source IP — a spike is either
+3. Log every denial with actor, action, resource and source IP — a spike is either
   an attack or a broken deploy. → `Security/audit-log`
 
 ---

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for transactional email — password resets, receipts, notifications. The hard
 part is not sending; it is **arriving**. An email that lands in spam is worse than
 one that fails loudly, because nothing tells you.
@@ -26,11 +36,13 @@ Marketing email is a different discipline with different consent rules. Keep it 
 a different subdomain so its reputation cannot damage your password resets.
 
 ---
+
 </purpose>
 
 # Authenticate the domain, or nothing else matters
 
 <rules>
+
 Three DNS records. Without all three, major providers will filter you regardless
 of content.
 
@@ -60,11 +72,13 @@ Use a **subdomain** for sending (`mail.example.com`). It isolates reputation and
 keeps your root domain's DNS simpler.
 
 ---
+
 </rules>
 
 # Use a provider, and one abstraction
 
 <rules>
+
 Do not run your own SMTP server. Deliverability depends on IP reputation, feedback
 loops and relationships with mailbox providers that a provider already has.
 
@@ -85,11 +99,13 @@ changes, and a direct SDK call from forty places is a migration nobody schedules
   above a consistent high volume.
 
 ---
+
 </rules>
 
 # Send asynchronously and idempotently
 
 <rules>
+
 ```ts
 // The request must not depend on the provider's availability or latency
 await queue.add("send-email", { userId, template: "password-reset" },
@@ -106,11 +122,13 @@ await queue.add("send-email", { userId, template: "password-reset" },
   retrying it damages your reputation.
 
 ---
+
 </rules>
 
 # Content and templating
 
 <rules>
+
 - **Multipart: HTML and plain text.** A missing text part is a spam signal, and
   some clients only render text.
 - Table-based layout with inline CSS. Email clients are twenty years behind
@@ -127,11 +145,13 @@ await queue.add("send-email", { userId, template: "password-reset" },
   everywhere else.
 
 ---
+
 </rules>
 
 # Handle bounces and complaints
 
 <rules>
+
 Ignoring these is how a sending domain gets blocked.
 
 | Event | Action |
@@ -164,11 +184,13 @@ Verify your setup against a diagnostic tool (`mail-tester.com`, MXToolbox, or
 `dig TXT _dmarc.example.com`) before launch, and re-verify after any DNS change.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No SPF/DKIM/DMARC | Filtered regardless of content | All three, validated |
@@ -189,11 +211,13 @@ Verify your setup against a diagnostic tool (`mail-tester.com`, MXToolbox, or
 | Cold domain at full volume | Classified as a spam source | Warm up gradually |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] SPF, DKIM and DMARC are published and verified for the sending domain
 - [ ] Exactly one SPF record exists
 - [ ] DMARC has progressed beyond `p=none` and reports are reviewed
@@ -211,4 +235,5 @@ Verify your setup against a diagnostic tool (`mail-tester.com`, MXToolbox, or
 - [ ] Bounce, complaint and unsubscribe webhooks feed a suppression list
 - [ ] The suppression list is checked before every send
 - [ ] Bounce rate, complaint rate and delivery rate are monitored and alerted
+
 </checklist>

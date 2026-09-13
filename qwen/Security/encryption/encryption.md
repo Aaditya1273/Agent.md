@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: encryption
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -79,26 +85,26 @@ authentic and must be discarded.
 
 This is where correct algorithm choices most often fail in practice.
 
-- **Never reuse a nonce with the same key.** For `AES-GCM` this is catastrophic:
+1. **Never reuse a nonce with the same key.** For `AES-GCM` this is catastrophic:
   two messages under one nonce leak the XOR of the plaintexts and allow forgery
   of the authentication tag.
-- Generate with a **CSPRNG** — `crypto.randomBytes(12)` — or use a strictly
+2. Generate with a **CSPRNG** — `crypto.randomBytes(12)` — or use a strictly
   increasing counter that cannot repeat across restarts or replicas.
-- 96 bits is correct for GCM. Longer nonces are hashed internally and gain nothing.
-- The nonce is **not secret**. Store it alongside the ciphertext.
-- After roughly 2³² messages under one key with random nonces, rotate the key —
+3. 96 bits is correct for GCM. Longer nonces are hashed internally and gain nothing.
+4. The nonce is **not secret**. Store it alongside the ciphertext.
+5. After roughly 2³² messages under one key with random nonces, rotate the key —
   collision probability becomes non-negligible.
 
 ---
 
 # Keys
 
-- Generate with a CSPRNG: `crypto.randomBytes(32)` for AES-256.
-- **Never derive a key directly from a password** with a plain hash. Use a KDF —
+1. Generate with a CSPRNG: `crypto.randomBytes(32)` for AES-256.
+2. **Never derive a key directly from a password** with a plain hash. Use a KDF —
   `argon2id`, `scrypt`, or `PBKDF2` with a high iteration count and a random salt.
-- **Never hard-code a key**, commit one, or ship one in a client bundle.
+3. **Never hard-code a key**, commit one, or ship one in a client bundle.
   → `Security/secret-management`
-- Use envelope encryption: a KMS holds the key-encryption key, which wraps a
+4. Use envelope encryption: a KMS holds the key-encryption key, which wraps a
   per-record data-encryption key. The master key never leaves the KMS boundary.
 ```js
 // Envelope encryption: the master key never leaves the KMS.
@@ -113,9 +119,9 @@ await db.secret.create({
 });
 ```
 
-- Version your keys. Store a key identifier with each ciphertext so rotation does
+5. Version your keys. Store a key identifier with each ciphertext so rotation does
   not require decrypting everything at once.
-- **Separate keys by purpose.** One key for encryption, a different one for
+6. **Separate keys by purpose.** One key for encryption, a different one for
   signing. Reusing a key across algorithms invites cross-protocol attacks.
 
 ---
@@ -134,13 +140,13 @@ await db.user.findFirst({ where: { emailIndex: blindIndex } });
 
 # Encoding, comparison, randomness
 
-- Base64 and hex are **encodings, not encryption**. A base64 string is plaintext.
-- Compare secrets with `crypto.timingSafeEqual`, never `===`. Length-check first —
+1. Base64 and hex are **encodings, not encryption**. A base64 string is plaintext.
+2. Compare secrets with `crypto.timingSafeEqual`, never `===`. Length-check first —
   it throws on mismatched lengths.
-- Use `crypto.randomBytes` / `crypto.getRandomValues` for anything security
+3. Use `crypto.randomBytes` / `crypto.getRandomValues` for anything security
   relevant. `Math.random()` is a predictable PRNG and must never generate tokens,
   identifiers, salts or nonces.
-- For hashing where speed is fine — checksums, cache keys — use `sha256`. For
+4. For hashing where speed is fine — checksums, cache keys — use `sha256`. For
   passwords, never.
 
 ---
@@ -150,13 +156,13 @@ await db.user.findFirst({ where: { emailIndex: blindIndex } });
 Encryption is not free: it breaks indexing, search and sorting, and it moves the
 problem to key management.
 
-- Encrypt what regulation or blast radius demands: payment details, health data,
+1. Encrypt what regulation or blast radius demands: payment details, health data,
   government identifiers, credentials for third-party systems.
-- Prefer **not storing** the data at all. Nothing protects a field like its
+2. Prefer **not storing** the data at all. Nothing protects a field like its
   absence.
-- For lookups over encrypted values, store a separate **blind index** — an HMAC of
+3. For lookups over encrypted values, store a separate **blind index** — an HMAC of
   the normalised value under a distinct key — rather than weakening the cipher.
-- Full-disk and database-level encryption protect against stolen media. They do
+4. Full-disk and database-level encryption protect against stolen media. They do
   **not** protect against an application-level compromise, because the application
   reads plaintext.
 

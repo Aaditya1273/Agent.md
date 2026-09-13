@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -104,13 +110,13 @@ FROM pg_stat_replication;
 
 Common causes of a lag spike, in order of frequency:
 
-- A long-running query on the replica conflicting with WAL replay (Postgres will
+1. A long-running query on the replica conflicting with WAL replay (Postgres will
   either cancel the query or pause replay, depending on
   `max_standby_streaming_delay`).
-- A bulk write, index build, or `VACUUM` on the primary generating WAL faster than
+2. A bulk write, index build, or `VACUUM` on the primary generating WAL faster than
   the replica can apply it.
-- Single-threaded apply on the replica — enable parallel apply where available.
-- Network saturation between regions.
+3. Single-threaded apply on the replica — enable parallel apply where available.
+4. Network saturation between regions.
 
 Alert on lag **before** it matters — a replica three minutes behind is a
 three-minute data-loss window if the primary fails now.

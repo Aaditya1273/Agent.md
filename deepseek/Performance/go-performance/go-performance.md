@@ -14,8 +14,15 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -39,13 +46,13 @@ import _ "net/http/pprof"      // registers /debug/pprof on http.DefaultServeMux
 //   go tool pprof -http=:6060 http://localhost:8080/debug/pprof/allocs             (allocations)
 ```
 
-- Mount `pprof` on an internal port, never on the public listener.
-- Read the CPU profile's flame graph top-down; the widest frames are the
+1. Mount `pprof` on an internal port, never on the public listener.
+2. Read the CPU profile's flame graph top-down; the widest frames are the
   targets. If `runtime.mallocgc` is wide, the problem is allocations, not your
   algorithm.
-- The `allocs` profile sorted by `alloc_space` is usually the highest-value
+3. The `allocs` profile sorted by `alloc_space` is usually the highest-value
   view in a service.
-- `go test -cpuprofile cpu.out -bench .` profiles a benchmark without a server.
+4. `go test -cpuprofile cpu.out -bench .` profiles a benchmark without a server.
 
 ---
 
@@ -58,12 +65,12 @@ go test -bench BenchmarkParse -benchmem -count 10 > new.txt
 benchstat old.txt new.txt
 ```
 
-- `-benchmem` adds `B/op` and `allocs/op` — the numbers that predict GC cost.
-- `-count 10` and `benchstat` give you a p-value. A 3% difference from a single
+1. `-benchmem` adds `B/op` and `allocs/op` — the numbers that predict GC cost.
+2. `-count 10` and `benchstat` give you a p-value. A 3% difference from a single
   run is noise on a laptop with a browser open.
-- Keep benchmark inputs realistic in size. A parser benchmarked on a 20-byte
+3. Keep benchmark inputs realistic in size. A parser benchmarked on a 20-byte
   string tells you nothing about a 2 MB payload.
-- **Never** optimise without a benchmark that reproduces the profile's hot spot.
+4. **Never** optimise without a benchmark that reproduces the profile's hot spot.
   The benchmark is the regression test for the speed-up.
 
 ---
@@ -82,14 +89,14 @@ func newUser() *User { return &User{} }
 func newUser() User { return User{} }
 ```
 
-- Heap allocations cost twice: once to allocate, once for the GC to trace them.
+1. Heap allocations cost twice: once to allocate, once for the GC to trace them.
   Stack allocations are free.
-- A value escapes when its address is stored beyond the function, passed
+2. A value escapes when its address is stored beyond the function, passed
   through an interface (`fmt.Println(x)` boxes `x`), or captured by a closure that
   outlives the call.
-- Small structs returned by value are cheaper than pointers. Pointers are for
+3. Small structs returned by value are cheaper than pointers. Pointers are for
   mutation and large structs, not "efficiency".
-- `-gcflags=-m` on a hot package shows exactly which lines allocate; fix the
+4. `-gcflags=-m` on a hot package shows exactly which lines allocate; fix the
   ones the `allocs` profile says matter.
 
 ---
@@ -108,15 +115,15 @@ for _, p := range parts { sb.WriteString(p) }
 s := sb.String()                         // one allocation for the result
 ```
 
-- `append` on a nil slice reallocates at every power of two. When the size is
+1. `append` on a nil slice reallocates at every power of two. When the size is
   known or estimable, `make` with capacity.
-- `s += piece` in a loop is O(n²) allocation. `strings.Builder` or
+2. `s += piece` in a loop is O(n²) allocation. `strings.Builder` or
   `bytes.Buffer`.
-- `[]byte(s)` and `string(b)` copy. In hot paths, work in one representation;
+3. `[]byte(s)` and `string(b)` copy. In hot paths, work in one representation;
   `strings` and `bytes` packages mirror each other for this reason.
-- Convert with `strconv.Itoa`, not `fmt.Sprintf("%d")`. `fmt` reflects and boxes;
+4. Convert with `strconv.Itoa`, not `fmt.Sprintf("%d")`. `fmt` reflects and boxes;
   `strconv` does not.
-- Prefer iterating with an index or `for i := range` over copying large structs in
+5. Prefer iterating with an index or `for i := range` over copying large structs in
   `for _, v := range` — each iteration copies `v`.
 
 ---
@@ -134,27 +141,27 @@ func encode(v any) ([]byte, error) {
 }
 ```
 
-- A pool pays for short-lived, uniformly sized, frequently allocated objects —
+1. A pool pays for short-lived, uniformly sized, frequently allocated objects —
   buffers in a hot encoder, scratch slices in a parser.
-- Reset before `Put`. Never return the pooled object's memory to a caller.
-- The pool is cleared on every GC cycle; it is a cache, not storage.
-- If the profile does not show the allocation as hot, a pool adds complexity for
+2. Reset before `Put`. Never return the pooled object's memory to a caller.
+3. The pool is cleared on every GC cycle; it is a cache, not storage.
+4. If the profile does not show the allocation as hot, a pool adds complexity for
   nothing. Most code should never touch `sync.Pool`.
 
 ---
 
 # GC and runtime knobs
 
-- `GOGC` (default 100) trades memory for CPU: `GOGC=200` halves GC frequency at
+1. `GOGC` (default 100) trades memory for CPU: `GOGC=200` halves GC frequency at
   the cost of a larger heap. Set it per service from a measured heap profile,
   not by folklore.
-- `GOMEMLIMIT` (1.19+) is a soft ceiling: set it just under the container's
+2. `GOMEMLIMIT` (1.19+) is a soft ceiling: set it just under the container's
   memory limit so the GC runs harder before the OOM killer does. Use it with a
   high `GOGC` in memory-constrained containers.
-- `GOMAXPROCS` defaults to the host's CPUs, which in a CPU-limited container is
+3. `GOMAXPROCS` defaults to the host's CPUs, which in a CPU-limited container is
   wrong; `go.uber.org/automaxprocs` or a manual value from the cgroup limit
   prevents throttling.
-- Reduce garbage before tuning the collector. A 30% allocation cut beats any
+4. Reduce garbage before tuning the collector. A 30% allocation cut beats any
   `GOGC` setting.
 
 ---

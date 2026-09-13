@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never sign a re-serialised body. `JSON.stringify(req.body)` reorders keys and changes whitespace; the receiver's HMAC will not match. Sign and verify the exact bytes on the wire.
+- Never trust any field in the body — including a `user_id` or an amount — before the signature verifies. And never process an unverified payload "just to log it": that is still parsing attacker-controlled input.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for webhooks in both directions. A webhook is an HTTP request to a server
 you do not control, about an event that already happened. Two facts drive
 everything:
@@ -27,11 +39,13 @@ everything:
   must be cryptographically attributable.
 
 ---
+
 </purpose>
 
 # Signing (sender)
 
 <rules>
+
 ```
 POST /hooks/acme HTTP/1.1
 Webhook-Id: evt_01J8ZQ3M7K
@@ -61,11 +75,13 @@ changes whitespace; the receiver's HMAC will not match. Sign and verify the exac
 bytes on the wire.
 
 ---
+
 </rules>
 
 # Verifying (receiver)
 
 <rules>
+
 ```ts
 // Express: the raw body is required, so capture it before JSON parsing
 app.post("/hooks/acme", express.raw({ type: "application/json" }), (req, res) => {
@@ -102,11 +118,13 @@ before the signature verifies. And never process an unverified payload "just to
 log it": that is still parsing attacker-controlled input.
 
 ---
+
 </rules>
 
 # Consumers must be idempotent
 
 <rules>
+
 Duplicates arrive because the sender retried after your `200` was lost in transit.
 The event id is the deduplication key.
 
@@ -125,11 +143,13 @@ Ordering is **not** guaranteed. A `subscription.updated` may arrive before
   entirely.
 
 ---
+
 </rules>
 
 # Delivery (sender)
 
 <rules>
+
 | Concern | Rule |
 | --- | --- |
 | Retries | Exponential backoff with jitter: 1m, 5m, 30m, 2h, 6h, 24h |
@@ -151,11 +171,13 @@ that log to the customer. This is the single highest-value support feature a
 webhook system has.
 
 ---
+
 </rules>
 
 # Endpoint design
 
 <rules>
+
 - Return `200`/`204` quickly — under a second. A `202` is also fine.
 - Any non-2xx means "retry"; be sure that is what you intend.
 - Receivers should respond `200` to an event type they do not recognise, not
@@ -165,11 +187,13 @@ webhook system has.
   request time.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No signature | Anyone can POST forged events | HMAC over raw bytes |
@@ -187,11 +211,13 @@ webhook system has.
 | Unvalidated customer-supplied URL | SSRF into internal networks | Reject private/link-local ranges |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every delivery is HMAC-signed over the raw body, id and timestamp
 - [ ] Multiple concurrent signatures are supported for secret rotation
 - [ ] Receivers verify against the raw bytes, before parsing
@@ -207,4 +233,5 @@ webhook system has.
 - [ ] A dead-letter view with manual replay exists
 - [ ] Unknown event types are ignored rather than rejected
 - [ ] Customer-supplied destination URLs are validated against SSRF
+
 </checklist>

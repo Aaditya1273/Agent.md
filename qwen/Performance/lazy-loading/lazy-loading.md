@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: lazy-loading
 category: Performance
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -90,14 +96,14 @@ const Editor = lazy(() => import("./Editor"));
 </Suspense>
 ```
 
-- Every lazy boundary needs a `<Suspense>` fallback **and** an error boundary. A
+1. Every lazy boundary needs a `<Suspense>` fallback **and** an error boundary. A
   chunk request fails on a flaky network, and without a boundary the page blanks.
   Offer a retry.
-- Fallbacks must match the content's dimensions, or lazy loading trades a slow
+2. Fallbacks must match the content's dimensions, or lazy loading trades a slow
   page for a shifting one.
-- Do not split small components: a 3 KB chunk costs a round trip to save 3 KB,
+3. Do not split small components: a 3 KB chunk costs a round trip to save 3 KB,
   which is a net loss on a high-latency connection.
-- Do not nest lazy boundaries that are always needed together — that is a
+4. Do not nest lazy boundaries that are always needed together — that is a
   waterfall replacing one download. → `Frontend/code-splitting`
 
 ---
@@ -113,10 +119,10 @@ a signal of intent, not on the click:
         onClick={openEditor}>Edit</button>
 ```
 
-- Hover and focus precede a click by a few hundred milliseconds — usually enough.
-- Viewport entry (`IntersectionObserver`) for links and route chunks.
-- Predictable next steps in a flow: prefetch checkout from the cart.
-- **Do not prefetch everything.** It competes with what is needed now and costs
+1. Hover and focus precede a click by a few hundred milliseconds — usually enough.
+2. Viewport entry (`IntersectionObserver`) for links and route chunks.
+3. Predictable next steps in a flow: prefetch checkout from the cart.
+4. **Do not prefetch everything.** It competes with what is needed now and costs
   money on a metered connection. Respect `navigator.connection.saveData` and
   `prefers-reduced-data`.
 
@@ -124,18 +130,18 @@ a signal of intent, not on the click:
 
 # Data and third parties
 
-- Paginate and load more on demand rather than fetching everything up front, but
+1. Paginate and load more on demand rather than fetching everything up front, but
   keep the first page in the initial response so the screen is not empty.
   → `API/pagination`
-- Load data **with** the navigation (route loader, server component) rather than
+2. Load data **with** the navigation (route loader, server component) rather than
   after the component mounts — mount-then-fetch is a waterfall.
   → `Frontend/routing`
-- Third-party widgets — chat, maps, video, social embeds — are usually the largest
+3. Third-party widgets — chat, maps, video, social embeds — are usually the largest
   scripts on a page. Defer them behind a facade: render a lightweight placeholder
   and load the real widget on interaction. A YouTube embed replaced by a
   thumbnail-plus-play-button saves hundreds of kilobytes for every user who never
   presses play.
-- Consent-gate anything that sets cookies or tracks, and never load it before
+4. Consent-gate anything that sets cookies or tracks, and never load it before
   consent. → `Frontend/performance`
 
 ---

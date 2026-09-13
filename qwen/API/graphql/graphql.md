@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: graphql
 category: API
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -107,11 +113,11 @@ Order: {
 }
 ```
 
-- Check on the **object being resolved**, not on the root argument. A nested path
+1. Check on the **object being resolved**, not on the root argument. A nested path
   reaches objects the top-level check never saw.
-- Default to deny: a field with no explicit policy should fail review.
-- Never rely on the client not asking for a field.
-- Depth-limit and cost controls are not authorization — they limit volume, not
+2. Default to deny: a field with no explicit policy should fail review.
+3. Never rely on the client not asking for a field.
+4. Depth-limit and cost controls are not authorization — they limit volume, not
   access. → `Security/authorization`
 
 ---
@@ -165,23 +171,23 @@ structure than a message string.
 }] }
 ```
 
-- Put a stable machine code in `extensions.code`. Clients branch on the code.
-- Model **expected** failures (validation, business rules) as result unions in the
+1. Put a stable machine code in `extensions.code`. Clients branch on the code.
+2. Model **expected** failures (validation, business rules) as result unions in the
   schema; reserve the `errors` array for genuinely exceptional conditions.
-- Mask internal errors in production — `maskedErrors: true` in Yoga, or a
+3. Mask internal errors in production — `maskedErrors: true` in Yoga, or a
   `formatError` hook. A stack trace in `extensions` is an information leak.
-- Include a `requestId` in every response.
+4. Include a `requestId` in every response.
 
 ---
 
 # Operations
 
-- **Disable introspection and the GraphiQL playground** in production.
-- Log per-operation name, complexity score and duration — not the raw query
+1. **Disable introspection and the GraphiQL playground** in production.
+2. Log per-operation name, complexity score and duration — not the raw query
   string, which contains user data.
-- `@defer`/`@stream` change response framing; confirm every client supports the
+3. `@defer`/`@stream` change response framing; confirm every client supports the
   incremental delivery protocol before enabling them.
-- Caching is per-field, not per-URL. HTTP caches are useless here; use persisted
+4. Caching is per-field, not per-URL. HTTP caches are useless here; use persisted
   queries plus a response cache keyed on the operation hash and the viewer.
 
 ---

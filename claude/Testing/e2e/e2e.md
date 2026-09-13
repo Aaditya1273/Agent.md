@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never select by CSS class or DOM position. Both encode presentation, which is the thing most likely to change without any behaviour changing.
+- Never use a fixed timeout to wait for anything. If you cannot express the condition, the application is missing an observable signal — add one rather than guessing at a duration.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for tests that drive a real browser against a running application.
 
 E2E tests are the slowest, flakiest and most expensive tier. **Keep few of them
@@ -28,11 +40,13 @@ Test the journeys that generate revenue or lose data: signup, login, checkout,
 the primary create-and-save path. Everything else belongs lower in the pyramid.
 
 ---
+
 </purpose>
 
 # Selectors
 
 <rules>
+
 Selector choice is the single largest cause of E2E maintenance cost.
 
 ```js
@@ -59,11 +73,13 @@ Where a test id is needed, use a dedicated attribute (`data-testid`) so it is
 obviously a contract and nobody deletes it during a cleanup.
 
 ---
+
 </rules>
 
 # Waiting
 
 <rules>
+
 Flakiness in E2E is almost always a waiting bug.
 
 ```js
@@ -88,11 +104,13 @@ auto-dismisses before the assertion, a list that re-renders after a background
 refetch, and focus moving during a form fill.
 
 ---
+
 </rules>
 
 # Test data and isolation
 
 <rules>
+
 - **Create the data the test needs, in the test**, through an API or a factory
   endpoint — not through the UI. Signing up via the interface to test checkout
   makes checkout failures indistinguishable from signup failures, and triples the
@@ -114,11 +132,13 @@ Keep exactly one test that exercises the real login form. The rest start
 authenticated.
 
 ---
+
 </rules>
 
 # Scope and structure
 
 <rules>
+
 | Test at E2E level | Test lower |
 | --- | --- |
 | Signup, login, checkout, payment | Field validation rules → `Testing/unit` |
@@ -133,11 +153,13 @@ authenticated.
   the full suite runs less often.
 
 ---
+
 </rules>
 
 # Running in CI
 
 <rules>
+
 - Run **headless** in CI, headed locally for debugging.
 - Capture **trace, video and screenshot on failure**. A failed E2E test with no
   artifact costs an hour of local reproduction.
@@ -152,11 +174,13 @@ authenticated.
   failure.
 
 ---
+
 </rules>
 
 # Configuration that matters
 
 <rules>
+
 ```js
 // playwright.config.ts — the settings that decide flake rate
 export default defineConfig({
@@ -181,11 +205,13 @@ Key APIs worth knowing: `getByRole`, `getByLabel`, `getByTestId`,
 
 In Cypress the equivalents are `cy.findByRole`, `cy.intercept`, `cy.session` and
 `cy.wait("@alias")` — never `cy.wait(2000)`.
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `waitForTimeout(2000)` | Race that fails on loaded CI | Wait for the condition |
@@ -200,11 +226,13 @@ In Cypress the equivalents are `cy.findByRole`, `cy.intercept`, `cy.session` and
 | Skipping a flaky test | Silent loss of coverage | Quarantine and track |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The suite covers critical journeys only, not exhaustive permutations
 - [ ] Selectors use role, label or `data-testid` — never CSS position or XPath
 - [ ] No fixed timeout appears anywhere; waits express a real condition
@@ -216,4 +244,5 @@ In Cypress the equivalents are `cy.findByRole`, `cy.intercept`, `cy.session` and
 - [ ] Retries are at most one, and flake rate is tracked per test
 - [ ] Flaky tests are quarantined rather than skipped
 - [ ] Browser versions are pinned in CI
+
 </checklist>

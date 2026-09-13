@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -227,3 +226,24 @@ spec:
 - [ ] Verify: Memory limits are set and repeated OOMs are investigated
 - [ ] Verify: Concurrency and timeouts are environment-configurable and validated at boot
 - [ ] Verify: Throughput, duration, in-flight count and backlog age are all emitted
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Total concurrency is sized against the narrowest downstream resource
+- [ ] Database pool capacity accounts for both API and worker usage
+- [ ] CPU-bound work uses threads or replicas rather than async concurrency
+- [ ] Peak memory per handler × concurrency fits the container limit
+- [ ] `SIGTERM` stops fetching, drains in-flight work, then exits
+- [ ] The platform grace period exceeds the longest job timeout
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

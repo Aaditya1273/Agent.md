@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -78,12 +85,12 @@ test("role cannot be escalated through the profile endpoint", async () => {
 
 Write one abuse test for each of these, per resource:
 
-- Another tenant's object by id (**IDOR**)
-- A privileged field in an update body (**mass assignment**)
-- A missing or expired token
-- A token for a different audience
-- A nested or bulk operation where only the parent is authorised
-- A `GET` that should have been a `POST`
+1. Another tenant's object by id (**IDOR**)
+2. A privileged field in an update body (**mass assignment**)
+3. A missing or expired token
+4. A token for a different audience
+5. A nested or bulk operation where only the parent is authorised
+6. A `GET` that should have been a `POST`
 
 ---
 
@@ -103,13 +110,13 @@ Write one abuse test for each of these, per resource:
   run: trivy image --exit-code 1 --severity HIGH,CRITICAL "$IMAGE"
 ```
 
-- **Fail the build** on high and critical. A scan that only reports is a scan
+1. **Fail the build** on high and critical. A scan that only reports is a scan
   nobody reads.
-- Scan **on every pull request**, not nightly. A dependency introduced on Monday
+2. Scan **on every pull request**, not nightly. A dependency introduced on Monday
   should not ship because the scan runs on Friday.
-- Every suppression needs an **owner and an expiry**. A permanent unowned
+3. Every suppression needs an **owner and an expiry**. A permanent unowned
   exception is how a known CVE stays shipped for two years.
-- Tune the rules. A tool producing 400 findings, 390 of them irrelevant, trains
+4. Tune the rules. A tool producing 400 findings, 390 of them irrelevant, trains
   everyone to ignore all 400.
 
 ---

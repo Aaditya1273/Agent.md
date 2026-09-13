@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: backups
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for backing up everything that is not the database. Database backups are
@@ -88,13 +94,8 @@ production account ──► backup account (separate credentials, separate root
 - MFA-delete on the bucket where the platform supports it.
 
 ```hcl
-
 # Terraform: the backup bucket, in the backup account. COMPLIANCE mode means
-
 # not even the account root can delete inside the retention window.
-
-[INST] Apply every rule in this section: not even the account root can delete inside the retention window.. [/INST]
-
 resource "aws_s3_bucket" "backups" { bucket = "acme-backups-prod" }
 
 resource "aws_s3_bucket_object_lock_configuration" "backups" {
@@ -139,11 +140,7 @@ media decay. It does not protect against a `DELETE` — yours, an attacker's, or
 - Delete markers plus versioning is the recovery path; test it:
 
 ```bash
-
 # Recover a deleted object: remove the delete marker, do not re-upload.
-
-[INST] Apply every rule in this section: Recover a deleted object: remove the delete marker, do not re-upload.. [/INST]
-
 aws s3api list-object-versions --bucket uploads --prefix "tenants/acme/" \
   --query 'DeleteMarkers[?IsLatest==`true`].{K:Key,V:VersionId}' --output text \
 | while read -r key version; do

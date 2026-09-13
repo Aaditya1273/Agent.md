@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -166,3 +165,24 @@ responses that differ by requested headers.
 - [ ] Verify: Preflight responses do not require authentication
 - [ ] Verify: Server-side authorisation is enforced independently of CORS
 - [ ] Verify: Development origins are not present in the production configuration
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Allowed origins are an exact set, compared by full-origin equality
+- [ ] No reflection of arbitrary `Origin` values
+- [ ] `Origin: null` is never allowed
+- [ ] `Vary: Origin` is set whenever the allowed origin varies
+- [ ] `Allow-Credentials` is enabled only where cookies are genuinely required
+- [ ] `Allow-Methods` and `Allow-Headers` list only what is accepted
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -14,7 +14,13 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for SQLAlchemy 2.x. The 2.0 API is `select()`-based and typed; the 1.x
@@ -128,11 +134,7 @@ orders = session.scalars(stmt).all()
 
 ```bash
 alembic revision --autogenerate -m "orders: add status index"
-
 # then READ the generated file before committing it
-
-[INST] Apply every rule in this section: then READ the generated file before committing it. [/INST]
-
 ```
 
 - Autogenerate is a draft. It misses `CHECK` constraints on some backends,

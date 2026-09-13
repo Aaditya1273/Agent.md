@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for errors in Go. Errors are values; the language gives you no exceptions
 and no stack unwinding, and the code that results is only as good as the
 discipline around `if err != nil`.
@@ -26,11 +36,13 @@ The governing rule: **handle every error exactly once.** Either return it
 (wrapped) or handle it (log, retry, respond) — never both.
 
 ---
+
 </purpose>
 
 # Wrap with %w, and only %w
 
 <rules>
+
 ```go
 // Bad: %v flattens the chain. errors.Is/As stop working past this point.
 return fmt.Errorf("load order %s: %v", id, err)
@@ -51,11 +63,13 @@ return fmt.Errorf("load order %s: %w", id, err)
   want to hide the cause from callers.
 
 ---
+
 </rules>
 
 # errors.Is and errors.As
 
 <rules>
+
 ```go
 var ErrNotFound = errors.New("not found")          // sentinel: identity matters
 
@@ -82,11 +96,13 @@ if errors.As(err, &ve) { return respondField(ve.Field, ve.Msg) }
   `database/sql` to interpret your errors.
 
 ---
+
 </rules>
 
 # Sentinel or typed?
 
 <rules>
+
 | Need | Use | Example |
 | --- | --- | --- |
 | Caller branches on *which* error | Sentinel `var Err… = errors.New` | `ErrNotFound`, `ErrConflict` |
@@ -102,11 +118,13 @@ if errors.As(err, &ve) { return respondField(ve.Field, ve.Msg) }
   member. Use it to report all validation failures, not just the first.
 
 ---
+
 </rules>
 
 # Handle once, at the edge
 
 <rules>
+
 ```go
 // Inside: return, don't log. The caller decides.
 func (s *Store) Get(ctx context.Context, id string) (Order, error) {
@@ -140,11 +158,13 @@ case err != nil:
   exposes table names, hosts, and file paths.
 
 ---
+
 </rules>
 
 # panic is for bugs, not failures
 
 <rules>
+
 ```go
 // Correct: a programmer error that cannot happen with valid code.
 func MustCompile(pattern string) *regexp.Regexp   // panics at init on a bad literal
@@ -163,11 +183,13 @@ if user == nil { panic("no user") }
 - A `Must…` prefix is the only acceptable signal that a function panics.
 
 ---
+
 </rules>
 
 # Checking and shadowing
 
 <rules>
+
 ```go
 // Shadowing bug: the outer err is never assigned; the check below is dead.
 if v, err := parse(s); err != nil { … }
@@ -188,11 +210,13 @@ if err != nil {
   `defer func() { err = errors.Join(err, f.Close()) }()`.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `fmt.Errorf("…: %v", err)` | Breaks the chain; `errors.Is` stops matching | `%w` |
@@ -209,11 +233,13 @@ if err != nil {
 | Returning `sql.ErrNoRows` from a store | Callers must import `database/sql` | Translate to `ErrNotFound` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every wrapped error uses `%w`, never `%v`
 - [ ] Each wrap adds this frame's context and does not repeat the callee's
 - [ ] Error messages are lowercase, unpunctuated, and joined by `: `
@@ -226,4 +252,5 @@ if err != nil {
 - [ ] `panic` is reserved for programmer errors; `recover` only in goroutine roots and HTTP middleware
 - [ ] `errcheck` / `staticcheck` run in CI; ignored errors carry a comment
 - [ ] Deferred `Close` on writers has its error checked
+
 </checklist>

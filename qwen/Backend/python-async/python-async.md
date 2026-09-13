@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -57,13 +63,13 @@ async def handler():
     report = await asyncio.to_thread(render_pdf, rows)   # CPU/sync → thread
 ```
 
-- Every library call inside `async def` must be either awaited or wrapped in
+1. Every library call inside `async def` must be either awaited or wrapped in
   `asyncio.to_thread`. `requests`, `boto3`, `psycopg2`, `open()` on a network
   mount — all blocking.
-- Enable debug mode in development: `asyncio.run(main(), debug=True)` or
+2. Enable debug mode in development: `asyncio.run(main(), debug=True)` or
   `PYTHONASYNCIODEBUG=1` logs any callback that ran longer than 100 ms. This is
   how you find the hidden sync call.
-- `to_thread` is bounded by the default executor (min(32, cpus+4) threads).
+3. `to_thread` is bounded by the default executor (min(32, cpus+4) threads).
   Offloading thousands of calls to it serialises them; that is a sign to use an
   async driver instead.
 
@@ -78,13 +84,13 @@ async with asyncio.TaskGroup() as tg:
 user, orders = t1.result(), t2.result()
 ```
 
-- `TaskGroup` (3.11+) cancels the siblings when one fails and re-raises as an
+1. `TaskGroup` (3.11+) cancels the siblings when one fails and re-raises as an
   `ExceptionGroup`. `gather()` by default lets the others keep running after one
   fails, and `gather(return_exceptions=True)` hands you exceptions as values you
   can forget to check.
-- Fire-and-forget `asyncio.create_task(coro())` without keeping a reference: the
+2. Fire-and-forget `asyncio.create_task(coro())` without keeping a reference: the
   task can be garbage-collected mid-flight. Keep a reference or use a group.
-- `except* ValueError:` to handle one member type of an `ExceptionGroup`.
+3. `except* ValueError:` to handle one member type of an `ExceptionGroup`.
 
 ---
 
@@ -101,14 +107,14 @@ except asyncio.CancelledError:
     raise                                       # always re-raise
 ```
 
-- `asyncio.timeout()` over `wait_for()`: it is a context manager, composes, and
+1. `asyncio.timeout()` over `wait_for()`: it is a context manager, composes, and
   does not create an extra task.
-- Every `await` is a cancellation point. Code that must not be interrupted
+2. Every `await` is a cancellation point. Code that must not be interrupted
   (commit-then-ack) goes in `asyncio.shield()` or a finally block — and the
   finally block must be short, because cancellation can arrive again.
-- Swallowing `CancelledError` breaks shutdown and `TaskGroup` semantics. Catch,
+3. Swallowing `CancelledError` breaks shutdown and `TaskGroup` semantics. Catch,
   clean up, re-raise.
-- Timeouts on every external call, without exception. An unbounded await is a
+4. Timeouts on every external call, without exception. An unbounded await is a
   leaked connection under a network partition. → `Backend/error-handling`
 
 ---
@@ -140,11 +146,11 @@ def cli_entry() -> None:
 # you cannot. Refactor the caller to be async, or run in a separate thread.
 ```
 
-- `asyncio.run()` once, at the top. Nested `run()` calls raise; `get_event_loop()`
+1. `asyncio.run()` once, at the top. Nested `run()` calls raise; `get_event_loop()`
   in library code is deprecated behaviour.
-- Semaphores for concurrency limits: `sem = asyncio.Semaphore(20)` around
+2. Semaphores for concurrency limits: `sem = asyncio.Semaphore(20)` around
   fan-out, or you will open 10,000 connections to a service that allows 100.
-- Async generators need `async with aclosing(gen)` or explicit `aclose()`; an
+3. Async generators need `async with aclosing(gen)` or explicit `aclose()`; an
   abandoned one holds its resources until finalised.
 
 ---
@@ -161,10 +167,10 @@ async def test_timeout_cancels_and_cleans_up(monkeypatch):
             await slow()
 ```
 
-- `pytest-asyncio` in `auto` mode so every `async def test_*` just runs.
-- Never `await asyncio.sleep(0.5)` to "let things settle" — assert on an event
+1. `pytest-asyncio` in `auto` mode so every `async def test_*` just runs.
+2. Never `await asyncio.sleep(0.5)` to "let things settle" — assert on an event
   or a future. Real sleeps make the suite slow and still flaky on loaded CI.
-- `unittest.mock.AsyncMock` for async dependencies; a plain `Mock` returns a
+3. `unittest.mock.AsyncMock` for async dependencies; a plain `Mock` returns a
   non-awaitable and the test passes for the wrong reason. → `Testing/pytest`
 
 ---

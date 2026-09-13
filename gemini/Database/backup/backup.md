@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -203,3 +202,29 @@ pgbackrest --stanza=main --output=json info \
 - [ ] Verify: Alerts fire on backup **age**, not only on job failure
 - [ ] Verify: The restore runbook is written and has been followed by a second person
 - [ ] Verify: Restores into lower environments pass through anonymisation
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never rely on `pg_dump` alone for a production database. It is a logical snapshot of one instant with no way to reach any other instant, and restoring one is slow because it rebuilds every index.
+- Never treat a replica as a backup. `DROP TABLE` replicates in milliseconds. → `Database/replication`
+- Never count a backup as verified because the job exited zero. Verify the restore, not the backup.
+- Never back up production data into a developer's environment unmasked. Restore to staging through an anonymisation step, or restore into an access-controlled environment.
+
+- [ ] Wall-clock time from decision to a serving database (this is your real RTO)
+- [ ] Row counts on the largest tables against expectation
+- [ ] Application boots and passes a smoke test against the restored data
+- [ ] The most recent restorable timestamp (this is your real RPO)
+- [ ] RPO and RTO are written down and agreed with the business
+- [ ] Point-in-time recovery is configured, not just periodic dumps
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

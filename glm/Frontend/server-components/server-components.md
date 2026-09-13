@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -70,9 +76,9 @@ import "server-only";        // importing this from a client component fails the
 export const db = new PrismaClient();
 ```
 
-- Mark every module holding secrets, database access or internal service calls
+1. Mark every module holding secrets, database access or internal service calls
   with `server-only`. It converts a silent leak into a build error.
-- **Props passed to a client component are serialised into the HTML** and visible
+2. **Props passed to a client component are serialised into the HTML** and visible
   in view-source. Passing a whole user record sends the password hash to the
   browser.
 
@@ -84,10 +90,10 @@ export const db = new PrismaClient();
 <Profile user={{ id: user.id, name: user.name, avatarUrl: user.avatarUrl }} />
 ```
 
-- Only serialisable values cross: primitives, plain objects, arrays, `Date`, `Map`,
+3. Only serialisable values cross: primitives, plain objects, arrays, `Date`, `Map`,
   `Set`, and Server Action references. Functions, class instances and `Symbol`s do
   not — a Prisma model with methods will fail or silently lose them.
-- Authorization is enforced on the server, in the component or the data layer.
+4. Authorization is enforced on the server, in the component or the data layer.
   A client component conditionally rendering nothing still received the data.
   → `Backend/authorization`
 
@@ -108,11 +114,11 @@ const orders = await getOrders(id);
 const [user, orders] = await Promise.all([getUser(id), getOrders(id)]);
 ```
 
-- Start independent requests together.
-- Fetch **where the data is used**, not high in the tree and drilled down.
+1. Start independent requests together.
+2. Fetch **where the data is used**, not high in the tree and drilled down.
   React deduplicates identical `fetch` calls within a render pass, so two
   components asking for the same thing cost one request.
-- Stream slow sections with `<Suspense>` so the fast part of the page appears
+3. Stream slow sections with `<Suspense>` so the fast part of the page appears
   immediately:
 
 ```tsx
@@ -121,7 +127,7 @@ const [user, orders] = await Promise.all([getUser(id), getOrders(id)]);
 </Suspense>
 ```
 
-- Provide a real skeleton with the same dimensions as the content, or streaming
+4. Provide a real skeleton with the same dimensions as the content, or streaming
   trades a slow page for a shifting one. → `Frontend/performance`
 
 ---
@@ -143,11 +149,11 @@ using an interactive shell around it. Use it before restructuring the tree.
 
 Other rules:
 
-- A server component cannot use hooks, state, effects, or browser APIs. If you
+1. A server component cannot use hooks, state, effects, or browser APIs. If you
   need one, you need a client component.
-- Context providers must be client components, but they can wrap server-rendered
+2. Context providers must be client components, but they can wrap server-rendered
   `children`.
-- Server components re-render on navigation and revalidation, not on interaction.
+3. Server components re-render on navigation and revalidation, not on interaction.
   Anything that must change on click belongs in a client component.
 
 ---

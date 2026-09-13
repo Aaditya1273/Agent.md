@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: prisma
 category: Database
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -128,13 +134,13 @@ const users = await prisma.user.findMany({
 });
 ```
 
-- **`include` and `select` are mutually exclusive** at one level. Nest `select`
+1. **`include` and `select` are mutually exclusive** at one level. Nest `select`
   inside `include` to project a relation.
-- Prisma issues **separate queries per relation** by default and joins in the
+2. Prisma issues **separate queries per relation** by default and joins in the
   client. Use `relationJoinType: "query"` vs `"join"` (`relationJoins` preview /
   GA depending on version) deliberately, and read the logged SQL either way.
-- `findMany` with no `take` will happily return the whole table. Always paginate.
-- Deep pagination: use `cursor` + `take`, not `skip`.
+3. `findMany` with no `take` will happily return the whole table. Always paginate.
+4. Deep pagination: use `cursor` + `take`, not `skip`.
 
 ```ts
 // Keyset pagination — constant cost at any depth

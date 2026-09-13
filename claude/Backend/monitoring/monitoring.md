@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never use as a metric label: user id, order id, email, session id, full URL path, raw error message, or a timestamp. Those are log fields and trace attributes, where high cardinality is the point.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for instrumenting a service so that you can tell whether it is healthy, and
 find out why when it is not.
 
@@ -30,11 +41,13 @@ Instrumenting for the first and hoping it answers the second is the most common
 mistake. → `Backend/logging`
 
 ---
+
 </purpose>
 
 # Measure the four golden signals
 
 <rules>
+
 | Signal | Metric | Alert on |
 | --- | --- | --- |
 | Latency | Histogram of request duration by route and status | p99 breaching the SLO |
@@ -62,11 +75,13 @@ Saturation is the leading indicator. A database connection pool at 95% utilisati
 is an outage in a few minutes; latency has not moved yet.
 
 ---
+
 </rules>
 
 # Control cardinality
 
 <rules>
+
 A time series exists for every unique label combination. Cardinality is
 multiplicative, and it is what makes monitoring bills explode and queries time out.
 
@@ -86,11 +101,13 @@ Keep total series per service in the thousands, not millions. Audit label sets i
 review — a new label multiplies every existing series.
 
 ---
+
 </rules>
 
 # Instrument what the business cares about
 
 <rules>
+
 Infrastructure metrics tell you a host is unhealthy. Business metrics tell you the
 product is broken, which is the thing users notice.
 
@@ -104,11 +121,13 @@ A deploy that breaks checkout while every host stays green is a routine outage.
 The business metric is what catches it.
 
 ---
+
 </rules>
 
 # Traces
 
 <rules>
+
 Distributed tracing is the only practical way to answer "where did the 4 seconds
 go" across services.
 
@@ -154,22 +173,19 @@ await tracer.startActiveSpan("order.price", async (span) => {
 | `OTEL_PROPAGATORS` | `tracecontext,baggage` — W3C by default |
 
 ---
+
 </rules>
 
 # SLOs and alerts
 
 <rules>
+
 Define the objective before the alert. An alert with no SLO behind it is a
 threshold someone guessed.
 
 ```yaml
-</rules>
-
 # 99.9% of checkout requests succeed within 500ms over 28 days.
-
 # Error budget: 0.1% ≈ 40 minutes per month.
-
-<rules>
 ```
 
 Alert on **burn rate**, not on instantaneous thresholds:
@@ -195,11 +211,13 @@ alerts monthly and delete the ones nobody acted on — an alert nobody trusts ma
 every other alert weaker. → `DevOps/monitoring`
 
 ---
+
 </rules>
 
 # Health checks
 
 <rules>
+
 Separate the two, because they mean different things to the orchestrator:
 
 - **Liveness** — is the process wedged? Must not check dependencies. A liveness
@@ -209,11 +227,13 @@ Separate the two, because they mean different things to the orchestrator:
   dependencies, and should fail during startup and graceful shutdown.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Averages instead of percentiles | Hides the tail entirely | Histograms, p95/p99 |
@@ -232,11 +252,13 @@ Separate the two, because they mean different things to the orchestrator:
 | Dashboards nobody opens | Effort with no consumer | Build from the on-call's questions |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Latency, traffic, errors and saturation are instrumented for every service
 - [ ] Latency is a histogram with buckets chosen for the SLO
 - [ ] Metric labels are bounded; no ids or raw paths as labels
@@ -253,4 +275,5 @@ Separate the two, because they mean different things to the orchestrator:
 - [ ] Every paging alert is user-affecting, actionable, urgent and has a runbook
 - [ ] Alerts are reviewed monthly and unused ones deleted
 - [ ] Liveness and readiness probes are separate; liveness checks no dependencies
+
 </checklist>

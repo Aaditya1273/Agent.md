@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -90,9 +96,9 @@ SELECT * FROM orders WHERE created_at > '2026-01-01' FOR UPDATE;
 
 This causes deadlocks that do not appear on other engines. Options, in order:
 
-- Lock by primary key where possible, and always in a consistent order.
-- Keep transactions short — never hold one across an HTTP call.
-- Set `transaction_isolation = READ-COMMITTED` if gap locks are causing
+1. Lock by primary key where possible, and always in a consistent order.
+2. Keep transactions short — never hold one across an HTTP call.
+3. Set `transaction_isolation = READ-COMMITTED` if gap locks are causing
   contention and your application does not rely on repeatable reads.
 
 Diagnose with:

@@ -14,8 +14,12 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Grok per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Grok: scripts/model-profiles.json -->
 
+## Non-negotiable
+The constraints hoisted below override anything later in this document. Read them first; the rest is rationale.
+
+---
 
 # Purpose
 

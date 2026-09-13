@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -51,10 +57,10 @@ npx orval --config orval.config.ts
 The hand-written layer is a thin wrapper: transport, auth, retries, pagination
 helpers, error classes. Everything shaped by the API is generated.
 
-- Regenerate in CI on every spec change, and fail if the committed output differs.
-- **Never** hand-edit generated files. The next regeneration discards the edit;
+1. Regenerate in CI on every spec change, and fail if the committed output differs.
+2. **Never** hand-edit generated files. The next regeneration discards the edit;
   fix the spec or the generator template.
-- Method names come from `operationId`, so renaming one is a breaking SDK change.
+3. Method names come from `operationId`, so renaming one is a breaking SDK change.
   → `API/versioning`
 
 ---
@@ -105,42 +111,42 @@ try {
 }
 ```
 
-- One base error class, with subclasses per category (auth, validation, rate
+1. One base error class, with subclasses per category (auth, validation, rate
   limit, server, network).
-- Always expose `status`, `code` and `requestId`. The `requestId` is what makes a
+2. Always expose `status`, `code` and `requestId`. The `requestId` is what makes a
   support ticket resolvable.
-- Never swallow an error into a `null` return. The caller cannot distinguish
+3. Never swallow an error into a `null` return. The caller cannot distinguish
   "absent" from "failed".
-- Never include the API key in an error message or a serialised request dump.
+4. Never include the API key in an error message or a serialised request dump.
 
 ---
 
 # Versioning and release
 
-- **SemVer**, judged from the SDK consumer's perspective: a new optional API field
+1. **SemVer**, judged from the SDK consumer's perspective: a new optional API field
   is a minor bump; a renamed method is a major one even if the API call is
   unchanged.
-- Record the API version the SDK targets, and send it as a header.
-- Publish a changelog with every release, generated from Conventional Commits.
-- Automate publishing (`semantic-release`, `changesets`) — a manual release
+2. Record the API version the SDK targets, and send it as a header.
+3. Publish a changelog with every release, generated from Conventional Commits.
+4. Automate publishing (`semantic-release`, `changesets`) — a manual release
   process produces skipped versions and unpublished fixes.
-- Support the runtime versions your users actually run, declare them in
+5. Support the runtime versions your users actually run, declare them in
   `engines`/`python_requires`, and test the oldest in CI.
-- Ship provenance/attestation (`npm publish --provenance`) so consumers can verify
+6. Ship provenance/attestation (`npm publish --provenance`) so consumers can verify
   the artefact came from your repository.
 
 ---
 
 # Packaging and ergonomics
 
-- Zero or near-zero runtime dependencies. Every dependency is a supply-chain
+1. Zero or near-zero runtime dependencies. Every dependency is a supply-chain
   surface and a version conflict for the consumer.
-- Ship ESM **and** CJS with correct `exports` conditions; ship type definitions.
-- Support cancellation (`AbortSignal`, `context`) on every call.
-- Allow injecting a custom `fetch`/transport for proxies and instrumentation.
-- Make the first call work in under five minutes: install, set one environment
+2. Ship ESM **and** CJS with correct `exports` conditions; ship type definitions.
+3. Support cancellation (`AbortSignal`, `context`) on every call.
+4. Allow injecting a custom `fetch`/transport for proxies and instrumentation.
+5. Make the first call work in under five minutes: install, set one environment
   variable, copy one runnable example from the README.
-- Ship a runnable example per major workflow, tested in CI so it cannot rot.
+6. Ship a runnable example per major workflow, tested in CI so it cannot rot.
   → `Documentation/api-docs`
 
 ---

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for controlling shipped JavaScript. A byte of JavaScript costs far more than
 a byte of image: it must be downloaded, parsed, compiled and executed **on the
 main thread**, on a device you do not control.
@@ -26,11 +36,13 @@ Two rules govern everything: **measure before cutting**, and **enforce a budget*
 because bundles grow one innocuous pull request at a time.
 
 ---
+
 </purpose>
 
 # Budget first, in CI
 
 <rules>
+
 ```json
 // .size-limit.json
 [
@@ -52,11 +64,13 @@ initial JavaScript, and **< 100 KB** for a content site. Treat them as budgets t
 defend, not achievements to reach once.
 
 ---
+
 </rules>
 
 # Analyse before optimising
 
 <rules>
+
 ```bash
 npx vite-bundle-visualizer                 # Vite/Rollup
 ANALYZE=true next build                    # Next.js
@@ -73,11 +87,13 @@ It is almost always one or two dependencies, not a hundred small things. Look fo
   which frequently still says something from years ago.
 
 ---
+
 </rules>
 
 # Dependency discipline
 
 <rules>
+
 The highest-value habit: **check the cost before adding, not after**.
 
 | Instead of | Use |
@@ -103,11 +119,13 @@ whether a standard API already does it.
 `debounce` is the most common single avoidable regression.
 
 ---
+
 </rules>
 
 # Make tree shaking work
 
 <rules>
+
 Tree shaking removes unused exports — but only when the bundler can prove removal
 is safe. It silently fails to shake when:
 
@@ -128,11 +146,13 @@ Verify rather than assume: build, then search the output for a symbol you believ
 was removed. Tree shaking is frequently believed to be working when it is not.
 
 ---
+
 </rules>
 
 # What else to cut
 
 <rules>
+
 - **Polyfills**: target modern browsers and let older ones get a separate legacy
   bundle, rather than serving everyone the polyfills the oldest needs.
 - **Locale and timezone data**: import the active locale, not all forty.
@@ -150,11 +170,13 @@ Then split what remains, so the initial download is only what the first screen
 needs. → `Frontend/code-splitting`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No size budget in CI | Growth is invisible until it is large | `size-limit` gate |
@@ -174,11 +196,13 @@ needs. → `Frontend/code-splitting`
 | One giant vendor chunk | Any update invalidates all of it | Group by change frequency |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] A compressed-size budget is enforced in CI and fails the build
 - [ ] Uncompressed size is tracked for parse and execute cost
 - [ ] Pull requests report the bundle-size delta
@@ -196,4 +220,5 @@ needs. → `Frontend/code-splitting`
 - [ ] Development-only code is eliminated in production builds
 - [ ] Third-party scripts are inventoried, deferred and owned
 - [ ] Remaining code is split so the initial chunk serves the first screen only
+
 </checklist>

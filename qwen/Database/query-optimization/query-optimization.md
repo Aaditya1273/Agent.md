@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: query-optimization
 category: Database
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -148,11 +154,11 @@ connection. → `Database/transactions`
 
 Cache after the query is correct and indexed, never instead.
 
-- A cache in front of an unindexed query hides the problem until the cache misses,
+1. A cache in front of an unindexed query hides the problem until the cache misses,
   usually under the load that caused you to add it.
-- Cache **derived, expensive, rarely-changing** results — not primary key lookups
+2. Cache **derived, expensive, rarely-changing** results — not primary key lookups
   that are already sub-millisecond.
-- Every cache needs an invalidation story before it is added.
+3. Every cache needs an invalidation story before it is added.
   → `Performance/caching`
 
 ---

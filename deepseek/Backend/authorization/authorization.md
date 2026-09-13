@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -104,11 +111,11 @@ function is simpler and faster.
 
 Rules that hold regardless of the model:
 
-- **Deny by default.** An action with no matching policy is denied.
-- **Least privilege.** New roles start with nothing.
-- **Check every time**, on every request. A permission cached in a JWT is stale
+1. **Deny by default.** An action with no matching policy is denied.
+2. **Least privilege.** New roles start with nothing.
+3. **Check every time**, on every request. A permission cached in a JWT is stale
   the moment access is revoked.
-- **Field-level too.** Reading an order does not imply reading its
+4. **Field-level too.** Reading an order does not imply reading its
   `costBasisCents`. Project explicit fields.
 
 ---
@@ -146,11 +153,11 @@ test("a member of tenant B cannot read tenant A's order", async () => {
 });
 ```
 
-- One denial test per protected resource type, at minimum.
-- A test that enumerates every route and asserts an unauthenticated request is
+1. One denial test per protected resource type, at minimum.
+2. A test that enumerates every route and asserts an unauthenticated request is
   rejected catches the new endpoint someone forgot to protect. Make it fail
   closed: new routes must be added to an explicit public allowlist.
-- Log every denial with actor, action, resource and source IP — a spike is either
+3. Log every denial with actor, action, resource and source IP — a spike is either
   an attack or a broken deploy. → `Security/audit-log`
 
 ---

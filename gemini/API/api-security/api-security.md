@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -195,3 +194,27 @@ rows is an outage regardless of the rate limit.
 - [ ] Verify: Security-relevant events are logged; payloads are redacted by allowlist
 - [ ] Verify: Introspection, explorers and debug endpoints are disabled in production
 - [ ] Verify: An endpoint inventory exists and is reviewed
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never accept an identity field from the request body. `{"userId": …}` or a `role` in the payload is client-controlled; identity comes from the verified token only.
+- Never accept credentials in a URL query string. They land in access logs, proxy logs, browser history and `Referer` headers.
+
+- [ ] Every object fetch is scoped to the caller inside the query
+- [ ] Hidden objects return `404`, not `403`
+- [ ] Field-level authorization is applied to sensitive properties
+- [ ] Identity is never read from the request body
+- [ ] Every request body is schema-validated with unknown fields rejected
+- [ ] Arrays, strings, numbers and total body size are bounded
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

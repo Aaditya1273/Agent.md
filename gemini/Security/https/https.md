@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -166,3 +165,26 @@ scan (SSL Labs, `testssl.sh`) and re-run it after any proxy or platform change.
 - [ ] Verify: HTTP redirects `301` to the same path over HTTPS
 - [ ] Verify: No mixed content; all cookies are `Secure`
 - [ ] Verify: Internal service traffic uses mTLS or verified TLS, never disabled verification
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never enable compression (CRIME) or renegotiation initiated by the client.
+
+- [ ] Only TLS 1.2 and 1.3 are enabled; older protocols refused and verified refused
+- [ ] Cipher suites are AEAD with ECDHE key exchange
+- [ ] TLS compression and client-initiated renegotiation are disabled
+- [ ] Certificates renew automatically, with an independent 30-day expiry alert
+- [ ] The full chain is served and verified with `openssl s_client`
+- [ ] Private keys are `0600` and never committed
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

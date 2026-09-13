@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -60,18 +66,18 @@ key exchange does not provide this and is absent from TLS 1.3 for that reason.
 
 # Certificates
 
-- Automate issuance and renewal with ACME (`certbot`, `lego`, `caddy`, or your
+1. Automate issuance and renewal with ACME (`certbot`, `lego`, `caddy`, or your
   platform's manager). **Manual renewal is how outages happen** — the certificate
   expires on a weekend and nobody is paged until users are.
-- Alert at **30 days** before expiry, independently of the renewal automation. The
+2. Alert at **30 days** before expiry, independently of the renewal automation. The
   alert exists to catch the automation failing.
-- Prefer **ECDSA P-256** — smaller and faster than RSA-2048 — and serve an RSA
+3. Prefer **ECDSA P-256** — smaller and faster than RSA-2048 — and serve an RSA
   chain alongside only if you must support very old clients.
-- Serve the **full chain**, not just the leaf. A missing intermediate works in
+4. Serve the **full chain**, not just the leaf. A missing intermediate works in
   browsers that cache it and fails in `curl`, mobile apps and server-to-server
   calls — an intermittent failure that is painful to diagnose.
-- Keep private keys at `0600`, owned by the service user, never in the repository.
-- Add a **CAA record** so only your chosen authority may issue for the domain.
+5. Keep private keys at `0600`, owned by the service user, never in the repository.
+6. Add a **CAA record** so only your chosen authority may issue for the domain.
 
 ---
 
@@ -81,22 +87,22 @@ key exchange does not provide this and is absent from TLS 1.3 for that reason.
 Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 ```
 
-- Send it **only over HTTPS**. Browsers ignore it on plaintext responses.
-- Start with a short `max-age`, confirm nothing breaks, then raise to a year.
-- `preload` is **effectively irreversible on a useful timescale**. Every present
+1. Send it **only over HTTPS**. Browsers ignore it on plaintext responses.
+2. Start with a short `max-age`, confirm nothing breaks, then raise to a year.
+3. `preload` is **effectively irreversible on a useful timescale**. Every present
   and future subdomain must serve HTTPS before you submit. → `Security/headers`
 
 ---
 
 # Redirects and mixed content
 
-- Redirect HTTP to HTTPS with **`301`**, and redirect to the same path. Sending
+1. Redirect HTTP to HTTPS with **`301`**, and redirect to the same path. Sending
   every plaintext request to `/` loses the user's destination.
-- The redirect is a **fallback, not the control** — the first plaintext request is
+2. The redirect is a **fallback, not the control** — the first plaintext request is
   already interceptable. HSTS is what removes it for return visitors.
-- Serve every subresource over HTTPS. One `http://` script tag blocks on mixed
+3. Serve every subresource over HTTPS. One `http://` script tag blocks on mixed
   content; one `http://` image degrades the lock icon and leaks the URL.
-- Set cookies `Secure` so they are never transmitted in plaintext.
+4. Set cookies `Secure` so they are never transmitted in plaintext.
 
 ---
 
@@ -106,10 +112,10 @@ Terminating TLS at a load balancer and speaking plaintext behind it is only
 acceptable when that internal network is genuinely trusted — and in a shared
 cloud VPC it usually is not.
 
-- Prefer **mutual TLS** between services, or a service mesh that provides it.
-- Verify certificates on internal calls too. Disabling verification "because it is
+1. Prefer **mutual TLS** between services, or a service mesh that provides it.
+2. Verify certificates on internal calls too. Disabling verification "because it is
   internal" is how a compromised pod reads everything.
-- **Never** set `NODE_TLS_REJECT_UNAUTHORIZED=0` or `rejectUnauthorized: false`.
+3. **Never** set `NODE_TLS_REJECT_UNAUTHORIZED=0` or `rejectUnauthorized: false`.
   That disables verification globally and turns TLS into obfuscation.
 
 ```js

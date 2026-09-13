@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -211,3 +210,24 @@ if err != nil {
 - [ ] Verify: `panic` is reserved for programmer errors; `recover` only in goroutine roots and HTTP middleware
 - [ ] Verify: `errcheck` / `staticcheck` run in CI; ignored errors carry a comment
 - [ ] Verify: Deferred `Close` on writers has its error checked
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Every wrapped error uses `%w`, never `%v`
+- [ ] Each wrap adds this frame's context and does not repeat the callee's
+- [ ] Error messages are lowercase, unpunctuated, and joined by `: `
+- [ ] Errors are matched with `errors.Is` / `errors.As`, never `==` or string search
+- [ ] Sentinels are exported only when a caller branches on them
+- [ ] Typed errors use pointer receivers and are matched by pointer
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

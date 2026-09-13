@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -198,3 +197,24 @@ Verify your setup against a diagnostic tool (`mail-tester.com`, MXToolbox, or
 - [ ] Verify: Bounce, complaint and unsubscribe webhooks feed a suppression list
 - [ ] Verify: The suppression list is checked before every send
 - [ ] Verify: Bounce rate, complaint rate and delivery rate are monitored and alerted
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] SPF, DKIM and DMARC are published and verified for the sending domain
+- [ ] Exactly one SPF record exists
+- [ ] DMARC has progressed beyond `p=none` and reports are reviewed
+- [ ] Transactional and marketing mail use separate subdomains
+- [ ] A provider is used; no self-hosted SMTP
+- [ ] New domains and IPs are warmed up gradually
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

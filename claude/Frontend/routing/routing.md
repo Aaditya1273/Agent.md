@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for routing in a web application. The URL is the application's public
 interface: it is what users bookmark, share, and return to. Treat it as a
 contract, not an implementation detail.
@@ -26,11 +36,13 @@ Route-level code splitting is `Frontend/code-splitting`; metadata is
 `Frontend/metadata`.
 
 ---
+
 </purpose>
 
 # The URL carries state
 
 <rules>
+
 Anything that changes what the user sees belongs in the URL.
 
 ```
@@ -59,11 +71,13 @@ Rules for the URL itself:
 - Validate and coerce every parameter: a route parameter is untrusted input.
 
 ---
+
 </rules>
 
 # Structure with nested layouts
 
 <rules>
+
 ```
 app/
   layout.tsx                 # shell: header, nav — never re-renders on child navigation
@@ -87,11 +101,13 @@ position in a sidebar, an open panel — which a flat route table cannot do.
   → `API/rest`
 
 ---
+
 </rules>
 
 # Route guards are not authorization
 
 <rules>
+
 ```tsx
 // A client-side redirect. The data was already fetched, or is one fetch away.
 if (!user.isAdmin) return <Navigate to="/" />;
@@ -110,11 +126,13 @@ JavaScript that decides is running on their machine.
 - Never render protected content and hide it with CSS. It is in the DOM.
 
 ---
+
 </rules>
 
 # Navigation must not lose the user
 
 <rules>
+
 Client-side routing replaces a full page load, so the browser behaviours it
 provided must be reimplemented.
 
@@ -136,11 +154,13 @@ A `<div onClick={navigate}>` breaks middle-click, open-in-new-tab, copy-link, an
 keyboard access.
 
 ---
+
 </rules>
 
 # Data and transitions
 
 <rules>
+
 - Fetch per route with the router's loader or a server component, so the request
   starts with the navigation rather than after the component mounts.
 - Prefetch on hover, focus or viewport entry — the code **and** the data.
@@ -150,11 +170,13 @@ keyboard access.
   a blank route.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Filters in component state | Not shareable; lost on refresh; back button broken | Put them in the URL |
@@ -175,11 +197,13 @@ keyboard access.
 | Deep dynamic nesting | Freezes a hierarchy that will change | Flatten |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Filters, sort, pagination, tab and selection are all in the URL
 - [ ] No secrets or personal data appear in URLs
 - [ ] Default parameter values are omitted
@@ -198,4 +222,5 @@ keyboard access.
 - [ ] Data loads with the navigation, not after mount
 - [ ] Routes and their data are prefetched on intent
 - [ ] Pending navigations keep the previous view visible
+
 </checklist>

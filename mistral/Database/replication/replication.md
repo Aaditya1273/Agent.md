@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: replication
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for running replicas. Replication solves two different problems — read
@@ -38,11 +44,7 @@ that.
 | Synchronous (`remote_apply`) | Replica applied it | None | Highest; a slow replica stalls writes |
 
 ```
-
 # PostgreSQL — durable, and tolerant of one replica being down
-
-[INST] Apply every rule in this section: PostgreSQL — durable, and tolerant of one replica being down. [/INST]
-
 synchronous_commit = remote_write
 synchronous_standby_names = 'ANY 1 (replica_a, replica_b)'
 ```

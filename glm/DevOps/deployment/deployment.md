@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -68,10 +74,10 @@ running the old code. → `Database/migration`
 
 The same applies to:
 
-- **Queue payloads** — consumers deploy at a different time from producers, so a
+1. **Queue payloads** — consumers deploy at a different time from producers, so a
   new required field breaks in-flight messages. → `Backend/queues`
-- **API responses** — clients cache and retry; removing a field breaks them.
-- **Feature flags** — decouple deploy from release. Ship the code dark, enable it
+2. **API responses** — clients cache and retry; removing a field breaks them.
+3. **Feature flags** — decouple deploy from release. Ship the code dark, enable it
   separately, and roll back by flipping the flag rather than redeploying.
 
 ---
@@ -94,8 +100,8 @@ lifecycle:
 terminationGracePeriodSeconds: 60                     # > preStop + longest request
 ```
 
-- The grace period must exceed the drain time, or the platform `SIGKILL`s mid-request.
-- Workers drain differently: stop fetching, finish in-flight jobs.
+1. The grace period must exceed the drain time, or the platform `SIGKILL`s mid-request.
+2. Workers drain differently: stop fetching, finish in-flight jobs.
   → `Backend/workers`
 
 | Setting | Platform | Purpose |
@@ -132,12 +138,12 @@ routes elsewhere without the pod being killed. → `Backend/monitoring`
 
 A deploy is not finished when the rollout completes.
 
-- **Smoke test** the critical path against the deployed environment.
-- **Watch** error rate, latency and saturation for a bake period before promoting
+1. **Smoke test** the critical path against the deployed environment.
+2. **Watch** error rate, latency and saturation for a bake period before promoting
   further. Automate the comparison; do not rely on someone remembering to look.
-- **Automate rollback** on an error-budget breach during the bake window.
+3. **Automate rollback** on an error-budget breach during the bake window.
   → `DevOps/rollback`
-- Record the deployed commit SHA per environment and annotate dashboards with
+4. Record the deployed commit SHA per environment and annotate dashboards with
   deploy markers — the first question in an incident is "what changed?"
 
 Deploy during working hours, when the people who wrote the change are available.

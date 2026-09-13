@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never write a job that processes an unbounded set in one execution. It will eventually exceed every timeout you have, and a failure at 90% loses all of it.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for work that happens outside an HTTP request: emails, exports, imports,
 webhooks, nightly reconciliation, cleanup. Transport mechanics are
 `Backend/queues`; this package is about designing the jobs themselves.
@@ -26,11 +37,13 @@ Move work into a job when it is slow, retryable, or must survive the caller
 disconnecting. Keep it in the request when the user needs the result now.
 
 ---
+
 </purpose>
 
 # Enqueue after commit
 
 <rules>
+
 ```ts
 // Broken — the job may run before (or without) the transaction committing.
 // The worker reads a row that does not exist yet.
@@ -55,11 +68,13 @@ transaction returns and accept that a crash in between loses the job.
 the time the worker runs, and it grows without bound as the model grows.
 
 ---
+
 </rules>
 
 # Design of a job
 
 <rules>
+
 | Property | Rule |
 | --- | --- |
 | Idempotent | It **will** run twice. Guard with a business key or a conditional update |
@@ -83,11 +98,13 @@ for the same period is a no-op.
 eventually exceed every timeout you have, and a failure at 90% loses all of it.
 
 ---
+
 </rules>
 
 # Scheduling
 
 <rules>
+
 Cron in a distributed system has three failure modes that a single server does not:
 
 1. **Multiple instances run it.** N replicas means N executions. Use the
@@ -122,11 +139,13 @@ of this bug: it works in staging on one replica and triple-charges customers in
 production on three.
 
 ---
+
 </rules>
 
 # Timeouts, resources and failure
 
 <rules>
+
 - Set a timeout per job type, and make it shorter than the acknowledgement
   deadline so a hung job is reclaimed rather than run twice concurrently.
 - Bound worker concurrency against the **narrowest** downstream resource — usually
@@ -139,11 +158,13 @@ production on three.
   and alert. → `Backend/queues`
 
 ---
+
 </rules>
 
 # Observability
 
 <rules>
+
 A job that fails silently is worse than no job — the system appears to work.
 
 Emit for every job: type, id, outcome, duration, attempt number, and the trace
@@ -171,11 +192,7 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 ```
 
 ```yaml
-</rules>
-
 # Alert on a scheduled job that never ran — failure alerts cannot catch absence.
-
-<rules>
 - alert: NightlyReconciliationMissing
   expr: |
     time() - max(job_last_success_timestamp_seconds{job_type="reconcile"}) > 93600
@@ -187,11 +204,13 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 → `Backend/monitoring`
 
 ---
+
 </rules>
 
 # Operating
 
 <rules>
+
 - **Deploys** must drain: stop accepting new jobs, finish in-flight work with a
   bounded timeout, then exit. Workers being `SIGKILL`ed mid-job relies on
   redelivery every single deploy.
@@ -213,11 +232,13 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 | Backpressure | `limiter.max` per second against the slowest dependency |
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Enqueuing inside a transaction | Worker reads uncommitted state | Outbox, or enqueue after commit |
@@ -238,11 +259,13 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 | No replay or cancel | Failures become manual database work | Build the tooling |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Jobs are enqueued after commit, or via a transactional outbox
 - [ ] Payloads carry identifiers and a schema version, not serialised entities
 - [ ] Every job is idempotent under repeated execution
@@ -260,4 +283,5 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 - [ ] Workers drain gracefully on deploy
 - [ ] Workers tolerate both payload versions during a rollout
 - [ ] A manual replay and cancel path exists
+
 </checklist>

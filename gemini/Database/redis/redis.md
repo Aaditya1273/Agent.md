@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -189,3 +188,28 @@ not in Redis. Be explicit about which you have chosen.
 - [ ] Verify: Correctness-critical exclusion uses the database, not Redis
 - [ ] Verify: Persistence mode matches the durability the role requires
 - [ ] Verify: Cache invalidation on write is implemented, not just TTL expiry
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never run a queue or session store on `allkeys-lru`. Redis will evict a job or a live session under memory pressure and report nothing.
+- Never run `KEYS *` against production. It is O(N) and blocks the single command thread for the duration. Use `SCAN` with a cursor.
+- Never release a lock with a bare `DEL`. If your work outran the TTL, the lock is now held by someone else and you have just released theirs.
+
+- [ ] The role of each instance (cache / queue / session) is explicit
+- [ ] `maxmemory` and an appropriate `maxmemory-policy` are set for that role
+- [ ] Durable roles run `noeviction`, never `allkeys-lru`
+- [ ] Every cache key carries a TTL, with jitter on hot keys
+- [ ] Keys follow a documented namespace convention
+- [ ] `KEYS` is not used in application or operational code
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

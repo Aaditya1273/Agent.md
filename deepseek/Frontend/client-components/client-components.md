@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -41,9 +48,9 @@ from it — transitively — is bundled and shipped.
 
 Consequences worth remembering:
 
-- One `"use client"` at the top of a layout ships that entire subtree.
-- A utility imported by both server and client code ends up in the bundle.
-- Marking a file that needs no interactivity costs bytes for nothing.
+1. One `"use client"` at the top of a layout ships that entire subtree.
+2. A utility imported by both server and client code ends up in the bundle.
+3. Marking a file that needs no interactivity costs bytes for nothing.
 
 Keep the boundary at the leaf:
 
@@ -113,31 +120,31 @@ id will differ between server and client. → `Frontend/hydration`
 
 # Props and data
 
-- Props from a server component are **serialised into the HTML**. Pass the minimum,
+1. Props from a server component are **serialised into the HTML**. Pass the minimum,
   and never pass anything the user should not see.
-- Functions cannot cross the boundary, except Server Action references.
-- Server data belongs in a server component or a query cache, not fetched again on
+2. Functions cannot cross the boundary, except Server Action references.
+3. Server data belongs in a server component or a query cache, not fetched again on
   mount. Refetching on the client duplicates work and creates a waterfall.
   → `Frontend/state-management`
-- A client component receiving `children` from a server component does **not**
+4. A client component receiving `children` from a server component does **not**
   bundle those children — that is the composition escape hatch for heavy content.
 
 ---
 
 # Keep the bundle honest
 
-- Lazy-load heavy interactive components so they are not in the initial payload:
+1. Lazy-load heavy interactive components so they are not in the initial payload:
 
 ```tsx
 const Editor = dynamic(() => import("./Editor"), { ssr: false, loading: () => <Skeleton /> });
 ```
 
-- `ssr: false` for anything that genuinely cannot render on the server (a map, a
+2. `ssr: false` for anything that genuinely cannot render on the server (a map, a
   canvas visualisation) — but it also means nothing renders until the JavaScript
   arrives, so reserve it.
-- Check what a `"use client"` file actually pulls in with a bundle analyser. A
+3. Check what a `"use client"` file actually pulls in with a bundle analyser. A
   single icon import can drag in an entire library.
-- Prefer platform APIs over dependencies inside client components — every byte is
+4. Prefer platform APIs over dependencies inside client components — every byte is
   paid by the user, on their device. → `Frontend/performance`
 
 ---

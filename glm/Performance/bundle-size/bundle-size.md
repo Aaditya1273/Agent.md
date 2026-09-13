@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -38,12 +44,12 @@ because bundles grow one innocuous pull request at a time.
 ]
 ```
 
-- Measure **compressed** size (Brotli/gzip) — that is what users download — and
+1. Measure **compressed** size (Brotli/gzip) — that is what users download — and
   track uncompressed too, because parse and execute cost scales with the
   uncompressed bytes.
-- Fail the build on a regression. A warning is ignored; a failing check is
+2. Fail the build on a regression. A warning is ignored; a failing check is
   discussed.
-- Report the delta on every pull request, so the cost of a dependency is visible
+3. Report the delta on every pull request, so the cost of a dependency is visible
   at the moment someone proposes it.
 
 Reasonable starting targets for an application shell: **< 160 KB compressed**
@@ -62,11 +68,11 @@ npx source-map-explorer 'dist/**/*.js'     # any bundler with source maps
 
 It is almost always one or two dependencies, not a hundred small things. Look for:
 
-- The single largest module.
-- **Duplicate copies** of one library at different versions — check with
+1. The single largest module.
+2. **Duplicate copies** of one library at different versions — check with
   `npm ls <pkg>` and deduplicate in the lockfile.
-- Anything in the initial chunk not needed for first paint.
-- Polyfills for browsers you no longer support: check the `browserslist` target,
+3. Anything in the initial chunk not needed for first paint.
+4. Polyfills for browsers you no longer support: check the `browserslist` target,
   which frequently still says something from years ago.
 
 ---
@@ -104,12 +110,12 @@ whether a standard API already does it.
 Tree shaking removes unused exports — but only when the bundler can prove removal
 is safe. It silently fails to shake when:
 
-- The package ships **CommonJS** only. `require()` is dynamic, so nothing can be
+1. The package ships **CommonJS** only. `require()` is dynamic, so nothing can be
   proven. Prefer ESM builds.
-- The package has **side effects** at module scope and no `"sideEffects": false`
+2. The package has **side effects** at module scope and no `"sideEffects": false`
   in its `package.json`.
-- You `import * as x` and then index dynamically.
-- A barrel file (`index.ts` re-exporting everything) pulls in a module chain the
+3. You `import * as x` and then index dynamically.
+4. A barrel file (`index.ts` re-exporting everything) pulls in a module chain the
   bundler cannot prune. Barrel files are a common and invisible cause.
 
 ```json
@@ -124,16 +130,16 @@ was removed. Tree shaking is frequently believed to be working when it is not.
 
 # What else to cut
 
-- **Polyfills**: target modern browsers and let older ones get a separate legacy
+1. **Polyfills**: target modern browsers and let older ones get a separate legacy
   bundle, rather than serving everyone the polyfills the oldest needs.
-- **Locale and timezone data**: import the active locale, not all forty.
-- **Source maps**: generate them, upload them to your error tracker, and do not
+2. **Locale and timezone data**: import the active locale, not all forty.
+3. **Source maps**: generate them, upload them to your error tracker, and do not
   serve them publicly.
-- **Development-only code**: assert that `NODE_ENV` is `production` so
+4. **Development-only code**: assert that `NODE_ENV` is `production` so
   development branches are eliminated.
-- **Duplicated framework runtimes**: two versions of React in one bundle is both a
+5. **Duplicated framework runtimes**: two versions of React in one bundle is both a
   size problem and a runtime bug.
-- **Third-party scripts** are not in your bundle but are on your critical path —
+6. **Third-party scripts** are not in your bundle but are on your critical path —
   analytics and tag managers are frequently the largest script on the page and
   nobody owns them. Inventory and defer them. → `Frontend/performance`
 

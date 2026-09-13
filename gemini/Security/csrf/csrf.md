@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -184,3 +183,27 @@ Making CORS worse also makes CSRF worse:
 - [ ] Verify: JSON APIs reject form-encoded and `text/plain` bodies
 - [ ] Verify: `Access-Control-Allow-Origin` is an explicit list and never a reflected value
 - [ ] Verify: CSRF tokens never appear in URLs
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never place the CSRF token in a `GET` query string — it leaks via `Referer`, logs and history.
+- Never reflect an arbitrary `Origin` into `Access-Control-Allow-Origin`. - Never combine `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true` — browsers reject the pair, and code that works around it has opened the door deliberately. - Keep the allowed-origin list explicit and short.
+
+- [ ] Established whether the API uses cookie authentication at all
+- [ ] Session cookies set `SameSite=Lax` (or `Strict`) explicitly, plus `Secure` and `HttpOnly`
+- [ ] Any `SameSite=None` cookie is deliberate and documented
+- [ ] `GET`, `HEAD` and `OPTIONS` have no side effects
+- [ ] State-changing endpoints validate a session-bound CSRF token
+- [ ] Tokens are CSPRNG-generated and compared with `timingSafeEqual`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

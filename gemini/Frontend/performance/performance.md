@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -178,3 +177,26 @@ shift.
 - [ ] Verify: Animations use only `transform` and `opacity`, honouring reduced motion
 - [ ] Verify: Static assets are content-hashed and cached immutably
 - [ ] Verify: Content-heavy pages are server-rendered or statically generated
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never ship a library for one function. A 70 KB dependency imported for `debounce` is the most common single avoidable regression.
+
+- [ ] LCP, INP and CLS are collected from real users and reviewed at p75
+- [ ] Metrics are segmented by device class and route
+- [ ] Testing includes a throttled mid-range mobile device
+- [ ] A bundle-size budget is enforced in CI
+- [ ] The bundle has been analysed and large dependencies justified
+- [ ] Routes are code-split; heavy components load on demand
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

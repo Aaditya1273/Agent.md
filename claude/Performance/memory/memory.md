@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for memory: keeping usage bounded, diagnosing growth, and configuring a
 runtime so the platform's limits and the runtime's limits agree.
 
@@ -32,11 +42,13 @@ Confusing them wastes days. The distinguishing signal: after load stops, does
 usage return to baseline? If yes, it is growth; if no, it is a leak.
 
 ---
+
 </purpose>
 
 # Bound everything that can grow
 
 <rules>
+
 Almost every leak in application code is one of these:
 
 | Pattern | Why it grows | Fix |
@@ -63,11 +75,13 @@ multi-instance deployment an in-process cache is per-instance anyway — usually
 should be Redis. → `Performance/caching`
 
 ---
+
 </rules>
 
 # Stream instead of buffering
 
 <rules>
+
 ```ts
 // Buffers the entire file into memory. Works in testing, OOMs on a real upload.
 const data = await fs.promises.readFile(path);
@@ -92,11 +106,13 @@ Backpressure exists for this. Ignoring `write()`'s return value lets a fast
 producer fill memory until the process dies.
 
 ---
+
 </rules>
 
 # Diagnose with snapshots, not guesses
 
 <rules>
+
 ```bash
 node --inspect dist/server.js      # then Chrome DevTools → Memory
 ```
@@ -122,11 +138,13 @@ includes page cache and off-heap allocations; a process whose heap is flat can
 still be OOM-killed by native buffers or a memory-mapped file.
 
 ---
+
 </rules>
 
 # Configure the runtime against the container limit
 
 <rules>
+
 The runtime does not read cgroup limits by default. It sizes its heap from **host**
 memory, then gets killed.
 
@@ -156,11 +174,13 @@ Alert on the trend, not the threshold: memory rising steadily across a week with
 no traffic increase is a leak, and it is visible long before the first OOM.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Unbounded in-process cache | Grows until OOM | Bounded LRU with TTL |
@@ -181,11 +201,13 @@ no traffic increase is a leak, and it is visible long before the first OOM.
 | Alerting only on a threshold | The leak is visible days earlier | Alert on the trend |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every in-process cache has a maximum size and a TTL
 - [ ] Shared caches are used instead of per-instance ones where appropriate
 - [ ] Listeners, intervals and subscriptions are removed on teardown
@@ -201,4 +223,5 @@ no traffic increase is a leak, and it is visible long before the first OOM.
 - [ ] The runtime heap is sized below the container limit with headroom
 - [ ] Container memory limit equals the request
 - [ ] Memory trend is alerted on, not just a threshold
+
 </checklist>

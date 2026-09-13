@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never validate by string inspection:
+- Never concatenate paths with `+` or a template literal. Use `path.resolve` or `path.join`, then verify.
+- Never persist the client's filename. Generate your own — a UUID or a content hash — and store the original name as metadata only. - Derive the extension from sniffed content type, not from the supplied name. - Store outside the web root, or in object storage, so an uploaded file cannot be requested as a script. - Serve with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. - Serve user content from a separate origin so a stored HTML file cannot reach your cookies — see `Security/xss`.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for reading, writing and serving files when any part of the path derives
 from input.
 
@@ -26,11 +39,13 @@ is inside the directory you intended.** Inspecting the input string is not a
 control — it is a guess about how the operating system will interpret it.
 
 ---
+
 </purpose>
 
 # Resolve, then verify
 
-<rules>
+<security_rules>
+
 ```js
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -73,11 +88,13 @@ is precisely why you verify the resolved path instead.
 or `path.join`, then verify.
 
 ---
-</rules>
+
+</security_rules>
 
 # Absolute paths and drive letters
 
-<rules>
+<security_rules>
+
 `path.join(root, "/etc/passwd")` yields `root/etc/passwd`, but
 `path.resolve(root, "/etc/passwd")` yields `/etc/passwd` — the absolute argument
 wins. This is a common and surprising escape.
@@ -92,11 +109,13 @@ On Windows also reject drive-relative forms (`C:file`), UNC paths (`\\server\sha
 and reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`).
 
 ---
-</rules>
+
+</security_rules>
 
 # Symlinks
 
-<rules>
+<security_rules>
+
 A path can pass every string check and still resolve outside the root, because a
 component is a symbolic link.
 
@@ -114,11 +133,13 @@ first and validate the descriptor — `O_NOFOLLOW`, or `fs.open` then `fstat` an
 compare `st_dev`/`st_ino`.
 
 ---
-</rules>
+
+</security_rules>
 
 # Uploads
 
-<rules>
+<security_rules>
+
 - **Never** persist the client's filename. Generate your own — a UUID or a content
   hash — and store the original name as metadata only.
 - Derive the extension from **sniffed content type**, not from the supplied name.
@@ -130,11 +151,13 @@ compare `st_dev`/`st_ino`.
   your cookies — see `Security/xss`.
 
 ---
-</rules>
+
+</security_rules>
 
 # Archive extraction — Zip Slip
 
-<rules>
+<security_rules>
+
 An archive entry may contain `../`, an absolute path, or be a symlink. Extracting
 without checking writes outside the destination.
 
@@ -151,11 +174,13 @@ nesting depth. A 42 KB archive expanding to petabytes is a zip bomb, and the
 denial of service arrives long before any traversal does.
 
 ---
-</rules>
+
+</security_rules>
 
 # Static file serving
 
-<rules>
+<security_rules>
+
 Prefer a hardened server or a maintained library over hand-rolled path handling —
 `express.static`, `send`, nginx `root`. They already handle encoding, symlinks,
 range requests and dotfiles.
@@ -169,11 +194,13 @@ If you must handle it yourself:
 - Canonicalise once, at the boundary, and pass the resolved path onward.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `if (p.includes(".."))` | Encoding, double encoding, backslashes | Resolve, then verify |
@@ -187,11 +214,13 @@ If you must handle it yourself:
 | Uploads served from the app origin | Stored XSS with cookie access | Separate origin, `nosniff` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every input-derived path is resolved to absolute before use
 - [ ] The resolved path is verified against `root + path.sep`
 - [ ] Absolute paths, drive-relative forms and UNC paths are rejected
@@ -203,4 +232,5 @@ If you must handle it yourself:
 - [ ] Extraction caps total size, entry count and depth
 - [ ] Dotfiles and null bytes are rejected by the static file path
 - [ ] User content is served from a separate origin with `nosniff`
+
 </checklist>

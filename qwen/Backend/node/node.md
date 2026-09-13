@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: node
 category: Backend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -72,16 +78,16 @@ const a = await getA(); const b = await getB(); const c = await getC();
 const [a, b, c] = await Promise.all([getA(), getB(), getC()]);
 ```
 
-- `Promise.all` rejects on the first failure; `Promise.allSettled` when you need
+1. `Promise.all` rejects on the first failure; `Promise.allSettled` when you need
   every result. Use `Promise.all` unless partial success is meaningful.
-- **Never** use `forEach` with an async callback — it does not await, so the
+2. **Never** use `forEach` with an async callback — it does not await, so the
   function returns before the work finishes and errors are unhandled. Use
   `for…of` for sequential, `Promise.all(map(...))` for concurrent.
-- Bound concurrent fan-out (`p-limit`, a semaphore). `Promise.all` over 10,000
+3. Bound concurrent fan-out (`p-limit`, a semaphore). `Promise.all` over 10,000
   items opens 10,000 sockets.
-- An unawaited promise that rejects becomes an `unhandledRejection`, which
+4. An unawaited promise that rejects becomes an `unhandledRejection`, which
   terminates the process by default in current Node. Await it or attach a handler.
-- Wrap `EventEmitter` callbacks: an exception thrown inside one is not caught by
+5. Wrap `EventEmitter` callbacks: an exception thrown inside one is not caught by
   the surrounding `try`.
 
 ---
@@ -137,18 +143,18 @@ uncaught exception the process state is unknown. → `Backend/error-handling`
 
 Node's supply chain is the largest of any ecosystem, and it is a real attack path.
 
-- **Commit the lockfile** and install with `npm ci`, never `npm install`, in CI
+1. **Commit the lockfile** and install with `npm ci`, never `npm install`, in CI
   and in Docker builds.
-- Pin the Node version in `.nvmrc` and `engines`, and run the same major in CI as
+2. Pin the Node version in `.nvmrc` and `engines`, and run the same major in CI as
   in production.
-- Audit in CI (`npm audit --audit-level=high`, Dependabot, Snyk) and treat a
+3. Audit in CI (`npm audit --audit-level=high`, Dependabot, Snyk) and treat a
   critical finding as a build failure.
-- Prefer the standard library. `node:crypto`, `node:test`, `fetch`, `AbortSignal`
+4. Prefer the standard library. `node:crypto`, `node:test`, `fetch`, `AbortSignal`
   and `structuredClone` are built in — a dependency for what a few lines can do is
   a permanent liability.
-- Use `--ignore-scripts` where feasible; postinstall scripts are the most common
+5. Use `--ignore-scripts` where feasible; postinstall scripts are the most common
   malicious-package vector.
-- Never run the process as root in a container; use a non-root user and a
+6. Never run the process as root in a container; use a non-root user and a
   read-only filesystem. → `DevOps/docker`
 
 ---

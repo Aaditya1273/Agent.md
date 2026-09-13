@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -193,3 +192,24 @@ Node's supply chain is the largest of any ecosystem, and it is a real attack pat
 - [ ] Verify: The Node version is pinned and matches between CI and production
 - [ ] Verify: Dependency audits run in CI and fail on high-severity findings
 - [ ] Verify: The container runs as a non-root user
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] No synchronous I/O, crypto or compression in request paths
+- [ ] CPU-bound work runs in worker threads or a separate service
+- [ ] Event-loop delay is monitored and alerted on
+- [ ] Independent async work uses `Promise.all`, with bounded fan-out
+- [ ] No async callbacks passed to `forEach`
+- [ ] No floating promises; rejections are handled
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

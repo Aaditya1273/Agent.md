@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -220,3 +219,24 @@ differ. → `Testing/integration`
 - [ ] Verify: `alembic check` runs in CI
 - [ ] Verify: Async sessions never lazy-load and are never shared across tasks
 - [ ] Verify: Tests run against the production engine inside a rolled-back transaction
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Models use `Mapped[...]`/`mapped_column`; queries use `select()`
+- [ ] Every constraint and index has an explicit name
+- [ ] Foreign keys set `ondelete` deliberately
+- [ ] Engine created once per process with a sized pool
+- [ ] One session per unit of work, passed in, transaction via `begin()`
+- [ ] `expire_on_commit=False` where objects outlive the commit
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

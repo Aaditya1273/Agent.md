@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never rely on tests running in a particular order, and never let one test depend on data another created. Each test builds what it needs.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for tests that exercise more than one component together — your code plus a
 real database, a real HTTP layer, a real queue.
 
@@ -27,11 +38,13 @@ back, middleware ordering. **Every one of those bugs passes a suite of green uni
 tests**, because the mock agreed with the misunderstanding.
 
 ---
+
 </purpose>
 
 # Use the real dependency
 
 <rules>
+
 Run the actual database, not an in-memory substitute.
 
 ```js
@@ -51,11 +64,13 @@ await migrate();                       // run real migrations, not a schema dump
   bugs live.
 
 ---
+
 </rules>
 
 # Isolation
 
 <rules>
+
 Tests must not see each other's data, and must be safe to run in parallel.
 
 | Strategy | Speed | Isolation | Notes |
@@ -83,11 +98,13 @@ with sensible defaults and accepts overrides. A fixture file that every test rea
 becomes a coupling point nobody dares change.
 
 ---
+
 </rules>
 
 # Third parties
 
 <rules>
+
 Do not call real external APIs from tests. They are slow, rate-limited, and turn
 an unrelated outage into a red build.
 
@@ -114,11 +131,13 @@ partial response. Untested error paths are where integration bugs hide, and the
 happy path is the one part unit tests already covered.
 
 ---
+
 </rules>
 
 # Tooling
 
 <rules>
+
 | Need | Options |
 | --- | --- |
 | Ephemeral dependencies | `testcontainers`, `docker-compose`, `dockertest` |
@@ -133,11 +152,13 @@ hand the transaction-scoped client to the code under test, and `ROLLBACK` in
 test issues its own `BEGIN`/`COMMIT`, or relies on `pg_notify`, advisory locks, or
 a connection pool that hands out a second connection. When that happens, fall back
 to `TRUNCATE` rather than fighting it.
+
 </rules>
 
 # What to test at this level
 
 <rules>
+
 | Test here | Do not test here |
 | --- | --- |
 | Query correctness against a real schema | Business rules → `Testing/unit` |
@@ -161,11 +182,13 @@ That test catches middleware ordering, serialisation and authorisation together 
 none of which a direct handler call exercises.
 
 ---
+
 </rules>
 
 # Keeping them fast
 
 <rules>
+
 Integration tests are slower by nature; keep them from becoming the reason nobody
 runs the suite.
 
@@ -180,11 +203,13 @@ runs the suite.
   already been built on.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | SQLite standing in for Postgres | Dialect differences hide real bugs | Same engine and major version |
@@ -199,11 +224,13 @@ runs the suite.
 | Integration tests nightly only | Failures found a day late | Run on every pull request |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Tests run against the same database engine and major version as production
 - [ ] Real migrations are applied in setup, not a schema dump
 - [ ] Each test is isolated by transaction, truncation, or per-worker schema
@@ -215,4 +242,5 @@ runs the suite.
 - [ ] Cross-tenant authorisation is covered with two tenants
 - [ ] Containers start once per run and tests parallelise by worker
 - [ ] The suite runs on every pull request
+
 </checklist>

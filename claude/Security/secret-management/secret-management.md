@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,25 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never commit a secret "temporarily". Never paste one into an issue, a pull request, a chat message, or a support ticket — those systems are searchable and often exportable.
+- Never log `process.env`, and never interpolate a secret into a log line, a URL, or an error message.
+- Never rely on `.gitignore` alone. It does not protect a file already tracked, and `git add -f` bypasses it.
+- Never use `ENV SECRET=…` or `ARG SECRET=…` in a `Dockerfile`. Both persist in the image layers and are readable with `docker history` by anyone who can pull the image. - Use build secrets that are not committed to a layer:
+- Never treat a history rewrite as remediation. Rotation is remediation.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for handling API keys, database passwords, signing keys and tokens.
 
 The operating assumption: **a secret in source control is already compromised.**
@@ -26,11 +41,13 @@ repositories continuously. Treat "we will remove it later" as "we have rotated
 it" — because removing it without rotating changes nothing.
 
 ---
+
 </purpose>
 
 # Where secrets live
 
-<rules>
+<security_rules>
+
 | Location | Verdict |
 | --- | --- |
 | Secret manager (Vault, AWS Secrets Manager, GCP Secret Manager, 1Password) | **Preferred** — audited, rotatable, access-controlled |
@@ -46,11 +63,13 @@ pull request, a chat message, or a support ticket — those systems are searchab
 and often exportable.
 
 ---
-</rules>
+
+</security_rules>
 
 # Environment variables — the caveats
 
-<rules>
+<security_rules>
+
 Environment variables are the common baseline, and they leak in specific ways
 worth knowing:
 
@@ -76,11 +95,13 @@ if (missing.length) {
 URL, or an error message.
 
 ---
-</rules>
+
+</security_rules>
 
 # Keeping them out of the repository
 
-<rules>
+<security_rules>
+
 ```gitignore
 .env
 .env.*
@@ -103,22 +124,20 @@ the diff, when onboarding an existing repository.
 and `git add -f` bypasses it.
 
 ---
-</rules>
+
+</security_rules>
 
 # Containers and builds
 
-<rules>
+<security_rules>
+
 - **Never** use `ENV SECRET=…` or `ARG SECRET=…` in a `Dockerfile`. Both persist
   in the image layers and are readable with `docker history` by anyone who can
   pull the image.
 - Use **build secrets** that are not committed to a layer:
 
 ```dockerfile
-</rules>
-
 # syntax=docker/dockerfile:1
-
-<rules>
 RUN --mount=type=secret,id=npm_token \
     NPM_TOKEN=$(cat /run/secrets/npm_token) npm ci
 ```
@@ -130,11 +149,13 @@ RUN --mount=type=secret,id=npm_token \
   external-secrets operator backed by a real manager.
 
 ---
-</rules>
+
+</security_rules>
 
 # Rotation
 
-<rules>
+<security_rules>
+
 - **Rotate on a schedule** and **immediately on any suspicion** of exposure.
 - Design every integration to support **two valid credentials at once**, so
   rotation is: issue new → deploy → verify → revoke old. Without overlap,
@@ -146,11 +167,13 @@ RUN --mount=type=secret,id=npm_token \
   unrotatable secret nobody owns is the one that ends up in an incident report.
 
 ---
-</rules>
+
+</security_rules>
 
 # When a secret leaks
 
-<rules>
+<security_rules>
+
 In this order:
 
 1. **Revoke or rotate first.** Not "remove the commit" — revoke. The old value is
@@ -165,11 +188,13 @@ In this order:
 **Never** treat a history rewrite as remediation. Rotation is remediation.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | API key committed "temporarily" | History is permanent; scanners are fast | Rotate; use a secret manager |
@@ -183,11 +208,13 @@ In this order:
 | Secret in a URL query string | Access logs, `Referer`, history | Header or request body |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] No secret appears in source, config, or committed `.env` files
 - [ ] `.gitignore` covers `.env*`, `*.pem`, `*.key`, service-account JSON
 - [ ] `.env.example` lists keys with empty values only
@@ -201,4 +228,5 @@ In this order:
 - [ ] Every integration supports two valid credentials for zero-downtime rotation
 - [ ] Short-lived federated credentials used where the platform supports them
 - [ ] A written leak procedure exists that starts with revocation
+
 </checklist>

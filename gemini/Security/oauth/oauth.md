@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -185,3 +184,28 @@ const claims = await verifyIdToken(id_token, { nonce: session.nonce });
 - [ ] Verify: Refresh-token reuse revokes the family
 - [ ] Verify: No client secret exists in any browser or mobile bundle
 - [ ] Verify: Logout calls the revocation endpoint
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never use `code_challenge_method=plain`. Always `S256`.
+- Never skip `state` because "the code is single-use". Without it, an attacker completes a flow with their own code in the victim's browser and links the victim's session to the attacker's account.
+- Never use the `/userinfo` response as proof of authentication on its own — it is fetched with an access token that may have been issued to a different client. That is the confused-deputy problem OIDC's ID token exists to solve.
+
+- [ ] Authorization code with PKCE `S256` is the only user-facing flow
+- [ ] Implicit and password grants are disabled
+- [ ] Redirect URIs are registered in full and compared by exact string match
+- [ ] `state` and `nonce` are CSPRNG-generated, session-bound and single-use
+- [ ] ID token signature, `iss`, `aud`, `exp` and `nonce` are all validated
+- [ ] The resource server validates `scope` and `aud` for its own API
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

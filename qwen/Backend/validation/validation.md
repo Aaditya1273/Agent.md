@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: validation
 category: Backend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -130,11 +136,11 @@ Validated input is still untrusted **in a different context**. A name that is
 perfectly valid input is still dangerous when concatenated into SQL, a shell
 command, a file path, or HTML.
 
-- Parameterise SQL. → `Security/sql-injection`
-- Never build shell commands from input. → `Security/command-injection`
-- Resolve and confine file paths. → `Security/path-traversal`
-- Escape on output, per context. → `Security/xss`
-- Block private address ranges when fetching a supplied URL (SSRF).
+1. Parameterise SQL. → `Security/sql-injection`
+2. Never build shell commands from input. → `Security/command-injection`
+3. Resolve and confine file paths. → `Security/path-traversal`
+4. Escape on output, per context. → `Security/xss`
+5. Block private address ranges when fetching a supplied URL (SSRF).
 
 Validation reduces the surface. Context-correct encoding is what actually
 prevents injection.
@@ -151,11 +157,11 @@ prevents injection.
   ] }
 ```
 
-- Return **all** failures at once, not the first. Otherwise the client fixes one
+1. Return **all** failures at once, not the first. Otherwise the client fixes one
   field per round trip.
-- Use a path (`items.0.qty`) that identifies the exact field.
-- Stable machine `code` per error; the human message may change freely.
-- Never echo the rejected value back if it might be a credential.
+2. Use a path (`items.0.qty`) that identifies the exact field.
+3. Stable machine `code` per error; the human message may change freely.
+4. Never echo the rejected value back if it might be a credential.
   → `Backend/error-handling`
 
 ---

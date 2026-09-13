@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -16,8 +16,8 @@ Version: 1.0.0
 
 Target Models
 
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
+- Gemini 3.8 Flash
+- Gemini 3.7 Flash
 - Gemini 3.1 Pro
 - Gemini 3 Family
 - Future Gemini Models
@@ -603,8 +603,8 @@ Version: 1.0.0
 
 Target Models
 
-- Gemini 3.6 Flash
-- Gemini 3.5 Flash
+- Gemini 3.8 Flash
+- Gemini 3.7 Flash
 - Gemini 3.1 Pro
 - Gemini 3 Family
 - Future Gemini Models

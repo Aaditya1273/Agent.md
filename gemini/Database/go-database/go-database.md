@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -205,3 +204,24 @@ migrations/
 - [ ] Verify: Nullable columns scan into `sql.Null*` or pointers
 - [ ] Verify: Queries list columns explicitly; no `SELECT *`
 - [ ] Verify: Migrations are versioned files run by a tool in the deploy step, not by the app
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Exactly one `*sql.DB` (or `pgxpool.Pool`) is created in `main` and injected
+- [ ] `PingContext` runs at startup and a failure exits
+- [ ] Pool limits are set relative to the server's connection cap and replica count
+- [ ] Every query uses a `…Context` method with a deadline
+- [ ] All SQL uses placeholders; no string concatenation of values
+- [ ] `sql.ErrNoRows` is translated to a package sentinel at the store
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

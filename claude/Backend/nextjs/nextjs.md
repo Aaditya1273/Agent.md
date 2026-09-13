@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for the server side of a Next.js App Router application: route handlers,
 server components as data loaders, Server Actions, caching, and the boundary that
 decides what ends up in the browser bundle.
@@ -26,11 +36,13 @@ Rendering and component concerns are `Frontend/nextjs` and
 `Frontend/server-components`.
 
 ---
+
 </purpose>
 
 # The server/client boundary is a security boundary
 
 <rules>
+
 ```ts
 // lib/db.ts — poisoned so an accidental client import fails at build time
 import "server-only";
@@ -53,11 +65,13 @@ Validate environment variables at startup and fail the boot on a missing one,
 rather than discovering it on one code path at 3am. → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Route handlers
 
 <rules>
+
 ```ts
 // app/api/orders/route.ts
 export async function POST(req: Request) {
@@ -83,11 +97,13 @@ export async function POST(req: Request) {
   runtime has no Node APIs and most database drivers do not work there.
 
 ---
+
 </rules>
 
 # Caching: know which cache you are in
 
 <rules>
+
 Next.js caches at several layers, and the defaults change between versions. Be
 explicit rather than relying on them.
 
@@ -118,11 +134,13 @@ const res = await fetch(url, { cache: "no-store" });
   correctness bug, not a performance note.
 
 ---
+
 </rules>
 
 # Server Actions are public endpoints
 
 <rules>
+
 ```ts
 "use server";
 export async function deleteOrder(orderId: string) {
@@ -149,11 +167,13 @@ fetch. → `Backend/authorization`
 Actions are for mutations. Fetch data in server components.
 
 ---
+
 </rules>
 
 # Deployment and runtime
 
 <rules>
+
 - Serverless means **no shared process state**. In-memory caches, rate limiters
   and counters are per-instance and reset constantly. Use Redis.
   → `Database/redis`
@@ -168,11 +188,13 @@ Actions are for mutations. Fetch data in server components.
   nonce-based CSP rather than `unsafe-inline`. → `Security/headers`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Secret module imported by a client component | Secret ships in the browser bundle | `server-only` |
@@ -192,11 +214,13 @@ Actions are for mutations. Fetch data in server components.
 | Runtime not declared | Edge runtime breaks database drivers | Declare it explicitly |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Server-only modules are marked with `server-only`
 - [ ] No secret is exposed through a `NEXT_PUBLIC_` variable
 - [ ] Environment variables are validated at startup
@@ -215,4 +239,5 @@ Actions are for mutations. Fetch data in server components.
 - [ ] Long-running work is queued, not run in a request
 - [ ] `middleware.ts` has a tight matcher and no blocking I/O
 - [ ] Security headers and a nonce-based CSP are configured
+
 </checklist>

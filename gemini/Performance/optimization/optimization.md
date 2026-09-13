@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -186,3 +185,24 @@ demonstrably too slow, and comment the fast version with what it replaced and wh
 - [ ] Verify: A regression guard is added in CI for each fixed problem
 - [ ] Verify: The change and its measured effect are recorded in the pull request
 - [ ] Verify: Non-obvious optimised code carries a comment explaining what it replaced
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] A numeric performance target exists per critical journey
+- [ ] The baseline is measured in production at p95/p99
+- [ ] Metrics are segmented by device, connection, region and tenant
+- [ ] The bottleneck is identified by profiling or tracing, not by intuition
+- [ ] Saturation (pools, locks, queues) is ruled out before optimising code
+- [ ] One change is made at a time
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

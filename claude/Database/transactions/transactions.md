@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never rely on reading a value, checking it in application code, and writing it back without one of these.
+- Never do these inside a transaction:
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for transaction boundaries, isolation and concurrency control.
 
 The two failures that account for most incidents: **transactions held open too
@@ -26,11 +38,13 @@ long**, which exhausts the connection pool and blocks vacuum, and **assuming
 that silently corrupts a balance.
 
 ---
+
 </purpose>
 
 # Isolation levels and what each permits
 
 <rules>
+
 | Level | Dirty read | Non-repeatable read | Phantom | Lost update |
 | --- | --- | --- | --- | --- |
 | `READ UNCOMMITTED` | Possible* | Possible | Possible | Possible |
@@ -47,11 +61,13 @@ transactions each read a balance of 100, each subtract 30, and the result is 70
 instead of 40. No error is raised.
 
 ---
+
 </rules>
 
 # The read-modify-write race
 
 <rules>
+
 ```js
 // BROKEN under READ COMMITTED — two concurrent runs both read the old value
 const account = await tx.account.findUnique({ where: { id } });
@@ -82,11 +98,13 @@ the caller to handle the retry.
 back without one of these.
 
 ---
+
 </rules>
 
 # Keep transactions short
 
 <rules>
+
 A transaction holds locks and a connection for its entire life.
 
 **Never** do these inside a transaction:
@@ -114,11 +132,13 @@ Set `idle_in_transaction_session_timeout` so a leaked transaction cannot hold a
 connection indefinitely.
 
 ---
+
 </rules>
 
 # Serialisable and retries
 
 <rules>
+
 `SERIALIZABLE` gives correctness without manual locking, at the cost of
 **serialisation failures the caller must retry**.
 
@@ -144,11 +164,13 @@ acquiring locks in a **consistent order** (for example, always the lower account
 id first).
 
 ---
+
 </rules>
 
 # Boundaries and correctness
 
 <rules>
+
 - One transaction per **unit of business work** — not per statement, not per
   request. If two writes must both succeed or both fail, they share a transaction.
 - **Never** nest transactions expecting independent rollback. Most drivers map an
@@ -159,11 +181,13 @@ id first).
   not charge twice. Use an idempotency key.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Read, modify, write under `READ COMMITTED` | Lost update, silently | Atomic `UPDATE` or `FOR UPDATE` |
@@ -178,11 +202,13 @@ id first).
 | Long-running report in a transaction | Blocks vacuum; bloat grows | Read outside, or a replica |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The isolation level is chosen deliberately, and its anomalies are understood
 - [ ] No read-modify-write happens without an atomic update or an explicit lock
 - [ ] Transactions contain no HTTP calls, emails, queue publishes or user waits
@@ -194,4 +220,5 @@ id first).
 - [ ] `idle_in_transaction_session_timeout` is set
 - [ ] Retryable operations carry an idempotency key
 - [ ] `idle in transaction` connection counts are monitored
+
 </checklist>

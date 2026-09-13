@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 How to review a code change for security, and how to spend that attention where
 it pays.
 
@@ -27,11 +37,13 @@ check and no dependency is a smaller security event than a three-line change to 
 `WHERE` clause.
 
 ---
+
 </purpose>
 
 # Triage the diff first
 
-<rules>
+<security_rules>
+
 Ask what the change touches before reading it line by line:
 
 | Signal in the diff | Attention |
@@ -52,11 +64,13 @@ network to application, application to database, application to shell,
 application to filesystem, one tenant to another.
 
 ---
-</rules>
+
+</security_rules>
 
 # Questions that find real bugs
 
-<rules>
+<security_rules>
+
 Ask these of the change, in order:
 
 1. **Where does input enter, and what is it trusted to be?**
@@ -89,11 +103,13 @@ Ask these of the change, in order:
    outbound network destination, new secret.
 
 ---
-</rules>
+
+</security_rules>
 
 # Patterns that deserve a comment every time
 
-<rules>
+<security_rules>
+
 ```js
 // 1. Authorisation by route, data access unscoped
 if (!req.user) return res.status(401).end();
@@ -120,11 +136,13 @@ Each of these is a defect, not a style preference. The last is the most dangerou
 because it looks tidy.
 
 ---
-</rules>
+
+</security_rules>
 
 # Automate what humans read badly
 
-<rules>
+<security_rules>
+
 Humans are poor at scanning for known patterns and good at reasoning about intent.
 Give each the work it suits.
 
@@ -141,13 +159,8 @@ exception with an owner for anything suppressed. A permanent suppression with no
 owner is how a known CVE ships for two years.
 
 ```yaml
-</rules>
-
 # Gate the build. An exception must name an owner and an expiry, so a
-
 # suppression cannot quietly become permanent.
-
-<rules>
 - name: Dependency and secret scan
   run: |
     npm audit --omit=dev --audit-level=high
@@ -159,11 +172,13 @@ Reserve human review for: authorisation logic, business-rule abuse, error paths,
 trust assumptions, and whether the feature should exist in this shape at all.
 
 ---
-</rules>
+
+</security_rules>
 
 # Reviewing the review
 
-<rules>
+<security_rules>
+
 - **Say what you checked**, not only what you found. "Verified the new query is
   tenant-scoped and the upload path is resolved before use" is far more useful to
   the next reviewer than a silent approval.
@@ -175,11 +190,13 @@ trust assumptions, and whether the feature should exist in this shape at all.
   approval is an assertion.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Reviewing line count rather than boundaries | Attention on the harmless 2,000 lines | Triage by what is touched |
@@ -193,11 +210,13 @@ trust assumptions, and whether the feature should exist in this shape at all.
 | "It's internal" as a justification | Internal networks are not trusted | Require the same controls |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The diff was triaged for trust-boundary changes before line-by-line reading
 - [ ] Every new data access is scoped by owner or tenant
 - [ ] No input is interpolated into SQL, a shell command, HTML or a template
@@ -209,4 +228,5 @@ trust assumptions, and whether the feature should exist in this shape at all.
 - [ ] Dependency, secret and SAST scans run and gate on high or critical
 - [ ] Any suppression has an owner and an expiry
 - [ ] The review states what was verified, with severity graded honestly
+
 </checklist>

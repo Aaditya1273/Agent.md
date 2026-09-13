@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -181,3 +180,27 @@ id first).
 - [ ] Verify: `idle_in_transaction_session_timeout` is set
 - [ ] Verify: Retryable operations carry an idempotency key
 - [ ] Verify: `idle in transaction` connection counts are monitored
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never rely on reading a value, checking it in application code, and writing it back without one of these.
+- Never do these inside a transaction:
+
+- [ ] The isolation level is chosen deliberately, and its anomalies are understood
+- [ ] No read-modify-write happens without an atomic update or an explicit lock
+- [ ] Transactions contain no HTTP calls, emails, queue publishes or user waits
+- [ ] External side effects go through an outbox
+- [ ] `SERIALIZABLE` transactions are wrapped in retry with backoff and jitter
+- [ ] Locks are always acquired in a consistent order
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

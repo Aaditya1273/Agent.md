@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: rate-limiting
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for limiting request rates. Two distinct goals, often conflated:
@@ -133,11 +139,7 @@ changes when you autoscale.
 - Local in-process limiting is a reasonable second layer, never the only one.
 
 ```nginx
-
 # Edge layer: reject volumetric abuse before it reaches an application process
-
-[INST] Apply every rule in this section: Edge layer: reject volumetric abuse before it reaches an application process. [/INST]
-
 limit_req_zone $binary_remote_addr zone=api:20m rate=20r/s;
 limit_req      zone=api burst=40 nodelay;
 limit_req_status 429;

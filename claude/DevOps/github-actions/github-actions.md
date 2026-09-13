@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,20 +14,32 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules specific to GitHub Actions. General pipeline design is `DevOps/cicd`; this
 covers the platform's own behaviours — particularly the trigger and permission
 model, which is where its real vulnerabilities live.
 
 ---
+
 </purpose>
 
 # Triggers decide who can run your secrets
 
 <rules>
+
 | Trigger | Runs as | Secrets | Safe with untrusted code |
 | --- | --- | --- | --- |
 | `push` | The repository | Yes | n/a |
@@ -40,11 +52,7 @@ model, which is where its real vulnerabilities live.
 repository takeover.** It runs untrusted code with your secrets and a write token:
 
 ```yaml
-</rules>
-
 # ❌ Never. The fork's code executes with full repository credentials.
-
-<rules>
 on: pull_request_target
 steps:
   - uses: actions/checkout@v4
@@ -65,11 +73,13 @@ name or an issue body interpolated into a `run:` block is shell injection.
 ```
 
 ---
+
 </rules>
 
 # Least privilege, and no static cloud keys
 
 <rules>
+
 ```yaml
 permissions:
   contents: read          # default for the whole workflow
@@ -102,11 +112,13 @@ trust policy to the specific repository **and ref** — a policy trusting
 a PAT is unavoidable, use a fine-grained one scoped to one repository.
 
 ---
+
 </rules>
 
 # Pin everything
 
 <rules>
+
 ```yaml
 - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
 ```
@@ -119,11 +131,13 @@ Pin runner images to a version (`ubuntu-24.04`) rather than `ubuntu-latest`, whi
 moves under you and breaks builds on a schedule you do not control.
 
 ---
+
 </rules>
 
 # Make it fast
 
 <rules>
+
 ```yaml
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -147,11 +161,13 @@ concurrency:
   that vanish on expiry.
 
 ---
+
 </rules>
 
 # Structure and operations
 
 <rules>
+
 - Extract shared logic into **reusable workflows** (`workflow_call`) or composite
   actions. Copy-pasted YAML across ten repositories drifts immediately.
 - Use `environment:` for deployments to get required reviewers, wait timers and
@@ -164,11 +180,13 @@ concurrency:
   otherwise a failing command in the middle of a multi-line `run` is ignored.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `pull_request_target` + checkout head | Fork code runs with your secrets | Never combine them |
@@ -189,11 +207,13 @@ concurrency:
 | Secrets echoed for debugging | Readable by anyone with repo access | Mask; never print |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] No workflow combines `pull_request_target` with checking out the head ref
 - [ ] No `github.event` value is interpolated directly into a shell command
 - [ ] `permissions` is declared explicitly and defaults to `contents: read`
@@ -211,4 +231,5 @@ concurrency:
 - [ ] Shared logic lives in reusable workflows, not copied YAML
 - [ ] Deployments use environments with required reviewers
 - [ ] No secret is printed or logged
+
 </checklist>

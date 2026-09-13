@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for CPU-bound performance. The first rule is a filter: **most web-service
 latency is waiting, not computing.** Before optimising CPU, confirm it is actually
 the constraint.
@@ -31,11 +41,13 @@ the constraint.
 | High `system` CPU, low `user` | Syscalls, context switching, or throttling |
 
 ---
+
 </purpose>
 
 # Profile with a flame graph
 
 <rules>
+
 ```bash
 npx 0x -- node dist/server.js              # Node
 py-spy record -o profile.svg -- python app.py
@@ -59,11 +71,13 @@ Profile under **realistic load and data**. A profile taken on ten rows shows
 startup cost; a profile on production-shaped data shows the algorithm.
 
 ---
+
 </rules>
 
 # Complexity beats constants
 
 <rules>
+
 | Change | Typical gain |
 | --- | --- |
 | O(n²) → O(n) with a hash lookup | 100–10,000× at scale |
@@ -96,11 +110,13 @@ size — another reason to project only the fields you need.
 → `Performance/queries`
 
 ---
+
 </rules>
 
 # Do not block a single-threaded runtime
 
 <rules>
+
 In Node, one thread serves every request. A synchronous 200 ms operation adds
 200 ms to **every** concurrent request, not just its own.
 
@@ -124,11 +140,13 @@ For genuinely CPU-heavy work: `worker_threads`, a separate service, or a queue.
 Adding async concurrency to a blocked event loop does nothing.
 
 ---
+
 </rules>
 
 # Parallelism, and its limits
 
 <rules>
+
 - Independent work runs concurrently: `Promise.all`, goroutines, a thread pool.
   Bound the fan-out — unbounded parallelism exhausts pools and adds context
   switching. → `Backend/workers`
@@ -152,11 +170,13 @@ Scaling out is a legitimate answer once the code is efficient — but it pays re
 forever, so establish the algorithm is not quadratic first.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Optimising CPU when the service is I/O-bound | No gain; the wait is elsewhere | Confirm saturation first |
@@ -177,11 +197,13 @@ forever, so establish the algorithm is not quadratic first.
 | Scaling out to hide an O(n²) | Pays rent forever | Fix the algorithm |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] CPU is confirmed as the constraint before optimising it
 - [ ] A flame graph identifies the hot path under realistic load and data
 - [ ] Self time is distinguished from total time
@@ -199,4 +221,5 @@ forever, so establish the algorithm is not quadratic first.
 - [ ] The serial fraction is understood before adding cores
 - [ ] CPU limits are omitted for latency-sensitive containers
 - [ ] Scaling out follows algorithmic fixes rather than replacing them
+
 </checklist>

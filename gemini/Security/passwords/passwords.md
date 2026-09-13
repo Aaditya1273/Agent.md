@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -183,3 +182,27 @@ breach screening.
 - [ ] Verify: Rate limiting covers login, change and reset, keyed by account and IP
 - [ ] Verify: Users are emailed on password change
 - [ ] Verify: Strength feedback uses an entropy estimator, as guidance not a gate
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never silently truncate. If you must cap input, reject with a clear message rather than hashing a prefix — the user will believe a password works that does not.
+- Never log a password, even at debug level, even on failure. Scrub request bodies before they reach an error reporter. - Never email a password, new or existing. Send a single-use reset link. - Never store a recoverable form — if you can display it, so can an attacker. "Forgot password" must reset, never reveal. - Accept passwords only over HTTPS, and only via `POST` body — never a query string, where they reach logs and `Referer` headers. - Set `autocomplete="current-password"` / `"new-password"` so password managers work correctly. Fighting managers pushes users toward weaker, memorable choices. - Never disable paste on a password field. It exists to defeat password managers and achieves only weaker passwords.
+
+- [ ] Minimum 8 characters; maximum at least 64
+- [ ] All Unicode accepted; input `NFKC`-normalised before hashing
+- [ ] No composition rules enforced
+- [ ] Candidates screened against a breach corpus via k-anonymity or a local copy
+- [ ] No scheduled forced rotation; rotation on compromise is supported
+- [ ] Long inputs pre-hashed or clearly rejected, never silently truncated
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

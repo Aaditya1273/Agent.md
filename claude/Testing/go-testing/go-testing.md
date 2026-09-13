@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for tests in Go. The `testing` package is deliberately small; the
 patterns below are how the community fills the gap without a framework.
 Reach for a dependency only after the standard library has demonstrably
@@ -27,11 +37,13 @@ General testing principles are `Testing/unit`; HTTP handler design is
 `Backend/go-http`.
 
 ---
+
 </purpose>
 
 # Table-driven subtests
 
 <rules>
+
 ```go
 func TestDiscount(t *testing.T) {
     tests := []struct {
@@ -65,11 +77,13 @@ func TestDiscount(t *testing.T) {
   before that, `tc := tc`.
 
 ---
+
 </rules>
 
 # Helpers and cleanup
 
 <rules>
+
 ```go
 func newStore(t *testing.T) *Store {
     t.Helper()                                  // failures point at the caller
@@ -89,11 +103,13 @@ func newStore(t *testing.T) *Store {
   instead of reading the environment.
 
 ---
+
 </rules>
 
 # HTTP handlers with httptest
 
 <rules>
+
 ```go
 func TestGetOrder(t *testing.T) {
     h := New(fakeStore{orders: map[string]Order{"o1": {ID: "o1"}}}, slog.Default())
@@ -116,11 +132,13 @@ func TestGetOrder(t *testing.T) {
   before the happy path. They are the tests that catch a missing check.
 
 ---
+
 </rules>
 
 # Fakes over mocks
 
 <rules>
+
 ```go
 // The consumer's interface is small, so a fake is ten lines. No framework.
 type fakeStore struct{ orders map[string]Order }
@@ -140,11 +158,13 @@ func (f fakeStore) Get(_ context.Context, id string) (Order, error) {
   fakes input. Design for interfaces and most mocking needs disappear.
 
 ---
+
 </rules>
 
 # Golden files
 
 <rules>
+
 ```go
 var update = flag.Bool("update", false, "rewrite golden files")
 
@@ -166,11 +186,13 @@ func TestRender(t *testing.T) {
 - `go test -update` regenerates them; the diff in the PR is the review.
 
 ---
+
 </rules>
 
 # Benchmarks, race, fuzz
 
 <rules>
+
 ```go
 func BenchmarkParse(b *testing.B) {
     for i := 0; i < b.N; i++ {          // or `for range b.N` from 1.24
@@ -194,11 +216,13 @@ func FuzzParse(f *testing.F) {
   `testdata/fuzz/` as regression cases.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | One giant test function with `if` chains | First failure hides the rest | Table-driven subtests |
@@ -215,11 +239,13 @@ func FuzzParse(f *testing.F) {
 | Benchmarking once and trusting the number | Noise | `benchstat` across runs |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Tests are table-driven with named `t.Run` subtests
 - [ ] Failure messages include input, got, and want
 - [ ] Subtests call `t.Parallel()` where the code under test is pure or safe
@@ -232,4 +258,5 @@ func FuzzParse(f *testing.F) {
 - [ ] `go test -race ./...` runs in CI
 - [ ] Parsers of untrusted input have a `Fuzz` target with crashers kept as regressions
 - [ ] Benchmarks are compared with `benchstat`, never a single run
+
 </checklist>

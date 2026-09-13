@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for Python 3.12+ `asyncio` code. Async in Python is cooperative: one blocking
 call stalls every coroutine on the loop, and nothing warns you. Most "async is
 slow" reports are a sync call hiding inside an `async def`.
@@ -25,11 +35,13 @@ slow" reports are a sync call hiding inside an `async def`.
 Framework specifics are `Backend/fastapi`; ORM async is `Database/sqlalchemy`.
 
 ---
+
 </purpose>
 
 # When to use it
 
 <rules>
+
 | Use asyncio | Do not |
 | --- | --- |
 | Many concurrent network calls (HTTP fan-out, DB pools, websockets) | CPU-bound work (parsing, hashing, ML) |
@@ -41,11 +53,13 @@ simplicity. Choose it for I/O concurrency, and then go all the way — a half-as
 codebase gets the costs of both.
 
 ---
+
 </rules>
 
 # Never block the loop
 
 <rules>
+
 ```python
 async def handler():
     data = requests.get(url).json()     # blocks the loop for the whole request
@@ -71,11 +85,13 @@ async def handler():
   async driver instead.
 
 ---
+
 </rules>
 
 # Structured concurrency: `TaskGroup`
 
 <rules>
+
 ```python
 async with asyncio.TaskGroup() as tg:
     t1 = tg.create_task(fetch_user(uid))
@@ -92,11 +108,13 @@ user, orders = t1.result(), t2.result()
 - `except* ValueError:` to handle one member type of an `ExceptionGroup`.
 
 ---
+
 </rules>
 
 # Cancellation and timeouts
 
 <rules>
+
 ```python
 async with asyncio.timeout(5):                 # 3.11+; raises TimeoutError
     await fetch()
@@ -119,11 +137,13 @@ except asyncio.CancelledError:
   leaked connection under a network partition. → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Async-native libraries
 
 <rules>
+
 | Sync | Async replacement |
 | --- | --- |
 | `requests` | `httpx.AsyncClient`, `aiohttp` |
@@ -138,21 +158,19 @@ request discards the connection pool and pays TLS every time. Close it in the
 application's shutdown hook.
 
 ---
+
 </rules>
 
 # Sync boundaries
 
 <rules>
+
 ```python
 def cli_entry() -> None:
     asyncio.run(main())           # exactly one asyncio.run per process
-</rules>
 
 # Calling async from sync code that is already inside a running loop:
-
 # you cannot. Refactor the caller to be async, or run in a separate thread.
-
-<rules>
 ```
 
 - `asyncio.run()` once, at the top. Nested `run()` calls raise; `get_event_loop()`
@@ -163,17 +181,16 @@ def cli_entry() -> None:
   abandoned one holds its resources until finalised.
 
 ---
+
 </rules>
 
 # Testing
 
 <rules>
-```python
-</rules>
 
+```python
 # pyproject.toml → [tool.pytest.ini_options] asyncio_mode = "auto"
 
-<rules>
 async def test_timeout_cancels_and_cleans_up(monkeypatch):
     async def slow(): await asyncio.sleep(10)
     with pytest.raises(TimeoutError):
@@ -188,11 +205,13 @@ async def test_timeout_cancels_and_cleans_up(monkeypatch):
   non-awaitable and the test passes for the wrong reason. → `Testing/pytest`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `requests`/`time.sleep`/sync ORM inside `async def` | Stalls every coroutine | Async driver or `to_thread` |
@@ -210,11 +229,13 @@ async def test_timeout_cancels_and_cleans_up(monkeypatch):
 | `Mock()` for an async dependency | Returns non-awaitable | `AsyncMock` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Async chosen for I/O concurrency, not for CPU work
 - [ ] No blocking call inside any `async def`; debug mode used to find them
 - [ ] Sync work offloaded with `asyncio.to_thread`, sparingly
@@ -227,4 +248,5 @@ async def test_timeout_cancels_and_cleans_up(monkeypatch):
 - [ ] Fan-out bounded with a `Semaphore`
 - [ ] Exactly one `asyncio.run()` per process
 - [ ] Tests run in `asyncio_mode = "auto"` with `AsyncMock`; no real sleeps
+
 </checklist>

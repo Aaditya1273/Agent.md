@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -188,3 +187,28 @@ If you must handle it yourself:
 - [ ] Verify: Extraction caps total size, entry count and depth
 - [ ] Verify: Dotfiles and null bytes are rejected by the static file path
 - [ ] Verify: User content is served from a separate origin with `nosniff`
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never validate by string inspection:
+- Never concatenate paths with `+` or a template literal. Use `path.resolve` or `path.join`, then verify.
+- Never persist the client's filename. Generate your own — a UUID or a content hash — and store the original name as metadata only. - Derive the extension from sniffed content type, not from the supplied name. - Store outside the web root, or in object storage, so an uploaded file cannot be requested as a script. - Serve with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. - Serve user content from a separate origin so a stored HTML file cannot reach your cookies — see `Security/xss`.
+
+- [ ] Every input-derived path is resolved to absolute before use
+- [ ] The resolved path is verified against `root + path.sep`
+- [ ] Absolute paths, drive-relative forms and UNC paths are rejected
+- [ ] Windows reserved device names are rejected
+- [ ] `realpath` is used where symlinks are possible
+- [ ] Uploads are stored under server-generated names, outside the web root
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

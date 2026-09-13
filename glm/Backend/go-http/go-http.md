@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -43,13 +49,13 @@ func (h *Handler) getOrder(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- Patterns are `"METHOD /path/{param}"`. A pattern without a method matches all
+1. Patterns are `"METHOD /path/{param}"`. A pattern without a method matches all
   methods; always specify one for API routes.
-- `r.PathValue("id")` reads a wildcard. `{id...}` matches the rest of the path;
+2. `r.PathValue("id")` reads a wildcard. `{id...}` matches the rest of the path;
   `{$}` anchors an exact match (`"GET /{$}"` is the root only).
-- Most specific pattern wins; two patterns that overlap ambiguously panic at
+3. Most specific pattern wins; two patterns that overlap ambiguously panic at
   registration, which is the behaviour you want — at startup, not in production.
-- **Never** switch on `r.Method` inside a handler. That is what the pattern is for.
+4. **Never** switch on `r.Method` inside a handler. That is what the pattern is for.
 
 ---
 
@@ -69,11 +75,11 @@ func New(store orders.Store, logger *slog.Logger) http.Handler {
 }
 ```
 
-- Handlers are methods on a struct that holds dependencies. **Never** reach for
+1. Handlers are methods on a struct that holds dependencies. **Never** reach for
   package-level variables for the database or logger.
-- `New` returns `http.Handler`, not `*http.ServeMux`. Callers wrap it in
+2. `New` returns `http.Handler`, not `*http.ServeMux`. Callers wrap it in
   middleware and pass it to `http.Server`; they do not need the mux type.
-- Keep the handler thin: decode, validate, call a service, encode. Business rules
+3. Keep the handler thin: decode, validate, call a service, encode. Business rules
   in a handler cannot be reused from a job or tested without HTTP.
 
 ---
@@ -94,12 +100,12 @@ func requestID(next http.Handler) http.Handler {
 handler := recoverer(logging(requestID(mux)))   // outermost runs first
 ```
 
-- Middleware is `func(http.Handler) http.Handler`. No framework type needed.
-- Order matters and reads inside-out: `recoverer` must be outermost so it
+1. Middleware is `func(http.Handler) http.Handler`. No framework type needed.
+2. Order matters and reads inside-out: `recoverer` must be outermost so it
   catches panics from every layer, including logging.
-- Context keys are unexported struct types (`type ctxKeyRequestID struct{}`),
+3. Context keys are unexported struct types (`type ctxKeyRequestID struct{}`),
   never strings — string keys from two packages collide silently.
-- Use context values for request-scoped metadata only (request id, auth
+4. Use context values for request-scoped metadata only (request id, auth
   principal). **Never** pass function parameters through the context.
 
 ---
@@ -117,14 +123,14 @@ srv := &http.Server{
 }
 ```
 
-- `http.ListenAndServe(addr, h)` has **no timeouts**. A slow client holds a
+1. `http.ListenAndServe(addr, h)` has **no timeouts**. A slow client holds a
   connection forever. Always construct `http.Server` and set all four.
-- `ReadHeaderTimeout` alone defeats slowloris; set it even when the others are
+2. `ReadHeaderTimeout` alone defeats slowloris; set it even when the others are
   generous.
-- Per-request deadlines come from the context: `ctx, cancel :=
+3. Per-request deadlines come from the context: `ctx, cancel :=
   context.WithTimeout(r.Context(), 5*time.Second)` around downstream calls, and
   pass `ctx` to the database and outbound HTTP.
-- Outbound: **never** use `http.DefaultClient` in production; it has no timeout.
+4. Outbound: **never** use `http.DefaultClient` in production; it has no timeout.
   Construct one `http.Client{Timeout: …}` per dependency and reuse it.
 
 ---
@@ -147,11 +153,11 @@ func run(ctx context.Context, srv *http.Server) error {
 }
 ```
 
-- `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)` in
+1. `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)` in
   `main` gives you the context.
-- `srv.Shutdown` stops accepting, waits for in-flight requests up to the
+2. `srv.Shutdown` stops accepting, waits for in-flight requests up to the
   deadline, then returns. Without it, a deploy severs live requests.
-- Readiness (`/readyz`) should start failing *before* shutdown so the load
+3. Readiness (`/readyz`) should start failing *before* shutdown so the load
   balancer drains you; liveness (`/healthz`) stays green until exit.
 
 ---
@@ -176,15 +182,15 @@ func respond(w http.ResponseWriter, status int, v any) {
 }
 ```
 
-- Cap request bodies with `http.MaxBytesReader`. Without it, one client can
+1. Cap request bodies with `http.MaxBytesReader`. Without it, one client can
   allocate as much memory as it likes.
-- `DisallowUnknownFields` turns typos into `400`s instead of silently ignored
+2. `DisallowUnknownFields` turns typos into `400`s instead of silently ignored
   fields.
-- Set `Content-Type` before `WriteHeader`; headers written after the status are
+3. Set `Content-Type` before `WriteHeader`; headers written after the status are
   dropped.
-- Validate after decoding: required fields, ranges, enums. Return all field
+4. Validate after decoding: required fields, ranges, enums. Return all field
   errors together (`errors.Join`), not the first.
-- Use `time.Time` with RFC 3339 and `int64` cents for money; never `float64` for
+5. Use `time.Time` with RFC 3339 and `int64` cents for money; never `float64` for
   currency.
 
 ---

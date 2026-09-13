@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -70,14 +77,14 @@ app.use(async (req, res, next) => {
 });
 ```
 
-- It establishes identity; it does **not** decide access. That is
+1. It establishes identity; it does **not** decide access. That is
   `Security/authorization`.
-- Register it **before** any route. → `Backend/middlewares`
-- Default-deny: apply `requireAuth` globally and mark public routes explicitly,
+2. Register it **before** any route. → `Backend/middlewares`
+3. Default-deny: apply `requireAuth` globally and mark public routes explicitly,
   so a new route is protected by default.
-- Never read identity from the request body or a client-supplied header such as
+4. Never read identity from the request body or a client-supplied header such as
   `X-User-Id`. Only the verified credential establishes it.
-- Put `userId`, `tenantId` and `sessionId` into async context so logging and
+5. Put `userId`, `tenantId` and `sessionId` into async context so logging and
   authorization reach them without threading parameters.
 
 For bearer tokens, verify the signature against a **cached** JWKS with a refresh
@@ -88,18 +95,18 @@ provider for every single call.
 
 # Sessions and refresh
 
-- **Rotate the identifier** on login, on logout, and on any privilege change.
+1. **Rotate the identifier** on login, on logout, and on any privilege change.
   Reusing the pre-login id is session fixation.
-- Enforce **both** an idle timeout and an absolute lifetime. Idle alone lets a
+2. Enforce **both** an idle timeout and an absolute lifetime. Idle alone lets a
   stolen token live indefinitely under automated use.
-- **Logout deletes server-side state.** Clearing the cookie is not logout; a
+3. **Logout deletes server-side state.** Clearing the cookie is not logout; a
   captured token remains valid until natural expiry.
-- **Rotate refresh tokens on use**, and store them hashed. Detect reuse of an
+4. **Rotate refresh tokens on use**, and store them hashed. Detect reuse of an
   already-consumed refresh token: that means it was stolen, so revoke the entire
   token family and force re-authentication.
-- Invalidate every session on password change, except optionally the one making
+5. Invalidate every session on password change, except optionally the one making
   the change.
-- Keep a **session list per user** with device, IP and last-seen, and let users
+6. Keep a **session list per user** with device, IP and last-seen, and let users
   revoke individual sessions. This is both a security control and the feature
   users ask for.
 
@@ -131,16 +138,16 @@ impersonated one, be time-limited, and be audit-logged on every request.
 
 # Failure behaviour
 
-- `401` for missing or invalid credentials; `403` for authenticated but not
+1. `401` for missing or invalid credentials; `403` for authenticated but not
   permitted. Returning `403` to an anonymous caller confirms the resource exists.
-- **Identical responses** for unknown user and wrong password, in body, status and
+2. **Identical responses** for unknown user and wrong password, in body, status and
   timing. Any difference is a user-enumeration oracle.
-- Rate limit login attempts on **both** account and IP. Per-IP alone does not stop
+3. Rate limit login attempts on **both** account and IP. Per-IP alone does not stop
   distributed credential stuffing; per-account alone lets one host spray many
   accounts. → `API/rate-limiting`
-- Never lock an account permanently on failed attempts — that is a
+4. Never lock an account permanently on failed attempts — that is a
   denial-of-service primitive against your own users. Use temporary backoff.
-- Log every authentication failure, success, logout and privilege change with
+5. Log every authentication failure, success, logout and privilege change with
   actor, source IP and user agent.
 
 ---

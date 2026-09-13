@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never silence the lint rule to stop a loop. It converts a visible re-render problem into an invisible stale-data problem.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for using and writing hooks. Hooks are positional: React identifies them by
 **call order**, not by name. Everything in the Rules of Hooks follows from that
 one implementation detail.
@@ -25,11 +36,13 @@ one implementation detail.
 Component-level state modelling is `Frontend/react`.
 
 ---
+
 </purpose>
 
 # The rules, and why they exist
 
 <rules>
+
 ```tsx
 // Broken — the hook order changes between renders, so React associates
 // state with the wrong hook and the component corrupts silently.
@@ -50,11 +63,13 @@ An early `return` before a hook is the most common accidental violation — it m
 the hook count differ between renders.
 
 ---
+
 </rules>
 
 # Dependencies are not a suggestion
 
 <rules>
+
 ```tsx
 // Stale closure: `query` is captured from the first render forever
 useEffect(() => { search(query); }, []);
@@ -81,11 +96,13 @@ useEffect(() => { track(user.id); }, [user.id]);
 problem into an invisible stale-data problem.
 
 ---
+
 </rules>
 
 # The right hook for the job
 
 <rules>
+
 | Hook | Use for |
 | --- | --- |
 | `useState` | Independent values |
@@ -116,11 +133,13 @@ A ref changing does **not** re-render. If the UI must reflect a value, it is
 state, not a ref.
 
 ---
+
 </rules>
 
 # Effects need cleanup
 
 <rules>
+
 ```tsx
 useEffect(() => {
   const controller = new AbortController();
@@ -144,11 +163,13 @@ loader. They handle caching, deduplication, retries and races — all of which y
 would otherwise reimplement per component.
 
 ---
+
 </rules>
 
 # Custom hooks
 
 <rules>
+
 Extract a custom hook when **stateful logic** is reused. Extract a plain function
 when the logic has no state — a function is easier to test and to reason about.
 
@@ -171,11 +192,13 @@ export function useDebouncedValue<T>(value: T, delayMs = 300): T {
 - Test with `renderHook` from `@testing-library/react`.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Conditional or early-return hook calls | Hook order shifts; state corrupts | Unconditional top-level calls |
@@ -194,11 +217,13 @@ export function useDebouncedValue<T>(value: T, delayMs = 300): T {
 | Breaking on Strict Mode double-invoke | The bug is real, not the mode | Make effects idempotent |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Hooks are called unconditionally at the top level of every component
 - [ ] No hook follows an early return
 - [ ] `eslint-plugin-react-hooks` runs with both rules set to error
@@ -214,4 +239,5 @@ export function useDebouncedValue<T>(value: T, delayMs = 300): T {
 - [ ] Custom hooks are prefixed `use` and return a consistent shape
 - [ ] Stateless logic is a plain function, not a hook
 - [ ] Custom hooks are tested with `renderHook`
+
 </checklist>

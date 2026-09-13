@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -82,12 +88,12 @@ req.log = log.child({ requestId: id, traceId: trace.getActiveSpan()?.spanContext
 res.set("x-request-id", id);          // echo it so support tickets carry it
 ```
 
-- Propagate the id to every downstream call (`x-request-id`, W3C `traceparent`).
-- Attach it via async context (`AsyncLocalStorage`, `context.Context`) so it does
+1. Propagate the id to every downstream call (`x-request-id`, W3C `traceparent`).
+2. Attach it via async context (`AsyncLocalStorage`, `context.Context`) so it does
   not have to be threaded through every function signature.
-- Return it on every response. A customer quoting a request id turns an
+3. Return it on every response. A customer quoting a request id turns an
   unreproducible report into one log query.
-- Include `trace_id` so a log line links to its trace.
+4. Include `trace_id` so a log line links to its trace.
 
 ---
 
@@ -106,13 +112,13 @@ const log = pino({
 **Never** log: passwords (even wrong ones), tokens, API keys, session ids, full
 card numbers, CVVs, government identifiers, or full request/response bodies.
 
-- Redact by **allowlist** for anything that carries user data. A denylist misses
+1. Redact by **allowlist** for anything that carries user data. A denylist misses
   the field somebody added last week.
-- Never log an entire object with a spread — `log.info({ user })` will include
+2. Never log an entire object with a spread — `log.info({ user })` will include
   every field the model gains in future.
-- Personal data in logs inherits retention and erasure obligations. Log a user
+3. Personal data in logs inherits retention and erasure obligations. Log a user
   **id**, not a name and email.
-- A leaked credential in a log is a leaked credential: log storage is widely
+4. A leaked credential in a log is a leaked credential: log storage is widely
   readable, replicated and backed up. Treat it as a disclosure and rotate.
   → `Security/secret-management`
 
@@ -124,13 +130,13 @@ Log at **boundaries and decisions**, not inside loops.
 
 Worth logging:
 
-- One request-completion line per request: method, route (the **template**, not
+1. One request-completion line per request: method, route (the **template**, not
   the interpolated path), status, duration, request id, actor.
-- Outbound dependency calls: target, status, duration, retry count.
-- State transitions with business meaning: `payment.captured`, `order.shipped`.
-- Security events: authentication failure, authorization denial, rate-limit
+2. Outbound dependency calls: target, status, duration, retry count.
+3. State transitions with business meaning: `payment.captured`, `order.shipped`.
+4. Security events: authentication failure, authorization denial, rate-limit
   breach, privilege change. → `Security/audit-log`
-- Background job start/finish with the outcome and duration.
+5. Background job start/finish with the outcome and duration.
 
 Not worth logging: entry and exit of every function, "starting…" without a
 matching "finished", raw payloads, anything already captured as a metric.
@@ -145,14 +151,14 @@ grouping and cardinality control impossible.
 Logs are the largest observability bill in most systems and the growth is
 superlinear with traffic.
 
-- **Sample** high-volume success paths (keep 1–10% of healthy `2xx` request lines,
+1. **Sample** high-volume success paths (keep 1–10% of healthy `2xx` request lines,
   keep 100% of errors). Record the sampling rate in the line so counts can be
   reconstructed.
-- Never derive a metric by counting log lines — it is expensive and breaks the
+2. Never derive a metric by counting log lines — it is expensive and breaks the
   moment sampling changes. Emit a counter. → `Backend/monitoring`
-- Set retention by value: 7–30 days hot for debugging, longer and cheaper for
+3. Set retention by value: 7–30 days hot for debugging, longer and cheaper for
   audit and compliance.
-- Keep cardinality out of field values that get indexed — a raw user id is fine to
+4. Keep cardinality out of field values that get indexed — a raw user id is fine to
   log, but not as a metric label.
 
 ---

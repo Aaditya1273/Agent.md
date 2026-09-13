@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: disaster-recovery
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for surviving a major failure: a region outage, a destructive mistake, a
@@ -89,27 +95,17 @@ promotion rather than a multi-hour restore. → `Database/replication`
 [INST] Apply every rule in this section: Write runbooks that work at 3am. [/INST]
 
 ```markdown
-
 # Runbook: Primary database region failure
 
 ## Detect
-
-[INST] Apply every rule in this section: Detect. [/INST]
-
 - `pg_up == 0` for 2 minutes in `eu-west-1`, or the RDS event stream shows failover
 - Confirm: `pg_isready -h $PRIMARY_HOST` from a bastion outside the region
 
 ## Decide
-
-[INST] Apply every rule in this section: Decide. [/INST]
-
 - Promote if the primary is unreachable for > 5 minutes. Decision owner: on-call.
 - No approval required.
 
 ## Act
-
-[INST] Apply every rule in this section: Act. [/INST]
-
 1. Verify the standby's replay position:  SELECT pg_last_wal_replay_lsn();
 2. Promote:  aws rds failover-db-cluster --db-cluster-identifier prod
 3. Update the connection secret and restart consumers
@@ -117,16 +113,10 @@ promotion rather than a multi-hour restore. → `Database/replication`
 5. Re-point surviving replicas
 
 ## Verify
-
-[INST] Apply every rule in this section: Verify. [/INST]
-
 - Error rate returns to baseline within 5 minutes
 - Write path confirmed by the synthetic check
 
 ## Communicate
-
-[INST] Apply every rule in this section: Communicate. [/INST]
-
 - Status page within 10 minutes; update every 30
 ```
 
@@ -196,11 +186,7 @@ people to open them, and alert on use.
 | Incident tabletop with a scenario nobody prepared for | Quarterly |
 
 ```bash
-
 # Time every drill. The measured number replaces the aspirational RTO.
-
-[INST] Apply every rule in this section: Time every drill. The measured number replaces the aspirational RTO.. [/INST]
-
 START=$(date -u +%s)
 ./runbooks/restore-db.sh --target-time "2026-08-23T14:32:59Z" --into scratch
 psql "$SCRATCH_URL" -c "SELECT count(*) FROM orders;"        # sanity, not proof
@@ -212,13 +198,8 @@ Run drills **against the runbook as written**, with someone who did not write it
 and time them. Every drill's output is a corrected runbook and a corrected RTO.
 
 ```yaml
-
 # A chaos experiment states its hypothesis and its abort condition up front.
-
 # Without both, it is not an experiment — it is an outage you caused.
-
-[INST] Apply every rule in this section: Without both, it is not an experiment — it is an outage you caused.. [/INST]
-
 hypothesis: "Losing one of three API pods does not raise the 5xx rate above 0.1%."
 method:     { action: pod-delete, namespace: prod, label: app=api, count: 1 }
 abort_if:   "sum(rate(http_requests_total{status=~'5..'}[1m])) / sum(rate(http_requests_total[1m])) > 0.01"

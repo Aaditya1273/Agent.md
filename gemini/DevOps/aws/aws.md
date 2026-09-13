@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -194,3 +193,26 @@ expire**, and it is a permanent, growing charge nobody notices.
 - [ ] Verify: Secrets live in Secrets Manager or Parameter Store with rotation
 - [ ] Verify: Cost-allocation tags are enforced and budgets alert
 - [ ] Verify: Service quotas are checked and raised before launches
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never create long-lived access keys for a human or a workload. Use IAM roles: instance profiles for EC2, IRSA/Pod Identity for EKS, task roles for ECS, and OIDC federation for CI. → `DevOps/github-actions` - Humans authenticate through Identity Center (SSO) with short-lived credentials, MFA enforced. - No wildcards in production policies. `"Action": "s3:*"` on `"Resource": "*"` is the policy behind most incidents. Grant the specific actions on the specific ARNs. - Scope by condition: `aws:SourceVpc`, `aws:PrincipalOrgID`, `aws:SecureTransport`. - Root account: MFA, no access keys, no daily use, alarm on any use. - Separate accounts per environment under Organizations, with SCPs preventing region use, public S3 and CloudTrail deletion. A blast radius that stops at the account boundary is the strongest control AWS offers.
+
+- [ ] No long-lived IAM access keys exist for humans or workloads
+- [ ] Human access is via Identity Center with MFA
+- [ ] Production policies name specific actions and resource ARNs
+- [ ] Root account has MFA, no keys, and alarms on use
+- [ ] Environments are separated into accounts with guardrail SCPs
+- [ ] Block Public Access is enforced at the account level
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

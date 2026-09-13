@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: monitoring
 category: Backend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -24,8 +30,8 @@ find out why when it is not.
 
 Two different questions, two different tools:
 
-- **Is it broken?** Metrics and alerts. Low cardinality, cheap, always on.
-- **Why is it broken?** Traces and logs. High cardinality, expensive, sampled.
+1. **Is it broken?** Metrics and alerts. Low cardinality, cheap, always on.
+2. **Why is it broken?** Traces and logs. High cardinality, expensive, sampled.
 
 Instrumenting for the first and hoping it answers the second is the most common
 mistake. → `Backend/logging`
@@ -89,11 +95,11 @@ review — a new label multiplies every existing series.
 Infrastructure metrics tell you a host is unhealthy. Business metrics tell you the
 product is broken, which is the thing users notice.
 
-- `payments_captured_total`, `signups_completed_total`, `orders_created_total`
-- Queue depth and oldest-message age per queue → `Backend/queues`
-- Job success/failure counts and durations by job type
-- Dependency call rate, error rate and latency, per dependency
-- Cache hit ratio
+1. `payments_captured_total`, `signups_completed_total`, `orders_created_total`
+2. Queue depth and oldest-message age per queue → `Backend/queues`
+3. Job success/failure counts and durations by job type
+4. Dependency call rate, error rate and latency, per dependency
+5. Cache hit ratio
 
 A deploy that breaks checkout while every host stays green is a routine outage.
 The business metric is what catches it.
@@ -105,16 +111,16 @@ The business metric is what catches it.
 Distributed tracing is the only practical way to answer "where did the 4 seconds
 go" across services.
 
-- Use **OpenTelemetry**. Vendor-neutral, and every backend consumes it.
-- Auto-instrument HTTP, database and queue clients; add manual spans for
+1. Use **OpenTelemetry**. Vendor-neutral, and every backend consumes it.
+2. Auto-instrument HTTP, database and queue clients; add manual spans for
   significant internal work.
-- Propagate W3C `traceparent` across every service and queue boundary — a trace
+3. Propagate W3C `traceparent` across every service and queue boundary — a trace
   that stops at the first hop is nearly useless.
-- Put high-cardinality identifiers on **span attributes** (`user.id`, `order.id`),
+4. Put high-cardinality identifiers on **span attributes** (`user.id`, `order.id`),
   which is exactly where they belong.
-- Sample **tail-based** where available: keep 100% of errors and slow requests,
+5. Sample **tail-based** where available: keep 100% of errors and slow requests,
   a small fraction of fast successes.
-- Record the `trace_id` in logs so the two link.
+6. Record the `trace_id` in logs so the two link.
 
 ```ts
 // OpenTelemetry: auto-instrument the edges, add spans for real work
@@ -186,10 +192,10 @@ every other alert weaker. → `DevOps/monitoring`
 
 Separate the two, because they mean different things to the orchestrator:
 
-- **Liveness** — is the process wedged? Must not check dependencies. A liveness
+1. **Liveness** — is the process wedged? Must not check dependencies. A liveness
   check that fails when the database is down makes Kubernetes restart every pod
   during a database incident, turning a degradation into a full outage.
-- **Readiness** — can it serve traffic now? May check the database and required
+2. **Readiness** — can it serve traffic now? May check the database and required
   dependencies, and should fail during startup and graceful shutdown.
 
 ---

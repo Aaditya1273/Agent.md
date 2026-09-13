@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -75,9 +82,9 @@ interface Mailer {
 One interface, one implementation per provider. Providers have outages and price
 changes, and a direct SDK call from forty places is a migration nobody schedules.
 
-- **Warm up** a new sending domain or dedicated IP gradually. A cold domain sending
+1. **Warm up** a new sending domain or dedicated IP gradually. A cold domain sending
   50,000 messages on day one is filtered as a spam source.
-- A **shared IP pool** is usually better for low volume — you inherit the
+2. A **shared IP pool** is usually better for low volume — you inherit the
   provider's reputation instead of building your own. A dedicated IP only pays off
   above a consistent high volume.
 
@@ -91,31 +98,31 @@ await queue.add("send-email", { userId, template: "password-reset" },
                 { jobId: `pwreset:${userId}:${tokenId}` });
 ```
 
-- Never send inline in a request handler. A slow provider becomes your latency,
+1. Never send inline in a request handler. A slow provider becomes your latency,
   and an outage becomes your outage.
-- Enqueue **after** the transaction commits — a receipt for an order that rolled
+2. Enqueue **after** the transaction commits — a receipt for an order that rolled
   back is a support ticket. → `Backend/background-jobs`
-- Deduplicate: retries must not send the message twice. The deterministic job id
+3. Deduplicate: retries must not send the message twice. The deterministic job id
   above is the guard.
-- Retry on `5xx` and timeouts only. A `4xx` for an invalid address is permanent —
+4. Retry on `5xx` and timeouts only. A `4xx` for an invalid address is permanent —
   retrying it damages your reputation.
 
 ---
 
 # Content and templating
 
-- **Multipart: HTML and plain text.** A missing text part is a spam signal, and
+1. **Multipart: HTML and plain text.** A missing text part is a spam signal, and
   some clients only render text.
-- Table-based layout with inline CSS. Email clients are twenty years behind
+2. Table-based layout with inline CSS. Email clients are twenty years behind
   browsers; `flexbox`, `grid` and external stylesheets do not work reliably.
-- Width around 600px, images with `alt` text, and a design that still communicates
+3. Width around 600px, images with `alt` text, and a design that still communicates
   with images blocked — which is the default in many clients.
-- **Escape every interpolated value.** A user-controlled display name in an HTML
+4. **Escape every interpolated value.** A user-controlled display name in an HTML
   email is an injection vector, especially where the email is later viewed in a
   web client. → `Security/xss`
-- Never put a secret in a URL you also log, and never email a password.
-- Localise using the recipient's stored preference, not the sending server's.
-- Test rendering across clients (Litmus, Email on Acid, or at minimum Gmail,
+5. Never put a secret in a URL you also log, and never email a password.
+6. Localise using the recipient's stored preference, not the sending server's.
+7. Test rendering across clients (Litmus, Email on Acid, or at minimum Gmail,
   Outlook, Apple Mail) — Outlook's rendering engine will break a layout that works
   everywhere else.
 

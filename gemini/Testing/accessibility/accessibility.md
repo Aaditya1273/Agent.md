@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -183,3 +182,26 @@ minutes with VoiceOver finds problems no automated rule expresses.
 - [ ] Verify: Text meets 4.5:1 contrast, interface components 3:1
 - [ ] Verify: `prefers-reduced-motion` is honoured
 - [ ] Verify: A real screen reader has been used on each significant feature
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never use `aria-hidden="true"` on a focusable element — it produces a control that can be reached but not announced, the worst of both.
+
+- [ ] `axe-core` runs in CI and asserts zero WCAG 2.1 AA violations
+- [ ] Scans cover modal, error, expanded and empty states — not just page load
+- [ ] Every interactive element is reachable and operable by keyboard
+- [ ] Focus is always visible; `:focus-visible` is styled, never removed
+- [ ] Focus order follows visual order; no `tabindex` above `0`
+- [ ] Modals trap focus and restore it to the trigger on close
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -242,3 +241,24 @@ completion; a postmortem whose actions are never done is theatre.
 - [ ] Verify: Every drill produces runbook corrections
 - [ ] Verify: Chaos experiments run with a hypothesis and an abort condition
 - [ ] Verify: Every incident produces a blameless postmortem with tracked actions
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] RPO and RTO are agreed and documented per service tier
+- [ ] The architecture actually meets the stated numbers, verified by drill
+- [ ] Failure scenarios are enumerated, including human error and compromise
+- [ ] Point-in-time recovery covers destructive mistakes
+- [ ] Backups are isolated and immutable against account compromise
+- [ ] Runbooks exist for every scenario with exact commands and decision criteria
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -148,11 +155,11 @@ connection. → `Database/transactions`
 
 Cache after the query is correct and indexed, never instead.
 
-- A cache in front of an unindexed query hides the problem until the cache misses,
+1. A cache in front of an unindexed query hides the problem until the cache misses,
   usually under the load that caused you to add it.
-- Cache **derived, expensive, rarely-changing** results — not primary key lookups
+2. Cache **derived, expensive, rarely-changing** results — not primary key lookups
   that are already sub-millisecond.
-- Every cache needs an invalidation story before it is added.
+3. Every cache needs an invalidation story before it is added.
   → `Performance/caching`
 
 ---

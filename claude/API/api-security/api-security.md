@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never accept an identity field from the request body. `{"userId": …}` or a `role` in the payload is client-controlled; identity comes from the verified token only.
+- Never accept credentials in a URL query string. They land in access logs, proxy logs, browser history and `Referer` headers.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Security rules specific to APIs. An API has no HTML, no browser, and often no
 human — so browser-centric defences do not apply and the failures are different.
 
@@ -26,11 +38,13 @@ authorization**: an endpoint that authenticates correctly and then returns
 somebody else's row. → `Security/authorization`
 
 ---
+
 </purpose>
 
 # Authorization is per object, on every request
 
 <rules>
+
 ```ts
 // Broken (BOLA) — authenticated, and completely unauthorized
 app.get("/v1/orders/:id", auth, async (req, res) => {
@@ -58,11 +72,13 @@ if (!order) return res.sendStatus(404);
 only.
 
 ---
+
 </rules>
 
 # Authentication
 
 <rules>
+
 | Client | Mechanism |
 | --- | --- |
 | First-party browser app | Session cookie: `HttpOnly; Secure; SameSite` |
@@ -82,11 +98,13 @@ pinned JWKS. Keep lifetimes short and pair with refresh.
 proxy logs, browser history and `Referer` headers.
 
 ---
+
 </rules>
 
 # Validate everything at the boundary
 
 <rules>
+
 ```ts
 const CreateOrder = z.object({
   items: z.array(z.object({
@@ -114,11 +132,13 @@ address ranges, and re-validate after redirects — SSRF is how cloud metadata
 credentials are stolen.
 
 ---
+
 </rules>
 
 # Transport and headers
 
 <rules>
+
 ```
 Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
 Cache-Control: no-store
@@ -133,11 +153,13 @@ X-Content-Type-Options: nosniff
   origin with cookies. → `Security/cors`, `Security/headers`
 
 ---
+
 </rules>
 
 # Rate limiting and abuse
 
 <rules>
+
 Every endpoint is limited; authentication endpoints more strictly, keyed on both
 account and IP. Return `429` with `Retry-After`. → `API/rate-limiting`
 
@@ -146,11 +168,13 @@ maximum query depth, maximum export range. One request that scans ten million
 rows is an outage regardless of the rate limit.
 
 ---
+
 </rules>
 
 # Errors, logging and exposure
 
 <rules>
+
 - One error shape, stable machine codes, no stack traces, no SQL, no internal
   hostnames, no framework version.
 - Log the **event**, not the payload. Never log tokens, passwords, card numbers,
@@ -163,11 +187,13 @@ rows is an outage regardless of the rate limit.
   endpoints are the ones without current authorization checks.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Authentication without per-object checks | BOLA — the top API vulnerability | Scope inside the query |
@@ -187,11 +213,13 @@ rows is an outage regardless of the rate limit.
 | Forgotten legacy endpoints | Unpatched, unchecked, still live | Maintained endpoint inventory |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every object fetch is scoped to the caller inside the query
 - [ ] Hidden objects return `404`, not `403`
 - [ ] Field-level authorization is applied to sensitive properties
@@ -210,4 +238,5 @@ rows is an outage regardless of the rate limit.
 - [ ] Security-relevant events are logged; payloads are redacted by allowlist
 - [ ] Introspection, explorers and debug endpoints are disabled in production
 - [ ] An endpoint inventory exists and is reviewed
+
 </checklist>

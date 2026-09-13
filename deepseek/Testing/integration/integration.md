@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -41,12 +48,12 @@ process.env.DATABASE_URL = container.getConnectionUri();
 await migrate();                       // run real migrations, not a schema dump
 ```
 
-- Use **Testcontainers**, Docker Compose, or a dedicated test instance. Pin the
+1. Use **Testcontainers**, Docker Compose, or a dedicated test instance. Pin the
   **same major version** as production.
-- **Run the real migrations** in the test setup. This is how you learn that
+2. **Run the real migrations** in the test setup. This is how you learn that
   migration 47 fails on a table with data — a class of failure no other test
   catches.
-- **Never** substitute SQLite for Postgres or MySQL. The dialects differ where
+3. **Never** substitute SQLite for Postgres or MySQL. The dialects differ where
   bugs live.
 
 ---
@@ -158,14 +165,14 @@ none of which a direct handler call exercises.
 Integration tests are slower by nature; keep them from becoming the reason nobody
 runs the suite.
 
-- **Start containers once per run**, not per test file. Reuse across the suite.
-- **Parallelise by worker** with a schema or database each.
-- Seed the **minimum** needed. A 500-row fixture where 2 rows suffice costs on
+1. **Start containers once per run**, not per test file. Reuse across the suite.
+2. **Parallelise by worker** with a schema or database each.
+3. Seed the **minimum** needed. A 500-row fixture where 2 rows suffice costs on
   every test.
-- Keep the ratio sane: many unit tests, a meaningful layer of integration tests, a
+4. Keep the ratio sane: many unit tests, a meaningful layer of integration tests, a
   handful of end-to-end tests. Inverting that produces a suite that takes 40
   minutes and gets skipped.
-- Run them on **every pull request**, not nightly. A failure found a day later has
+5. Run them on **every pull request**, not nightly. A failure found a day later has
   already been built on.
 
 ---

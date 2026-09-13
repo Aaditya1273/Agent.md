@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -188,3 +187,28 @@ CREATE POLICY tenant_isolation ON invoices
 - [ ] Verify: Multi-tenant queries are enforced structurally (RLS or repository layer)
 - [ ] Verify: Tests cover two tenants and a cross-tenant access attempt
 - [ ] Verify: Authorisation denials are logged with subject, object and action
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never rely on the client to enforce anything. A hidden button, a disabled field and an unrendered route are user-interface conveniences. Every one is reachable with `curl`.
+- Never authorise on an identifier supplied by the client — `?organisationId=`, `X-Tenant-Id`, or a `role` field in the request body. Derive the subject's scope from the session, always.
+- Never accept `role`, `isAdmin`, `plan` or `permissions` from a request body. Mass-assignment of these fields is direct privilege escalation. Allow-list the fields a user may update. - Never expose an admin action on a route distinguished only by obscurity. `/admin/*` needs the same object-level checks as everything else. - Re-check authorisation after any state transition — a user who was an owner when the request started may not be by the time it commits. - Log authorisation denials with subject, object and action. A spike is either an attack or a broken deployment, and you want to know which.
+
+- [ ] Every data access is scoped by owner or tenant in the query itself
+- [ ] No authorisation decision depends on a client-supplied identifier
+- [ ] Nested and bulk operations authorise every object, not just the first
+- [ ] Unauthorised objects return `404`, not `403`
+- [ ] Endpoints deny by default; permitted actions are enumerated
+- [ ] Call sites check named permissions rather than role strings
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

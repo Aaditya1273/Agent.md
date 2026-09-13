@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -225,3 +224,28 @@ because the credential is bound to the origin.
 - [ ] Verify: Reset tokens single-use, ≤ 60 minutes, stored hashed
 - [ ] Verify: All sessions invalidated on password change
 - [ ] Verify: MFA available; WebAuthn preferred; TOTP codes single-use
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never use `md5`, `sha1`, `sha256`, or any bare digest for passwords. They are designed to be fast, which is the opposite of what is required. A commodity GPU tries billions of SHA-256 candidates per second.
+- Never implement your own salting scheme. `argon2id`, `scrypt` and `bcrypt` generate and embed a per-password salt in the output string. A separate `salt` column is a sign the KDF is being misused.
+- Never apply a "pepper" stored in the same database as the hashes. If it is in the dump, it is not a secret.
+
+- [ ] Passwords hashed with `argon2id` (`m=19456, t=2, p=1`) or an approved alternative
+- [ ] No bare `md5` / `sha1` / `sha256` anywhere in the credential path
+- [ ] Verification uses the library comparator, never `===`
+- [ ] Hashes upgraded on login when parameters are below policy
+- [ ] Maximum password length ≥ 64; all Unicode accepted; `NFKC` normalised
+- [ ] Candidate passwords checked against a breach corpus
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

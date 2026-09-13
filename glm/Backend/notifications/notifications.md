@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -72,11 +78,11 @@ notices. Everything else is the user's choice, and the default must be
 conservative — a noisy default trains users to mute the whole channel, including
 the ones that matter.
 
-- Honour quiet hours in the **user's** timezone, not the server's.
-- Every non-forced notification carries an unsubscribe path that works in one
+1. Honour quiet hours in the **user's** timezone, not the server's.
+2. Every non-forced notification carries an unsubscribe path that works in one
   click and is honoured immediately. `List-Unsubscribe` for email is required by
   major providers at volume.
-- Store preference changes with a timestamp — "I never agreed to this" is a
+3. Store preference changes with a timestamp — "I never agreed to this" is a
   compliance question. → `Security/audit-log`
 
 ---
@@ -85,14 +91,14 @@ the ones that matter.
 
 Duplicate notifications are the fastest route to a muted channel.
 
-- Deduplicate on `idempotencyKey` within a window. Retries, replays and
+1. Deduplicate on `idempotencyKey` within a window. Retries, replays and
   at-least-once queues all cause repeats. → `Backend/queues`
-- **Collapse** related events: fifteen comments on one thread is one notification
+2. **Collapse** related events: fifteen comments on one thread is one notification
   saying "15 new comments", not fifteen pushes.
-- **Digest** low-urgency types: hold and send hourly or daily, at a time chosen
+3. **Digest** low-urgency types: hold and send hourly or daily, at a time chosen
   in the user's timezone.
-- Suppress a notification about an action the user just performed themselves.
-- Rate-limit per user per channel as a hard backstop, regardless of event volume.
+4. Suppress a notification about an action the user just performed themselves.
+5. Rate-limit per user per channel as a hard backstop, regardless of event volume.
 
 Concretely: a `collapseKey` groups events that supersede one another
 (`thread:${threadId}`), a `digestWindow` holds them (`PT1H`, `P1D`), and a

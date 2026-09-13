@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: monitoring
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for monitoring infrastructure: nodes, clusters, databases, queues,
@@ -65,11 +71,7 @@ An alert should mean **a user is affected, and you can do something now**. Defin
 the SLO first; the alert follows from it.
 
 ```yaml
-
 # Multi-window burn rate: fast burn pages, slow burn opens a ticket
-
-[INST] Apply every rule in this section: Multi-window burn rate: fast burn pages, slow burn opens a ticket. [/INST]
-
 - alert: CheckoutFastBurn
   expr: |
     (1 - sum(rate(sli_good_total{journey="checkout"}[1h]))
@@ -95,29 +97,16 @@ a clear owner, and a reason it cannot wait until morning. Anything failing those
 is a ticket.
 
 ```promql
-
 # Disk: predict, do not threshold. Four hours of warning is actionable.
-
-[INST] Apply every rule in this section: Disk: predict, do not threshold. Four hours of warning is actionable.. [/INST]
-
 predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 4*3600) < 0
 
 # Inodes exhaust independently of bytes — `df -h` still shows free space
-
-[INST] Apply every rule in this section: Inodes exhaust independently of bytes — `df -h` still shows free space. [/INST]
-
 node_filesystem_files_free / node_filesystem_files < 0.1
 
 # Certificates: a scheduled outage with a known date
-
-[INST] Apply every rule in this section: Certificates: a scheduled outage with a known date. [/INST]
-
 probe_ssl_earliest_cert_expiry - time() < 7 * 86400
 
 # Replication lag, in seconds behind the primary → `Database/replication`
-
-[INST] Apply every rule in this section: Replication lag, in seconds behind the primary → `Database/replication`. [/INST]
-
 pg_stat_replication_replay_lag_seconds > 30
 ```
 

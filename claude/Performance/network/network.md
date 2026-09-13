@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for making the network faster. The central fact: **latency, not bandwidth,
 dominates web performance.** Doubling bandwidth barely changes page load time;
 halving round trips changes it a lot.
@@ -26,11 +36,13 @@ Every rule here reduces round trips, moves bytes closer, or sends fewer of them 
 in that order of impact.
 
 ---
+
 </purpose>
 
 # Count the round trips
 
 <rules>
+
 A cold HTTPS connection costs, before a single byte of your content:
 
 ```
@@ -54,11 +66,13 @@ On a 100 ms round trip that is 300–400 ms before anything arrives. Consequence
   → `Backend/express`
 
 ---
+
 </rules>
 
 # Eliminate waterfalls
 
 <rules>
+
 A waterfall is a request that cannot start until a previous one finishes. It is
 the single largest avoidable cost in most applications.
 
@@ -79,11 +93,13 @@ the single largest avoidable cost in most applications.
   actually blocks rendering. → `Frontend/performance`
 
 ---
+
 </rules>
 
 # Send fewer bytes
 
 <rules>
+
 | Technique | Typical saving |
 | --- | --- |
 | Brotli over gzip (static assets) | 15–25% |
@@ -104,11 +120,13 @@ the single largest avoidable cost in most applications.
   → `API/pagination`
 
 ---
+
 </rules>
 
 # Cache to avoid the request entirely
 
 <rules>
+
 The fastest request is the one not made.
 
 ```
@@ -127,11 +145,13 @@ Cache-Control: private, no-store                        # authenticated
   → `Performance/caching`
 
 ---
+
 </rules>
 
 # Move bytes closer
 
 <rules>
+
 - A CDN turns a 150 ms origin round trip into a 15 ms edge round trip. It is the
   highest-leverage change available for a geographically distributed audience.
 - Ensure a high cache hit ratio at the edge — a CDN that proxies every request to
@@ -144,11 +164,13 @@ Cache-Control: private, no-store                        # authenticated
   co-locate.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Optimising bandwidth, ignoring latency | Round trips dominate | Reduce round trips |
@@ -170,11 +192,13 @@ Cache-Control: private, no-store                        # authenticated
 | Chatty internal calls | Latency multiplies | Batch or co-locate |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Performance work targets round trips before bandwidth
 - [ ] Third-party origins are minimised and critical ones are `preconnect`ed
 - [ ] No request waterfall exists on the critical path
@@ -193,4 +217,5 @@ Cache-Control: private, no-store                        # authenticated
 - [ ] A CDN serves static assets with a monitored hit ratio
 - [ ] Compute is co-located with the data it queries
 - [ ] Internal service calls are batched rather than sequential
+
 </checklist>

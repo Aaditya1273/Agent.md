@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never skip `aud` validation in a multi-service estate. A token minted for the analytics API is otherwise accepted by the payments API.
+- Never trust unvalidated custom claims for authorisation — `{"role":"admin"}` in a token you did not verify the issuer of is just attacker input.
+- Never claim tokens are revoked because the client deleted them. Deleting a token client-side is a UI gesture, not a security control.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for using JWTs without introducing the failure modes the format invites.
 
 **First, decide whether you need one.** A JWT is the right tool when a resource
@@ -27,13 +40,15 @@ has none of the pitfalls below. Reach for a JWT because you need stateless
 verification — not because it is the default.
 
 ---
+
 </purpose>
 
 # Algorithm — the classic break
 
 ## Pin the algorithm at verification. Never read it from the token.
 
-<rules>
+<security_rules>
+
 The `alg` header is attacker-controlled. A verifier that trusts it can be
 defeated two ways:
 
@@ -72,11 +87,13 @@ second party must verify, they need the secret, and then they can also mint
 tokens.
 
 ---
-</rules>
+
+</security_rules>
 
 # Claim validation
 
-<rules>
+<security_rules>
+
 Verifying the signature proves integrity. It does not prove the token is *for
 you*, *current*, or *from whom you expect*. Validate every claim explicitly.
 
@@ -112,11 +129,13 @@ Keep expiry short: **5–15 minutes** for access tokens. Long-lived access token
 are the reason revocation becomes an unsolvable problem.
 
 ---
-</rules>
+
+</security_rules>
 
 # Keys
 
-<rules>
+<security_rules>
+
 - Store signing keys in a secret manager or KMS, never in the repository, never
   in a client bundle. See `Security/secret-management`.
 - HMAC secrets must be **≥ 256 bits of CSPRNG output**. A guessable secret makes
@@ -130,11 +149,13 @@ are the reason revocation becomes an unsolvable problem.
   key-injection vector in one.
 
 ---
-</rules>
+
+</security_rules>
 
 # Revocation — the honest part
 
-<rules>
+<security_rules>
+
 A JWT is valid until it expires. That is the whole point of stateless
 verification, and it is also the problem: **you cannot un-issue one.**
 
@@ -168,11 +189,13 @@ Refresh tokens must be **rotated on use**, and reuse of a consumed refresh token
 must revoke the whole family — that is the signal a token was stolen.
 
 ---
-</rules>
+
+</security_rules>
 
 # Transport and storage
 
-<rules>
+<security_rules>
+
 - Send as `Authorization: Bearer <token>` over HTTPS only.
 - In browsers, prefer an `HttpOnly; Secure; SameSite` cookie over `localStorage`.
   A token in `localStorage` is readable by any script, so any XSS becomes account
@@ -184,11 +207,13 @@ must revoke the whole family — that is the signal a token was stolen.
   is required, use JWE — or better, an opaque token.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `jwt.verify(token, key)` without `algorithms` | `alg: none` and RS256→HS256 confusion | Explicit allow-list |
@@ -201,11 +226,13 @@ must revoke the whole family — that is the signal a token was stolen.
 | Refresh token reused silently | Theft goes undetected | Rotate on use; revoke family on reuse |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] An opaque session was considered and stateless verification is genuinely needed
 - [ ] Verification passes an explicit `algorithms` allow-list; `none` never appears
 - [ ] `HS256` used only where signer and verifier are the same service
@@ -218,4 +245,5 @@ must revoke the whole family — that is the signal a token was stolen.
 - [ ] A revocation strategy exists — deny-list, token version, or short expiry
 - [ ] Refresh tokens rotate on use; reuse revokes the family
 - [ ] Tokens never appear in URLs; payload contains no secrets or PII
+
 </checklist>

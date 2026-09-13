@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -86,11 +93,11 @@ A transaction holds locks and a connection for its entire life.
 
 **Never** do these inside a transaction:
 
-- An HTTP call to a third party. A 30-second timeout becomes a 30-second lock.
-- Sending an email or publishing to a queue — if the transaction rolls back, the
+1. An HTTP call to a third party. A 30-second timeout becomes a 30-second lock.
+2. Sending an email or publishing to a queue — if the transaction rolls back, the
   message has already gone. Use the outbox pattern.
-- Waiting for user input.
-- Processing a large file.
+3. Waiting for user input.
+4. Processing a large file.
 
 ```js
 // Right: read, close, do slow work, reopen for the write
@@ -140,13 +147,13 @@ id first).
 
 # Boundaries and correctness
 
-- One transaction per **unit of business work** — not per statement, not per
+1. One transaction per **unit of business work** — not per statement, not per
   request. If two writes must both succeed or both fail, they share a transaction.
-- **Never** nest transactions expecting independent rollback. Most drivers map an
+2. **Never** nest transactions expecting independent rollback. Most drivers map an
   inner "transaction" to a savepoint or ignore it.
-- Anything with an external side effect belongs in an **outbox**: write the
+3. Anything with an external side effect belongs in an **outbox**: write the
   intent inside the transaction, deliver it afterwards from a worker.
-- Make retried operations **idempotent** — a retry after an ambiguous timeout must
+4. Make retried operations **idempotent** — a retry after an ambiguous timeout must
   not charge twice. Use an idempotency key.
 
 ---

@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -46,11 +52,11 @@ async def create_order(body: OrderIn, svc: OrderService = Depends(get_order_serv
     return await svc.create(body)
 ```
 
-- One `APIRouter` per feature; mount with `prefix` and `tags` at include time,
+1. One `APIRouter` per feature; mount with `prefix` and `tags` at include time,
   not inside the router, so the same router can be mounted under `/v2` later.
-- Open connections in `lifespan`, never at module import: importing `main.py`
+2. Open connections in `lifespan`, never at module import: importing `main.py`
   from a test must not connect to Postgres.
-- Return `create_app(...)` from a factory so tests build an app with test settings.
+3. Return `create_app(...)` from a factory so tests build an app with test settings.
 
 ---
 
@@ -93,10 +99,10 @@ class OrderOut(BaseModel):
 async def get_order(order_id: int, svc: ServiceDep) -> OrderOut: ...
 ```
 
-- Separate `In` and `Out` models. Returning the ORM model leaks columns the
+1. Separate `In` and `Out` models. Returning the ORM model leaks columns the
   moment someone adds one (`password_hash`, `internal_notes`).
-- `extra="forbid"` on input: a typo'd field is a `422`, not silently ignored.
-- Always set `response_model` (or the return annotation) — it is what filters the
+2. `extra="forbid"` on input: a typo'd field is a `422`, not silently ignored.
+3. Always set `response_model` (or the return annotation) — it is what filters the
   output and what the OpenAPI schema documents.
 
 ---
@@ -145,12 +151,12 @@ async def order_not_found(_: Request, exc: OrderNotFound) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": "order not found"})
 ```
 
-- Raise domain exceptions in services; map them to HTTP in one exception handler
+1. Raise domain exceptions in services; map them to HTTP in one exception handler
   per type. `raise HTTPException(...)` inside a service couples it to HTTP.
-- Override the `RequestValidationError` handler if your API has an error envelope;
+2. Override the `RequestValidationError` handler if your API has an error envelope;
   otherwise clients get FastAPI's default shape for `422` and yours for
   everything else.
-- Never let a raw `500` traceback reach the client: `debug=False` in production
+3. Never let a raw `500` traceback reach the client: `debug=False` in production
   and a catch-all handler that logs with the request id. → `Backend/error-handling`
 
 ---
@@ -175,12 +181,12 @@ A missing `APP_DATABASE_URL` should fail at startup, not on the first query.
 
 # OpenAPI hygiene
 
-- Every route: `summary`, `response_model`, and `responses={404: {...}}` for the
+1. Every route: `summary`, `response_model`, and `responses={404: {...}}` for the
   error codes it actually returns. The generated spec is your client contract.
-- Use `tags` per feature and `operation_id`s that make good client method names
+2. Use `tags` per feature and `operation_id`s that make good client method names
   (`create_order`, not `create_order_v1_orders_post`); set
   `generate_unique_id_function` once on the app.
-- Disable `/docs` and `/openapi.json` on internal services that should not be
+3. Disable `/docs` and `/openapi.json` on internal services that should not be
   enumerable: `FastAPI(docs_url=None, openapi_url=None)`.
 
 ---

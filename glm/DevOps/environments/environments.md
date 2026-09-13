@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -33,11 +39,11 @@ If the artefact differs, the verification proved nothing. → `DevOps/cicd`
 Build once  →  image sha256:abc…  →  staging (config A)  →  production (config B)
 ```
 
-- **Never** build a per-environment image. `docker build --build-arg ENV=prod`
+1. **Never** build a per-environment image. `docker build --build-arg ENV=prod`
   produces something staging never tested.
-- Configuration arrives at **runtime**, from environment variables or a secret
+2. Configuration arrives at **runtime**, from environment variables or a secret
   store, never from a file baked into the image.
-- Frontend builds are the awkward case: `NEXT_PUBLIC_*` and equivalent are inlined
+3. Frontend builds are the awkward case: `NEXT_PUBLIC_*` and equivalent are inlined
   at build time. Either build per environment for those specific values and accept
   it, or serve them from a runtime endpoint. Decide deliberately and document it.
 
@@ -61,10 +67,10 @@ A missing or malformed variable should stop the process **at startup**, before i
 accepts traffic. The alternative is discovering it when one rarely-used code path
 runs at 3am, having reported healthy for days.
 
-- **No defaults for secrets.** A fallback `SESSION_SECRET = "dev"` will reach
+1. **No defaults for secrets.** A fallback `SESSION_SECRET = "dev"` will reach
   production and will be found.
-- Defaults are fine for genuinely optional tuning values.
-- Fail on unknown variables in strict deployments to catch typos
+2. Defaults are fine for genuinely optional tuning values.
+3. Fail on unknown variables in strict deployments to catch typos
   (`DATBASE_URL=…` silently ignored is a real outage).
 
 ---
@@ -87,14 +93,14 @@ export PS1="\[\e[41;97m\] PRODUCTION \[\e[0m\] \w $ "
 
 Rules:
 
-- **Every environment gets its own credentials.** A key shared between staging and
+1. **Every environment gets its own credentials.** A key shared between staging and
   production means a staging compromise is a production compromise.
-- Staging uses the vendor's **sandbox** keys. A test run charging real cards or
+2. Staging uses the vendor's **sandbox** keys. A test run charging real cards or
   emailing real customers happens exactly once per organisation, and it is
   memorable.
-- Preview environments per pull request are worth the cost — they catch what
+3. Preview environments per pull request are worth the cost — they catch what
   local development cannot, and they let reviewers see the change.
-- Tear down preview environments on merge, or the cost and the credential surface
+4. Tear down preview environments on merge, or the cost and the credential surface
   grow without limit.
 
 ---
@@ -113,10 +119,10 @@ Full production parity is unaffordable. Match the things that change behaviour:
 
 Two that are commonly wrong:
 
-- **SQLite locally, Postgres in production** guarantees behaviour differences in
+1. **SQLite locally, Postgres in production** guarantees behaviour differences in
   transactions, types, constraints and concurrency. Run the real engine locally in
   a container. → `Database/postgres`
-- **Tiny staging datasets** hide every query-plan problem. Query plans depend on
+2. **Tiny staging datasets** hide every query-plan problem. Query plans depend on
   data distribution, so a query that is instant on 100 rows can be an outage on
   10 million. Use production-shaped volume where performance matters.
   → `Database/query-optimization`
@@ -125,13 +131,13 @@ Two that are commonly wrong:
 
 # Production data does not leave production
 
-- Never copy a production database into staging or a laptop unmasked. It is a data
+1. Never copy a production database into staging or a laptop unmasked. It is a data
   breach whether or not anyone notices.
-- Restore through an **anonymisation** step: replace names, emails, phone numbers
+2. Restore through an **anonymisation** step: replace names, emails, phone numbers
   and payment details; keep the shape, cardinality and distribution so query plans
   stay representative.
-- Access to production data requires a distinct, audited, time-limited grant.
-- Deletion obligations follow the copy: a GDPR erasure request applies to the
+3. Access to production data requires a distinct, audited, time-limited grant.
+4. Deletion obligations follow the copy: a GDPR erasure request applies to the
   staging copy too. → `Database/backup`
 
 ---
@@ -141,11 +147,11 @@ Two that are commonly wrong:
 Acting on production believing it is staging is a recurring and expensive class of
 incident.
 
-- Show the environment in the UI (a banner in anything non-production), in the CLI
+1. Show the environment in the UI (a banner in anything non-production), in the CLI
   prompt, and in every log line as a field.
-- Require an explicit confirmation for destructive production commands.
-- Colour-code dashboards and terminal profiles.
-- Never point a local development environment at the production database, however
+2. Require an explicit confirmation for destructive production commands.
+3. Colour-code dashboards and terminal profiles.
+4. Never point a local development environment at the production database, however
   briefly.
 
 | Variable | Purpose | Set per environment |

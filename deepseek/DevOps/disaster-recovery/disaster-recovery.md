@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -69,10 +76,10 @@ Plan for causes, because the response differs:
 
 Two are commonly missed and are the most likely to actually happen:
 
-- **Human error is more frequent than infrastructure failure.** Point-in-time
+1. **Human error is more frequent than infrastructure failure.** Point-in-time
   recovery matters more than multi-region, for most organisations. A delayed
   replica (an hour behind on purpose) is cheap insurance.
-- **Account compromise** defeats every backup that shares the account.
+2. **Account compromise** defeats every backup that shares the account.
   → `DevOps/backups`
 
 A delayed replica is configured with `recovery_min_apply_delay = '1h'` in Postgres,

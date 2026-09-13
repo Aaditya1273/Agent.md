@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -174,3 +173,27 @@ spec or the generator template.
 - [ ] Verify: A generated spec is committed and checked for freshness in CI
 - [ ] Verify: Docs, SDKs and mocks are all generated from the spec
 - [ ] Verify: The spec is published at a stable, versioned URL
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never hand-maintain a spec beside hand-written route handlers. It will drift within one sprint, and nobody will notice until an integrator does.
+- Never hand-edit a generated SDK. The next regeneration discards it; fix the spec or the generator template.
+
+- [ ] One direction — code-first or spec-first — is chosen and enforced
+- [ ] Request validation and the spec derive from the same schema definitions
+- [ ] Every operation has a stable `operationId`, summary and description
+- [ ] Error responses including `4xx` and `429` are documented
+- [ ] Shared schemas live in `components` and are referenced, not duplicated
+- [ ] Examples are realistic and reflect actual payloads
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

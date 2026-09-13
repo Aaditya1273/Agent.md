@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never retry a non-idempotent request without an idempotency key. The default retry policy plus a `POST /payments` is how a customer is charged twice.
+- Never retry `4xx` other than `429` and `408` — the request is wrong, not late.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for shipping client libraries for your API. An SDK is a second public
 contract with a second deprecation cycle, so the only sustainable approach is to
 **generate it from the specification** and hand-write as little as possible.
@@ -27,23 +39,18 @@ retries, pagination, error typing, and idempotency. It is not a place for
 business logic. → `API/open-api`
 
 ---
+
 </purpose>
 
 # Generate, do not maintain
 
 <rules>
+
 ```bash
-</rules>
-
 # Types only — smallest surface, no runtime dependency
-
-<rules>
 npx openapi-typescript spec/openapi.json -o src/schema.d.ts
-</rules>
 
 # Full typed client
-
-<rules>
 npx orval --config orval.config.ts
 ```
 
@@ -66,11 +73,13 @@ helpers, error classes. Everything shaped by the API is generated.
   → `API/versioning`
 
 ---
+
 </rules>
 
 # What the SDK must handle
 
 <rules>
+
 ```ts
 const client = new Acme({
   apiKey: process.env.ACME_API_KEY,   // never a hard-coded default
@@ -102,11 +111,13 @@ retry policy plus a `POST /payments` is how a customer is charged twice.
 **Never** retry `4xx` other than `429` and `408` — the request is wrong, not late.
 
 ---
+
 </rules>
 
 # Errors
 
 <rules>
+
 ```ts
 try {
   await client.payments.create({ amountCents: 5000, currency: "EUR" });
@@ -126,11 +137,13 @@ try {
 - Never include the API key in an error message or a serialised request dump.
 
 ---
+
 </rules>
 
 # Versioning and release
 
 <rules>
+
 - **SemVer**, judged from the SDK consumer's perspective: a new optional API field
   is a minor bump; a renamed method is a major one even if the API call is
   unchanged.
@@ -144,11 +157,13 @@ try {
   the artefact came from your repository.
 
 ---
+
 </rules>
 
 # Packaging and ergonomics
 
 <rules>
+
 - Zero or near-zero runtime dependencies. Every dependency is a supply-chain
   surface and a version conflict for the consumer.
 - Ship ESM **and** CJS with correct `exports` conditions; ship type definitions.
@@ -160,11 +175,13 @@ try {
   → `Documentation/api-docs`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Hand-written client for a large API | Drifts from the spec immediately | Generate from OpenAPI |
@@ -184,11 +201,13 @@ try {
 | No deprecation signalling | Users discover removal at runtime | Warn on deprecated methods |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The API-shaped surface is generated from the OpenAPI/proto specification
 - [ ] Generated output is committed and CI fails when it is stale
 - [ ] No generated file is hand-edited
@@ -205,4 +224,5 @@ try {
 - [ ] SemVer is applied from the consumer's perspective, with a published changelog
 - [ ] Releases are automated, with provenance attestation
 - [ ] A runnable quickstart example is tested in CI
+
 </checklist>

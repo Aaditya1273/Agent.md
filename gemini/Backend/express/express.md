@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -213,3 +212,24 @@ expect(res.status).toBe(201);
 - [ ] Verify: `SIGTERM` drains in-flight requests before exit
 - [ ] Verify: Tests run against the app object with `supertest`
 - [ ] Verify: Denial cases and unauthenticated access are asserted per route
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] `createApp()` is separate from `listen()`
+- [ ] Dependencies are injected, not imported inside modules
+- [ ] Code is organised by feature, with routes, service and repository separated
+- [ ] `req`/`res` never reach the service layer
+- [ ] Every async handler forwards rejections (Express 5, or a wrapper everywhere)
+- [ ] Exactly one four-argument error handler, registered last
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -128,13 +135,13 @@ const users = await prisma.user.findMany({
 });
 ```
 
-- **`include` and `select` are mutually exclusive** at one level. Nest `select`
+1. **`include` and `select` are mutually exclusive** at one level. Nest `select`
   inside `include` to project a relation.
-- Prisma issues **separate queries per relation** by default and joins in the
+2. Prisma issues **separate queries per relation** by default and joins in the
   client. Use `relationJoinType: "query"` vs `"join"` (`relationJoins` preview /
   GA depending on version) deliberately, and read the logged SQL either way.
-- `findMany` with no `take` will happily return the whole table. Always paginate.
-- Deep pagination: use `cursor` + `take`, not `skip`.
+3. `findMany` with no `take` will happily return the whole table. Always paginate.
+4. Deep pagination: use `cursor` + `take`, not `skip`.
 
 ```ts
 // Keyset pagination — constant cost at any depth

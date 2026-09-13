@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never use an email address, username, or phone number as a primary key. They change, and the change cascades through every foreign key in the system.
+- Never use `uuid` v4 as a clustered/primary key on a high-insert table without measuring — random insertion order fragments the index and inflates write amplification. `uuid` v7 gives you opacity and locality together.
+- Never store a comma-separated list in a column. It cannot be indexed, joined, or constrained. Use a join table.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for designing tables. The schema is the longest-lived artefact in the
 system — application code is rewritten, the data outlives it. Every invalid
 state the schema permits will eventually exist in production.
@@ -27,11 +40,13 @@ Application validation is a convenience for the user; the constraint is the
 guarantee.
 
 ---
+
 </purpose>
 
 # Keys
 
 <rules>
+
 Every table gets a primary key. No exceptions — a table without one cannot be
 replicated logically, deduplicated, or safely updated.
 
@@ -62,11 +77,13 @@ measuring — random insertion order fragments the index and inflates write
 amplification. `uuid` v7 gives you opacity and locality together.
 
 ---
+
 </rules>
 
 # Types
 
 <rules>
+
 | Concept | Use | Never |
 | --- | --- | --- |
 | Money | `bigint` minor units + `currency char(3)` | `float`, `double` |
@@ -86,11 +103,13 @@ currency is not a price.
 which clock. Use `timestamptz` everywhere and convert at the presentation layer.
 
 ---
+
 </rules>
 
 # Nullability
 
 <rules>
+
 `NOT NULL` is the default position. Add nullability only when "unknown" or "not
 applicable" is a genuine, distinct domain state.
 
@@ -109,11 +128,13 @@ ALTER TABLE orders ADD CONSTRAINT cancelled_consistency CHECK (
 ```
 
 ---
+
 </rules>
 
 # Normalise first, denormalise on evidence
 
 <rules>
+
 Reach 3NF by default: every non-key column depends on the key, the whole key, and
 nothing but the key. Duplicated data is duplicated truth, and the copies diverge.
 
@@ -134,11 +155,13 @@ CREATE TABLE order_tags (
 ```
 
 ---
+
 </rules>
 
 # Constraints belong in the database
 
 <rules>
+
 | Constraint | Enforces |
 | --- | --- |
 | `NOT NULL` | Presence |
@@ -154,11 +177,13 @@ Application-level checks race. Two concurrent requests both read "no existing
 row", both insert, and only a `UNIQUE` constraint stops the duplicate.
 
 ---
+
 </rules>
 
 # Soft deletes and history
 
 <rules>
+
 If rows must be recoverable, use `deleted_at timestamptz`, and then remember that
 **every** query and **every** unique constraint must account for it:
 
@@ -174,11 +199,13 @@ For audit history, append to a separate table rather than overwriting.
 → `Security/audit-log`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Table with no primary key | Cannot replicate, dedupe, or safely update | Always declare one |
@@ -194,11 +221,13 @@ For audit history, append to a separate table rather than overwriting.
 | EAV (`key`/`value` rows) for core entities | No types, no constraints, no plans | Real columns, or `jsonb` for genuinely open data |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every table declares a primary key
 - [ ] Keys are surrogate and opaque where rows are externally visible
 - [ ] Money stored as integer minor units with an explicit currency column
@@ -210,4 +239,5 @@ For audit history, append to a separate table rather than overwriting.
 - [ ] Uniqueness enforced by the database, not by an application read-then-write
 - [ ] Soft-deleted tables use partial unique indexes
 - [ ] Denormalised columns have a stated maintenance mechanism
+
 </checklist>

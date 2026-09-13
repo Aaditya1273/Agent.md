@@ -14,18 +14,25 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
 Rules for handling errors in a backend service. Two categories, handled
 completely differently:
 
-- **Expected failures** — validation, not found, insufficient funds, conflict.
+1. **Expected failures** — validation, not found, insufficient funds, conflict.
   These are part of the domain. Model them, return them, do not log them as
   errors.
-- **Unexpected failures** — a null dereference, a dead connection, a bug. These
+2. **Unexpected failures** — a null dereference, a dead connection, a bug. These
   are alerts. They get a generic response and a full trace in the logs.
 
 Conflating the two produces alert fatigue on one side and silent data loss on the
@@ -61,11 +68,11 @@ app.use((err, req, res, _next) => {
 });
 ```
 
-- Every response carries a `requestId`, success or failure. It is what turns a
+1. Every response carries a `requestId`, success or failure. It is what turns a
   support ticket into a log query. → `API/rest`
-- Expected failures log at `info`/`warn`. Only unexpected ones log at `error`, so
+2. Expected failures log at `info`/`warn`. Only unexpected ones log at `error`, so
   the error rate means something.
-- The handler logs **once**. Logging at every frame produces five entries for one
+3. The handler logs **once**. Logging at every frame produces five entries for one
   failure and makes the real trace unfindable.
 
 ---
@@ -92,17 +99,17 @@ pages ship enabled if `NODE_ENV` is not set correctly in the container.
 
 # Fail fast, and fail at the boundary
 
-- **Validate input at the edge**, before any business logic. A parse that fails
+1. **Validate input at the edge**, before any business logic. A parse that fails
   should fail immediately with a `422` and a field list, not three layers deep.
   → `Backend/validation`
-- **Validate configuration at startup.** A missing environment variable should
+2. **Validate configuration at startup.** A missing environment variable should
   crash the process at boot, not produce a `500` at 3am on one code path.
-- **Never swallow an error.** `catch {}` and `catch (e) { return null }` convert a
+3. **Never swallow an error.** `catch {}` and `catch (e) { return null }` convert a
   failure into wrong data. If you catch, either handle it meaningfully or rethrow
   with context.
-- Add context when rethrowing, and preserve the original:
+4. Add context when rethrowing, and preserve the original:
   `throw new AppError("charge_failed", 502, "…", { cause: err })`.
-- Prefer a returned result type over exceptions for genuinely expected outcomes
+5. Prefer a returned result type over exceptions for genuinely expected outcomes
   in hot paths — but be consistent; a codebase that does both randomly is worse
   than either.
 

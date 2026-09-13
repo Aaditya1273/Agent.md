@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for goroutines, channels, and shared state. Go makes starting concurrent
 work trivial and stopping it correctly hard. Every rule here exists because of
 a production incident where a goroutine never exited, a channel never closed,
@@ -27,11 +37,13 @@ The governing rule: **whoever starts a goroutine owns its lifetime.** Know how
 it ends before you write `go`.
 
 ---
+
 </purpose>
 
 # Ownership and exit
 
 <rules>
+
 ```go
 // Bad: fire and forget. Who stops it? Who sees its error?
 go worker(jobs)
@@ -55,11 +67,13 @@ if err := g.Wait(); err != nil {
   leak is a slow memory exhaustion that shows up days later.
 
 ---
+
 </rules>
 
 # Context is the cancellation signal
 
 <rules>
+
 ```go
 func worker(ctx context.Context, jobs <-chan Job) error {
     for {
@@ -84,11 +98,13 @@ func worker(ctx context.Context, jobs <-chan Job) error {
   request's context so the work dies with the request.
 
 ---
+
 </rules>
 
 # Channels versus mutexes
 
 <rules>
+
 | Situation | Use |
 | --- | --- |
 | Handing off ownership of data between goroutines | Channel |
@@ -121,11 +137,13 @@ func (c *Cache) Get(k string) (Entry, bool) {
   access is a crash, not a data race warning.
 
 ---
+
 </rules>
 
 # Channel rules
 
 <rules>
+
 ```go
 jobs := make(chan Job, 64)         // buffer: decoupling, not a queue of unbounded size
 go func() {
@@ -146,11 +164,13 @@ for j := range jobs { … }          // range ends when closed and drained
   everywhere else.
 
 ---
+
 </rules>
 
 # Worker pools and pipelines
 
 <rules>
+
 ```go
 g, ctx := errgroup.WithContext(ctx)
 g.SetLimit(runtime.GOMAXPROCS(0))
@@ -170,11 +190,13 @@ return g.Wait()
   by position — never append to a shared slice without a mutex.
 
 ---
+
 </rules>
 
 # The race detector is a gate
 
 <rules>
+
 ```sh
 go test -race ./...
 go build -race ./cmd/api     # run a canary with it in staging
@@ -188,11 +210,13 @@ go build -race ./cmd/api     # run a canary with it in staging
   not one, or the detector has nothing to see.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `go f()` with no way to stop or observe it | Leaks; errors vanish | `errgroup` with a context |
@@ -209,11 +233,13 @@ go build -race ./cmd/api     # run a canary with it in staging
 | Skipping `-race` because it is slow | Races ship | Gate CI on it |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every goroutine has a defined owner, a stop signal, and an error path
 - [ ] Parallel work uses `errgroup` with `SetLimit` where the fan-out is unbounded
 - [ ] Every blocking `select` includes `ctx.Done()`
@@ -226,4 +252,5 @@ go build -race ./cmd/api     # run a canary with it in staging
 - [ ] No map is written concurrently without synchronisation
 - [ ] Results from parallel work are collected without a shared unguarded slice
 - [ ] `go test -race ./...` runs in CI and a race report blocks the merge
+
 </checklist>

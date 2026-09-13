@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -210,3 +209,27 @@ restore. → `Database/backup`
 - [ ] Verify: Failover is rehearsed on a schedule and timed
 - [ ] Verify: Surviving replicas are re-pointed after promotion
 - [ ] Verify: Independent, restore-tested backups exist separately from replication
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never route reads to a replica based on the query looking read-only. The question is whether the caller can tolerate stale data, and only the caller knows.
+- Never promote a replica manually during an incident without checking its replay position. Promoting the most-behind replica discards every write the others had.
+
+- [ ] Replication mode is chosen deliberately and its data-loss window is written down
+- [ ] Synchronous standbys are configured as a quorum, not a single named node
+- [ ] Semi-synchronous timeout fallback raises an alert
+- [ ] Every read call site is classified as primary-required or replica-safe
+- [ ] Read-after-write is handled by LSN check or a sticky primary window
+- [ ] Replication lag is monitored in both bytes and seconds, with alerts
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

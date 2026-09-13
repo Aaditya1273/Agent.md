@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -215,3 +214,24 @@ form a public contract. → `Testing/pytest`
 - [ ] Verify: `TypeAdapter`s are module-level
 - [ ] Verify: Polymorphic payloads use a discriminator
 - [ ] Verify: Tests assert error `type`/`loc`; public schemas are snapshotted
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Every input model sets `extra="forbid"`
+- [ ] Constraints expressed with `Field`/constrained types, not manual checks
+- [ ] Input, output and internal models are distinct
+- [ ] Cross-field rules in `model_validator(mode="after")`
+- [ ] No I/O and no framework exceptions inside validators
+- [ ] Settings built once from `BaseSettings` and injected
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

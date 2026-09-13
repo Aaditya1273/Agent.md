@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never set metadata in `useEffect` or with a client-side helper. It runs after the crawler has already taken the response.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for the `<head>`: titles, descriptions, social cards, icons, canonical links
 and robots directives.
 
@@ -28,11 +39,13 @@ Two constraints shape everything: metadata must be **in the server response**
 Search strategy is `Frontend/seo`.
 
 ---
+
 </purpose>
 
 # Generate it on the server, per route
 
 <rules>
+
 ```tsx
 // Next.js App Router — resolved during the server render
 export async function generateMetadata({ params }): Promise<Metadata> {
@@ -71,11 +84,13 @@ relative URLs.
 the crawler has already taken the response.
 
 ---
+
 </rules>
 
 # Write it for the result, not for the page
 
 <rules>
+
 | Tag | Limit | Rule |
 | --- | --- | --- |
 | `<title>` | ~60 characters | Most specific first: `Widget — Acme`, not `Acme — Widget` |
@@ -96,11 +111,13 @@ same data the page shows. Cache them immutably by content hash; regenerating an
 image on every crawl is wasted work.
 
 ---
+
 </rules>
 
 # Robots directives
 
 <rules>
+
 ```ts
 robots: { index: false, follow: true }        // → <meta name="robots" content="noindex,follow">
 ```
@@ -122,11 +139,13 @@ have its `noindex` read. To remove a page from the index, allow the crawl and us
 the meta tag.
 
 ---
+
 </rules>
 
 # Icons, manifest and language
 
 <rules>
+
 ```html
 <link rel="icon" href="/favicon.ico" sizes="32x32" />
 <link rel="icon" href="/icon.svg" type="image/svg+xml" />
@@ -142,11 +161,13 @@ the meta tag.
 - `dir="rtl"` where the content requires it.
 
 ---
+
 </rules>
 
 # Do not leak through metadata
 
 <rules>
+
 - Metadata is public. Never put an internal identifier, an email address, a draft
   title, or anything user-specific into a tag on a public page.
 - Pages behind authentication should be `noindex` and should not generate social
@@ -157,11 +178,13 @@ the meta tag.
   `<meta>` tags.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Metadata set client-side | Crawlers and preview bots never see it | Server-generated |
@@ -181,11 +204,13 @@ the meta tag.
 | OG images regenerated per request | Wasted compute | Cache immutably |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] All metadata is produced in the server response
 - [ ] A root default and title template are defined once
 - [ ] `metadataBase` is set so relative URLs resolve absolutely
@@ -201,4 +226,5 @@ the meta tag.
 - [ ] `<html lang>` and the viewport meta tag are present on every page
 - [ ] `404` responses carry a real status code and `noindex`
 - [ ] No internal, user-specific or fingerprinting data appears in metadata
+
 </checklist>

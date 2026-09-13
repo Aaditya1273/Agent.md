@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: nextjs
 category: Frontend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -44,13 +50,13 @@ app/
     @modal/…            # parallel route — intercepted modals
 ```
 
-- A layout **preserves state** across navigation within its subtree. Put the
+1. A layout **preserves state** across navigation within its subtree. Put the
   navigation, sidebar and providers there, not in each page.
-- `loading.tsx` is a Suspense fallback the framework wires for you. Without it the
+2. `loading.tsx` is a Suspense fallback the framework wires for you. Without it the
   navigation blocks until data resolves and nothing tells the user anything.
-- `error.tsx` must be `"use client"` and receives a `reset()` function — offer a
+3. `error.tsx` must be `"use client"` and receives a `reset()` function — offer a
   retry rather than a dead end.
-- `not-found.tsx` plus `notFound()` returns a real `404` for a missing record.
+4. `not-found.tsx` plus `notFound()` returns a real `404` for a missing record.
   → `Frontend/routing`
 
 Route groups `(marketing)` organise without affecting the URL; private folders
@@ -97,10 +103,10 @@ export default async function ProductPage({ params }) {
 }
 ```
 
-- Never put `"use client"` at the top of a layout or page.
-- Pass server-rendered content into interactive shells as `children`, so heavy
+1. Never put `"use client"` at the top of a layout or page.
+2. Pass server-rendered content into interactive shells as `children`, so heavy
   content stays out of the bundle.
-- Props crossing the boundary are serialised into the HTML — project explicit
+3. Props crossing the boundary are serialised into the HTML — project explicit
   fields, never a whole database row. → `Frontend/server-components`
 
 ---
@@ -128,12 +134,12 @@ const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-san
 
 Rules that are easy to get wrong:
 
-- `priority` on the LCP image, and **never** lazy-load it.
-- Always supply `sizes` for a responsive image, or the browser downloads the
+1. `priority` on the LCP image, and **never** lazy-load it.
+2. Always supply `sizes` for a responsive image, or the browser downloads the
   largest candidate.
-- `next/font` eliminates the third-party font request entirely — a Google Fonts
+3. `next/font` eliminates the third-party font request entirely — a Google Fonts
   `<link>` costs a connection and a round trip before any text renders.
-- Third-party scripts through `next/script` with an explicit strategy; a bare
+4. Third-party scripts through `next/script` with an explicit strategy; a bare
   `<script>` in the head blocks rendering. → `Frontend/performance`
 
 ---

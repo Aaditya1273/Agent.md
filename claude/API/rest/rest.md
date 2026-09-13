@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never mutate state in a `GET`. Proxies, prefetchers, browsers and link scanners issue `GET` freely; a `GET /orders/{id}/delete` will fire on its own.
+- Never return `200` with `{"error": …}` in the body. Every client's error handling keys on the status code, and a `200` error is invisible to retries, alerting, and logs.
+- Never return a bare array as a top-level response body. `{"data": [...]}` leaves room to add pagination metadata without a breaking change.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for designing an HTTP/REST API. The API is a contract: once a client
 depends on it, its shape is fixed until you version it. Design accordingly.
 
@@ -26,11 +39,13 @@ is `API/versioning`, pagination is `API/pagination`, authentication is
 `Security/authentication`.
 
 ---
+
 </purpose>
 
 # Resources and URLs
 
 <rules>
+
 ```
 GET    /v1/orders                 list
 POST   /v1/orders                 create
@@ -56,11 +71,13 @@ nesting expresses ownership; more expresses your database schema, which is not
 the client's problem.
 
 ---
+
 </rules>
 
 # Methods and their guarantees
 
 <rules>
+
 | Method | Safe | Idempotent | Body | Notes |
 | --- | --- | --- | --- | --- |
 | `GET` | Yes | Yes | No | Never mutates. Cacheable |
@@ -85,11 +102,13 @@ returns the original response without re-executing. Without this, a client
 timeout followed by a retry charges the customer twice.
 
 ---
+
 </rules>
 
 # Status codes
 
 <rules>
+
 | Code | Meaning |
 | --- | --- |
 | `200` | Success with a body |
@@ -115,11 +134,13 @@ handling keys on the status code, and a `200` error is invisible to retries,
 alerting, and logs.
 
 ---
+
 </rules>
 
 # Error shape
 
 <rules>
+
 One shape, everywhere. RFC 9457 (`application/problem+json`) is the standard;
 anything consistent works, as long as it is genuinely consistent.
 
@@ -145,11 +166,13 @@ anything consistent works, as long as it is genuinely consistent.
   error body. → `Security/headers`
 
 ---
+
 </rules>
 
 # Requests and responses
 
 <rules>
+
 - **`Content-Type: application/json`** on both, and validate it. Reject unknown
   fields rather than silently ignoring them — a client typo should fail loudly.
 - **Validate at the boundary**, against a schema (`zod`, `pydantic`, JSON Schema),
@@ -167,11 +190,13 @@ anything consistent works, as long as it is genuinely consistent.
 leaves room to add pagination metadata without a breaking change.
 
 ---
+
 </rules>
 
 # Compatibility
 
 <rules>
+
 Additive changes are safe. These are not, and require a new version:
 
 - Removing or renaming a field
@@ -185,11 +210,13 @@ explicitly, because if they do not, every addition becomes breaking.
 → `API/versioning`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Verbs in URLs (`/getUser`) | Duplicates what the method expresses | Nouns plus HTTP methods |
@@ -207,11 +234,13 @@ explicitly, because if they do not, every addition becomes breaking.
 | Silently ignoring unknown fields | Client typos fail silently | Reject with `400` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Resources are plural nouns; actions are subresources
 - [ ] Nesting is at most one level deep
 - [ ] Identifiers are opaque, not sequential integers
@@ -226,4 +255,5 @@ explicitly, because if they do not, every addition becomes breaking.
 - [ ] Timestamps are RFC 3339 UTC; money is integer minor units plus currency
 - [ ] Collections are wrapped in an object, not returned as bare arrays
 - [ ] Breaking changes are enumerated and gated behind a version
+
 </checklist>

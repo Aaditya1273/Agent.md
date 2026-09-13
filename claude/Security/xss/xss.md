@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,25 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never insert untrusted data into a `<script>` block, an inline event handler (`onclick=`), a `javascript:` URL, or inside `<style>`. These are execution contexts where no encoding is reliable. Pass data through a `<script type="application/json">` block or a `data-` attribute and read it with `JSON.parse`.
+- Never pass untrusted input to `eval`, `new Function`, `setTimeout`/ `setInterval` as a string, or `element.setAttribute("on*", …)`. Each is a direct path from string to execution.
+- Never assign untrusted input to `href` or `src` without scheme validation — a `javascript:` URL executes on click:
+- Never deny-list tags (`strip <script>`). Bypasses are endless: `<img onerror>`, `<svg onload>`, `<iframe srcdoc>`, malformed nesting, mutation XSS. Allow-list only.
+- Never ship `script-src 'unsafe-inline'` or `'unsafe-eval'`. Together they disable most of what CSP is for. Never use a host allow-list alone — hosted JSONP endpoints and outdated libraries on a permitted CDN defeat it.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for stopping attacker-controlled data from executing as script in a user's
 browser. Covers stored, reflected and DOM-based XSS.
 
@@ -26,11 +41,13 @@ There is no single "escape" function, because HTML, attributes, JavaScript, URLs
 and CSS have different metacharacters.
 
 ---
+
 </purpose>
 
 # Output encoding by context
 
-<rules>
+<security_rules>
+
 The same value needs different treatment depending on where it is inserted.
 
 | Context | Example | Encode |
@@ -56,11 +73,13 @@ contexts where no encoding is reliable. Pass data through a
 ```
 
 ---
-</rules>
+
+</security_rules>
 
 # DOM APIs
 
-<rules>
+<security_rules>
+
 The API you choose decides whether a string can become markup.
 
 ```js
@@ -93,11 +112,13 @@ a.href = url.href;
 ```
 
 ---
-</rules>
+
+</security_rules>
 
 # Sanitising when HTML is required
 
-<rules>
+<security_rules>
+
 When users must submit rich text, sanitise with a maintained, allow-list-based
 library. Do not write your own.
 
@@ -119,11 +140,13 @@ sanitises.
 `<svg onload>`, `<iframe srcdoc>`, malformed nesting, mutation XSS. Allow-list only.
 
 ---
-</rules>
+
+</security_rules>
 
 # Framework escape hatches
 
-<rules>
+<security_rules>
+
 Modern frameworks encode by default. Every XSS in a React or Vue app is
 therefore in a named escape hatch — audit these specifically:
 
@@ -142,11 +165,13 @@ Angular's `DomSanitizer` bypass methods disable the framework's protection
 entirely — `bypassSecurityTrustHtml` on user input is equivalent to `innerHTML`.
 
 ---
-</rules>
+
+</security_rules>
 
 # Content-Security-Policy
 
-<rules>
+<security_rules>
+
 CSP is the layer that limits damage when encoding fails. It is not a substitute
 for encoding.
 
@@ -178,11 +203,13 @@ Deploy with `Content-Security-Policy-Report-Only` and a `report-to` endpoint
 first, fix the violations, then enforce.
 
 ---
-</rules>
+
+</security_rules>
 
 # Cookies and related headers
 
-<rules>
+<security_rules>
+
 - Session cookies carry `HttpOnly` so that XSS cannot read them. This does not
   prevent XSS; it limits the payoff.
 - `X-Content-Type-Options: nosniff` stops the browser reinterpreting a response
@@ -193,11 +220,13 @@ first, fix the violations, then enforce.
   historically enabled encoding bypasses.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `el.innerHTML = input` | Parses and executes markup | `el.textContent` |
@@ -210,11 +239,13 @@ first, fix the violations, then enforce.
 | Uploads served from the app origin | Stored XSS with full cookie access | Separate origin, `nosniff` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Output is encoded for its specific context, not a single generic escape
 - [ ] No untrusted data inside `<script>`, `<style>`, `on*` handlers or `javascript:`
 - [ ] `textContent` used by default; `innerHTML` only with a sanitiser
@@ -226,4 +257,5 @@ first, fix the violations, then enforce.
 - [ ] `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` present
 - [ ] Session cookies are `HttpOnly`; responses carry `nosniff`
 - [ ] User uploads are served from a separate origin
+
 </checklist>

@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for a Python 3.12+ codebase that a second engineer can pick up without
 archaeology. Python will let you skip all of these; the cost arrives at the first
 refactor.
@@ -26,11 +36,13 @@ Framework rules are `Backend/fastapi`, `Backend/django`, `Backend/flask`;
 concurrency is `Backend/python-async`.
 
 ---
+
 </purpose>
 
 # One manifest: `pyproject.toml`
 
 <rules>
+
 ```toml
 [project]
 name = "orders"
@@ -60,11 +72,13 @@ strict = true
   `pip-compile` — never hand-edit a lock.
 
 ---
+
 </rules>
 
 # Layout
 
 <rules>
+
 ```
 src/orders/          # src layout: tests cannot import the package by accident
   __init__.py
@@ -83,11 +97,13 @@ pyproject.toml  uv.lock  README.md
   at import time (no connections, no config loading).
 
 ---
+
 </rules>
 
 # Typing
 
 <rules>
+
 ```python
 def total[T: (int, Decimal)](items: Sequence[LineItem[T]]) -> T: ...      # PEP 695
 
@@ -109,11 +125,13 @@ def parse(raw: dict[str, Any]) -> Order: ...   # Any only at the untyped edge
   model for data you can.
 
 ---
+
 </rules>
 
 # Dataclass or Pydantic
 
 <rules>
+
 | Use a `@dataclass` | Use a Pydantic model |
 | --- | --- |
 | Internal value objects built from trusted data | Anything parsed from a request, file, env, or queue |
@@ -125,11 +143,13 @@ memory-light, hashable. Reaching for Pydantic for every internal object taxes
 every construction with validation you already did. → `Backend/pydantic`
 
 ---
+
 </rules>
 
 # Exceptions
 
 <rules>
+
 ```python
 class OrdersError(Exception): """Base for this package."""
 class OrderNotFound(OrdersError): ...
@@ -147,11 +167,13 @@ class InsufficientStock(OrdersError):
   propagate to the one place that logs and converts. → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Logging
 
 <rules>
+
 ```python
 log = logging.getLogger(__name__)
 log.info("order created", extra={"order_id": order.id, "tenant": tenant.id})
@@ -165,11 +187,13 @@ log.info("order created", extra={"order_id": order.id, "tenant": tenant.id})
   for unhandled. `DEBUG` is for you, and off in production.
 
 ---
+
 </rules>
 
 # Environments
 
 <rules>
+
 - One virtualenv per project, created by `uv venv` or `python -m venv`; never
   install into the system interpreter.
 - `.python-version` pins the interpreter; CI uses the same one.
@@ -177,11 +201,13 @@ log.info("order created", extra={"order_id": order.id, "tenant": tenant.id})
   development and is gitignored. → `Security/secret-management`
 
 ---
+
 </rules>
 
 # Tooling in CI
 
 <rules>
+
 ```bash
 uv sync --frozen            # fails if the lock is stale
 ruff check . && ruff format --check .
@@ -194,11 +220,13 @@ Enable the `S` (bandit) and `B` (bugbear) rule sets — they catch real bugs, no
 style. → `Testing/pytest`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `requirements.txt` + `setup.py` + `pyproject.toml` | Three sources of truth drift | `pyproject.toml` only |
@@ -217,11 +245,13 @@ style. → `Testing/pytest`
 | Committed `.env` | Secrets in history | Environment + gitignore |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `pyproject.toml` is the only manifest; `requires-python` set
 - [ ] Lockfile committed; CI installs with `--frozen`
 - [ ] `src/` layout, package installed editable
@@ -235,4 +265,5 @@ style. → `Testing/pytest`
 - [ ] `logging.getLogger(__name__)` with structured `extra`; no `print`
 - [ ] `ruff` with `S` and `B` rule sets enabled
 - [ ] `.python-version` pinned; secrets come from the environment
+
 </checklist>

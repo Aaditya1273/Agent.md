@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never use these:
+- Never reuse a nonce with the same key. For `AES-GCM` this is catastrophic: two messages under one nonce leak the XOR of the plaintexts and allow forgery of the authentication tag. - Generate with a CSPRNG — `crypto.randomBytes(12)` — or use a strictly increasing counter that cannot repeat across restarts or replicas. - 96 bits is correct for GCM. Longer nonces are hashed internally and gain nothing. - The nonce is not secret. Store it alongside the ciphertext. - After roughly 2³² messages under one key with random nonces, rotate the key — collision probability becomes non-negligible.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for encrypting data at rest and in application code. Transport encryption is
 `Security/https`; password hashing is `Security/authentication` — hashing is not
 encryption and the two must never be confused.
@@ -27,11 +39,13 @@ never design a scheme.** Cryptography fails silently — code that produces
 plausible ciphertext can be trivially breakable.
 
 ---
+
 </purpose>
 
 # Choose an authenticated cipher
 
-<rules>
+<security_rules>
+
 Encryption without authentication permits an attacker to modify ciphertext
 undetected. Always use AEAD.
 
@@ -75,11 +89,13 @@ authentic and must be discarded.
 | RSA with PKCS#1 v1.5 encryption | Bleichenbacher; use OAEP |
 
 ---
-</rules>
+
+</security_rules>
 
 # Nonce and IV discipline
 
-<rules>
+<security_rules>
+
 This is where correct algorithm choices most often fail in practice.
 
 - **Never reuse a nonce with the same key.** For `AES-GCM` this is catastrophic:
@@ -93,11 +109,13 @@ This is where correct algorithm choices most often fail in practice.
   collision probability becomes non-negligible.
 
 ---
-</rules>
+
+</security_rules>
 
 # Keys
 
-<rules>
+<security_rules>
+
 - Generate with a CSPRNG: `crypto.randomBytes(32)` for AES-256.
 - **Never derive a key directly from a password** with a plain hash. Use a KDF —
   `argon2id`, `scrypt`, or `PBKDF2` with a high iteration count and a random salt.
@@ -136,11 +154,13 @@ const blindIndex = crypto
 
 await db.user.findFirst({ where: { emailIndex: blindIndex } });
 ```
-</rules>
+
+</security_rules>
 
 # Encoding, comparison, randomness
 
-<rules>
+<security_rules>
+
 - Base64 and hex are **encodings, not encryption**. A base64 string is plaintext.
 - Compare secrets with `crypto.timingSafeEqual`, never `===`. Length-check first —
   it throws on mismatched lengths.
@@ -151,11 +171,13 @@ await db.user.findFirst({ where: { emailIndex: blindIndex } });
   passwords, never.
 
 ---
-</rules>
+
+</security_rules>
 
 # What to encrypt
 
-<rules>
+<security_rules>
+
 Encryption is not free: it breaks indexing, search and sorting, and it moves the
 problem to key management.
 
@@ -170,11 +192,13 @@ problem to key management.
   reads plaintext.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `AES-CBC` without a MAC | Padding oracle recovers plaintext | `AES-256-GCM` |
@@ -189,11 +213,13 @@ problem to key management.
 | `===` on secrets | Timing oracle | `timingSafeEqual` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] All encryption uses an AEAD mode (`AES-256-GCM` or `ChaCha20-Poly1305`)
 - [ ] No `ECB`, unauthenticated `CBC`, `DES`, `3DES` or `RC4` anywhere
 - [ ] Nonces are CSPRNG-generated, 96-bit for GCM, never reused under a key
@@ -205,4 +231,5 @@ problem to key management.
 - [ ] Distinct keys per purpose; no key reused across algorithms
 - [ ] Secret comparisons use `timingSafeEqual`
 - [ ] Encrypted-field lookups use a blind index, not a weakened cipher
+
 </checklist>

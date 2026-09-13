@@ -14,7 +14,13 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for performance work in Go. Go is fast by default; most slow Go programs
@@ -55,11 +61,7 @@ import _ "net/http/pprof"      // registers /debug/pprof on http.DefaultServeMux
 
 ```sh
 go test -bench BenchmarkParse -benchmem -count 10 > old.txt
-
 # make the change
-
-[INST] Apply every rule in this section: make the change. [/INST]
-
 go test -bench BenchmarkParse -benchmem -count 10 > new.txt
 benchstat old.txt new.txt
 ```

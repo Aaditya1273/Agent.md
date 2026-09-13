@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -192,3 +191,27 @@ problem to key management.
 - [ ] Verify: Distinct keys per purpose; no key reused across algorithms
 - [ ] Verify: Secret comparisons use `timingSafeEqual`
 - [ ] Verify: Encrypted-field lookups use a blind index, not a weakened cipher
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never use these:
+- Never reuse a nonce with the same key. For `AES-GCM` this is catastrophic: two messages under one nonce leak the XOR of the plaintexts and allow forgery of the authentication tag. - Generate with a CSPRNG — `crypto.randomBytes(12)` — or use a strictly increasing counter that cannot repeat across restarts or replicas. - 96 bits is correct for GCM. Longer nonces are hashed internally and gain nothing. - The nonce is not secret. Store it alongside the ciphertext. - After roughly 2³² messages under one key with random nonces, rotate the key — collision probability becomes non-negligible.
+
+- [ ] All encryption uses an AEAD mode (`AES-256-GCM` or `ChaCha20-Poly1305`)
+- [ ] No `ECB`, unauthenticated `CBC`, `DES`, `3DES` or `RC4` anywhere
+- [ ] Nonces are CSPRNG-generated, 96-bit for GCM, never reused under a key
+- [ ] Authentication tag failures discard the data and are never swallowed
+- [ ] Keys are CSPRNG-generated and never hard-coded or committed
+- [ ] Password-derived keys use `argon2id`, `scrypt` or high-iteration `PBKDF2`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

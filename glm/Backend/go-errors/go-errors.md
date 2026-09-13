@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -38,15 +44,15 @@ return fmt.Errorf("load order %s: %v", id, err)
 return fmt.Errorf("load order %s: %w", id, err)
 ```
 
-- Every `return err` that crosses a package boundary should add context. A bare
+1. Every `return err` that crosses a package boundary should add context. A bare
   `return err` from six frames deep produces `sql: no rows in result set` with no
   idea which query.
-- Add the operation and the identifiers this frame has. Do **not** repeat what
+2. Add the operation and the identifiers this frame has. Do **not** repeat what
   the callee already said — `"load order: load order: query: …"` is the sign of
   wrapping at every line.
-- Messages are lowercase, no trailing punctuation, joined by `: `. The chain reads
+3. Messages are lowercase, no trailing punctuation, joined by `: `. The chain reads
   top-down as a sentence.
-- **Never** wrap with `%v` or `%s`. They are only correct when you deliberately
+4. **Never** wrap with `%v` or `%s`. They are only correct when you deliberately
   want to hide the cause from callers.
 
 ---
@@ -68,13 +74,13 @@ var ve *ValidationError
 if errors.As(err, &ve) { return respondField(ve.Field, ve.Msg) }
 ```
 
-- `errors.Is` walks the wrap chain comparing identity. Use it for sentinels.
-- `errors.As` walks the chain looking for a type. Use it when the caller needs
+1. `errors.Is` walks the wrap chain comparing identity. Use it for sentinels.
+2. `errors.As` walks the chain looking for a type. Use it when the caller needs
   fields from the error.
-- **Never** `err == ErrNotFound`. It fails the moment anyone wraps the error.
-- **Never** `strings.Contains(err.Error(), "not found")`. Messages are for humans
+3. **Never** `err == ErrNotFound`. It fails the moment anyone wraps the error.
+4. **Never** `strings.Contains(err.Error(), "not found")`. Messages are for humans
   and change without notice.
-- Map library errors to your own at the boundary: `sql.ErrNoRows` becomes
+5. Map library errors to your own at the boundary: `sql.ErrNoRows` becomes
   `orders.ErrNotFound` inside the store. Callers should not import
   `database/sql` to interpret your errors.
 
@@ -89,11 +95,11 @@ if errors.As(err, &ve) { return respondField(ve.Field, ve.Msg) }
 | Nobody will inspect it | Plain `fmt.Errorf` with `%w` | most internal errors |
 | Several failures at once | `errors.Join(errs...)` | validating every field |
 
-- Export sentinels only when a caller has a reason to check them. An exported
+1. Export sentinels only when a caller has a reason to check them. An exported
   error is API; removing it is a breaking change.
-- Typed errors use pointer receivers and are matched with `errors.As(err, &ptr)`.
+2. Typed errors use pointer receivers and are matched with `errors.As(err, &ptr)`.
   A value receiver with a pointer target silently never matches.
-- `errors.Join` (1.20+) returns an error that `errors.Is` matches against any
+3. `errors.Join` (1.20+) returns an error that `errors.Is` matches against any
   member. Use it to report all validation failures, not just the first.
 
 ---
@@ -125,11 +131,11 @@ case err != nil:
 }
 ```
 
-- Log **or** return. A function that logs and then returns the error causes the
+1. Log **or** return. A function that logs and then returns the error causes the
   same failure to appear once per frame in the logs.
-- The edge (handler, job, `main`) is the one place that logs, maps to a status,
+2. The edge (handler, job, `main`) is the one place that logs, maps to a status,
   and decides whether to retry.
-- Never leak internal error text to clients. `err.Error()` in a JSON response
+3. Never leak internal error text to clients. `err.Error()` in a JSON response
   exposes table names, hosts, and file paths.
 
 ---
@@ -144,14 +150,14 @@ func MustCompile(pattern string) *regexp.Regexp   // panics at init on a bad lit
 if user == nil { panic("no user") }
 ```
 
-- Panic when the program is in a state that indicates a bug: an impossible enum
+1. Panic when the program is in a state that indicates a bug: an impossible enum
   value, a nil that the type system should have prevented, a failed `init`.
-- **Never** panic on I/O, user input, network, or anything an operator could
+2. **Never** panic on I/O, user input, network, or anything an operator could
   cause. Those are errors.
-- `recover` belongs in exactly two places: the top of a goroutine you spawn
+3. `recover` belongs in exactly two places: the top of a goroutine you spawn
   (so one bug does not kill the process) and HTTP middleware that turns a panic
   into a `500` with a stack trace in the log. Nowhere else.
-- A `Must…` prefix is the only acceptable signal that a function panics.
+4. A `Must…` prefix is the only acceptable signal that a function panics.
 
 ---
 
@@ -169,11 +175,11 @@ if err != nil {
 }
 ```
 
-- `go vet` and `staticcheck` catch some shadowing; `errcheck` catches ignored
+1. `go vet` and `staticcheck` catch some shadowing; `errcheck` catches ignored
   returns. Run them.
-- **Never** discard an error with `_` unless the comment beside it says why:
+2. **Never** discard an error with `_` unless the comment beside it says why:
   `_ = f.Close() // read-only; nothing to flush`.
-- `defer f.Close()` on a file you wrote to swallows the write error. Check it:
+3. `defer f.Close()` on a file you wrote to swallows the write error. Check it:
   `defer func() { err = errors.Join(err, f.Close()) }()`.
 
 ---

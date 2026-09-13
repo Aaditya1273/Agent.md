@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -44,12 +50,12 @@ def create_app(config: type[Config] = ProdConfig) -> Flask:
 app = create_app()
 ```
 
-- No `app = Flask(__name__)` at module level anywhere else. A global app is
+1. No `app = Flask(__name__)` at module level anywhere else. A global app is
   configured at import time, cannot be built twice with different config, and
   makes every test share state.
-- Extensions (`SQLAlchemy()`, `Migrate()`, `LoginManager()`) are created without
+2. Extensions (`SQLAlchemy()`, `Migrate()`, `LoginManager()`) are created without
   an app and bound in the factory with `init_app`.
-- Tests call `create_app(TestConfig)`.
+3. Tests call `create_app(TestConfig)`.
 
 ---
 
@@ -94,11 +100,11 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite://"
 ```
 
-- `os.environ["X"]` not `os.environ.get("X")` for required values; a `KeyError`
+1. `os.environ["X"]` not `os.environ.get("X")` for required values; a `KeyError`
   at boot beats a `None` secret key in production.
-- `MAX_CONTENT_LENGTH` is unset by default — set it, or a single request can
+2. `MAX_CONTENT_LENGTH` is unset by default — set it, or a single request can
   exhaust memory.
-- Never `app.config["DEBUG"] = True` in a config that could reach production;
+3. Never `app.config["DEBUG"] = True` in a config that could reach production;
   the Werkzeug debugger is remote code execution.
 
 ---
@@ -115,11 +121,11 @@ def shutdown_session(exc):
     db.session.remove()            # return the connection; roll back on error
 ```
 
-- `g` is per-request; use it for the request id, the current tenant, timing.
+1. `g` is per-request; use it for the request id, the current tenant, timing.
   Module globals for the same purpose leak between requests under threading.
-- `teardown_appcontext` runs even when the view raised — put cleanup there, not
+2. `teardown_appcontext` runs even when the view raised — put cleanup there, not
   in `after_request`, which is skipped on unhandled exceptions.
-- Behind a proxy, wrap with `ProxyFix(app.wsgi_app, x_for=1, x_proto=1)` with the
+3. Behind a proxy, wrap with `ProxyFix(app.wsgi_app, x_for=1, x_proto=1)` with the
   exact hop count; otherwise `request.remote_addr` is the proxy and rate limits
   key on one address for everyone. → `API/rate-limiting`
 
@@ -143,11 +149,11 @@ def register_error_handlers(app: Flask) -> None:
         return {"error": "internal"}, 500
 ```
 
-- Register a handler for `HTTPException` so `abort(404)` returns your JSON
+1. Register a handler for `HTTPException` so `abort(404)` returns your JSON
   envelope, not Werkzeug's HTML page.
-- The catch-all logs the traceback with the request id and returns a fixed body.
+2. The catch-all logs the traceback with the request id and returns a fixed body.
   A default 500 in a JSON API returns HTML to the client.
-- Domain exceptions are raised in services and mapped here, once.
+3. Domain exceptions are raised in services and mapped here, once.
   → `Backend/error-handling`
 
 ---

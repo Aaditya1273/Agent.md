@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -82,11 +89,11 @@ breaking anyone.
 A new major version doubles your test surface and your on-call burden. Before
 cutting one, check whether the change fits inside the current version:
 
-- **Add alongside.** Ship `amountCents` next to a deprecated `amount`, populate
+1. **Add alongside.** Ship `amountCents` next to a deprecated `amount`, populate
   both, and remove the old one at the next major.
-- **Opt-in behaviour.** A request field or header selects the new behaviour;
+2. **Opt-in behaviour.** A request field or header selects the new behaviour;
   absent means the old behaviour.
-- **New endpoint.** `POST /v1/orders/bulk` beside `POST /v1/orders` avoids
+3. **New endpoint.** `POST /v1/orders/bulk` beside `POST /v1/orders` avoids
   redefining an existing contract.
 
 Reserve a major version for changes that genuinely cannot coexist — a
@@ -137,11 +144,11 @@ Version drift is a testing problem before it is a policy problem.
 oasdiff breaking spec/v1.openapi.yaml spec/v1.openapi.new.yaml --fail-on ERR
 ```
 
-- Keep an OpenAPI document per major version, generated from the code where
+1. Keep an OpenAPI document per major version, generated from the code where
   possible, and diff it in CI. → `API/open-api`
-- Contract tests run the previous version's recorded requests against the current
+2. Contract tests run the previous version's recorded requests against the current
   build. A test suite that only tests today's shape cannot detect a break.
-- Publish a changelog per version with dates, and link it from the docs.
+3. Publish a changelog per version with dates, and link it from the docs.
 
 ```yaml
 # .github/workflows/api-contract.yml

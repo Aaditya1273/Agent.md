@@ -14,7 +14,13 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for a Django codebase that stays coherent past the third app. Django's
@@ -85,18 +91,11 @@ class Order(models.Model):
 [INST] Apply every rule in this section: Querysets — the N+1 rule. [/INST]
 
 ```python
-
 # N+1: one query for orders, one per order for its customer
-
-[INST] Apply every rule in this section: N+1: one query for orders, one per order for its customer. [/INST]
-
 for order in Order.objects.filter(tenant=t):
     print(order.customer.email)
 
 # Fixed
-
-[INST] Apply every rule in this section: Fixed. [/INST]
-
 orders = (Order.objects.filter(tenant=t)
           .select_related("customer")                 # FK / one-to-one → JOIN
           .prefetch_related("items__product")         # reverse / many → 2nd query

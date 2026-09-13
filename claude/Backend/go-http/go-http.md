@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for building HTTP services on `net/http`. Since Go 1.22 the standard
 mux routes by method and path pattern, which removes the main reason people
 reached for a router package. Use the standard library unless you can name the
@@ -26,11 +36,13 @@ feature it lacks.
 Errors are `Backend/go-errors`; testing handlers is `Testing/go-testing`.
 
 ---
+
 </purpose>
 
 # Routing with the 1.22 mux
 
 <rules>
+
 ```go
 mux := http.NewServeMux()
 mux.HandleFunc("GET /orders/{id}", h.getOrder)
@@ -53,11 +65,13 @@ func (h *Handler) getOrder(w http.ResponseWriter, r *http.Request) {
 - **Never** switch on `r.Method` inside a handler. That is what the pattern is for.
 
 ---
+
 </rules>
 
 # Handlers and dependencies
 
 <rules>
+
 ```go
 type Handler struct {
     store  orders.Store
@@ -80,11 +94,13 @@ func New(store orders.Store, logger *slog.Logger) http.Handler {
   in a handler cannot be reused from a job or tested without HTTP.
 
 ---
+
 </rules>
 
 # Middleware
 
 <rules>
+
 ```go
 func requestID(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,11 +124,13 @@ handler := recoverer(logging(requestID(mux)))   // outermost runs first
   principal). **Never** pass function parameters through the context.
 
 ---
+
 </rules>
 
 # Timeouts and the server
 
 <rules>
+
 ```go
 srv := &http.Server{
     Addr:              cfg.Addr,
@@ -135,11 +153,13 @@ srv := &http.Server{
   Construct one `http.Client{Timeout: …}` per dependency and reuse it.
 
 ---
+
 </rules>
 
 # Graceful shutdown
 
 <rules>
+
 ```go
 func run(ctx context.Context, srv *http.Server) error {
     errCh := make(chan error, 1)
@@ -164,11 +184,13 @@ func run(ctx context.Context, srv *http.Server) error {
   balancer drains you; liveness (`/healthz`) stays green until exit.
 
 ---
+
 </rules>
 
 # JSON in and out
 
 <rules>
+
 ```go
 func decode[T any](r *http.Request) (T, error) {
     var v T
@@ -199,11 +221,13 @@ func respond(w http.ResponseWriter, status int, v any) {
   currency.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `http.ListenAndServe` directly | No timeouts; slow clients pin connections | `http.Server` with all four timeouts |
@@ -220,11 +244,13 @@ func respond(w http.ResponseWriter, status int, v any) {
 | `float64` for money | Rounding errors | `int64` minor units |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Routes use `"METHOD /path/{param}"` patterns on `http.NewServeMux`
 - [ ] Every API route specifies a method
 - [ ] Handlers are methods on a struct that receives dependencies
@@ -238,4 +264,5 @@ func respond(w http.ResponseWriter, status int, v any) {
 - [ ] Decoding uses `DisallowUnknownFields` and validation reports all errors
 - [ ] `SIGTERM` triggers `srv.Shutdown` with a deadline
 - [ ] Readiness fails before shutdown; liveness stays green until exit
+
 </checklist>

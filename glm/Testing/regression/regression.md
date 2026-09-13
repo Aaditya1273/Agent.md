@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -64,11 +70,11 @@ the behaviour so a failure is legible without opening the tracker.
 
 Not every bug needs a permanent test. Keep it when:
 
-- The bug reached **production**
-- It involved **money, data loss, security or privacy**
-- It was **subtle** — an off-by-one, a timezone, a race, a rounding rule
-- It has **recurred before**
-- The fix is in code that changes often
+1. The bug reached **production**
+2. It involved **money, data loss, security or privacy**
+3. It was **subtle** — an off-by-one, a timezone, a race, a rounding rule
+4. It has **recurred before**
+5. The fix is in code that changes often
 
 Skip a permanent test when the bug was a typo caught in review, or the fix removes
 the possibility structurally — a type change or a database constraint is a
@@ -131,12 +137,12 @@ expect(render(<Invoice {...props} />)).toMatchSnapshot();
 expect(screen.getByTestId("total")).toHaveTextContent("£40.00");
 ```
 
-- Keep snapshots **small and targeted**. A 600-line snapshot is never reviewed;
+1. Keep snapshots **small and targeted**. A 600-line snapshot is never reviewed;
   it is regenerated.
-- **Never** run `--update-snapshots` to make CI green without reading the diff.
+2. **Never** run `--update-snapshots` to make CI green without reading the diff.
   That is the mechanism by which a real regression gets committed as expected
   behaviour.
-- Prefer explicit assertions for anything with business meaning. Reserve snapshots
+3. Prefer explicit assertions for anything with business meaning. Reserve snapshots
   for shapes with no better expression.
 
 ---
@@ -173,16 +179,16 @@ function label(status: Status): string {
 A regression suite accumulates. Without maintenance it becomes archaeology — tests
 nobody understands, guarding behaviour nobody wants.
 
-- Run the full suite before shipping a fix — `npm test` locally, not just the one
+1. Run the full suite before shipping a fix — `npm test` locally, not just the one
   file. A fix that repairs `refundPayment` and breaks `capturePayment` is caught
   only by the rest of the suite.
-- **Delete tests for removed features.** A test for deleted code is pure cost.
-- **Consolidate** when six tests cover one rule through slightly different paths.
-- **Fix or quarantine flaky tests immediately.** One test retried until green
+2. **Delete tests for removed features.** A test for deleted code is pure cost.
+3. **Consolidate** when six tests cover one rule through slightly different paths.
+4. **Fix or quarantine flaky tests immediately.** One test retried until green
   teaches the team to ignore red, which is how a real failure ships.
-- **Never** comment out or `.skip` a failing test to unblock a release without an
+5. **Never** comment out or `.skip` a failing test to unblock a release without an
   issue and an owner. A skipped test is deleted coverage that still looks present.
-- Re-read the suite when a module is rewritten. Tests asserting the old design
+6. Re-read the suite when a module is rewritten. Tests asserting the old design
   block the new one for no benefit.
 
 ---

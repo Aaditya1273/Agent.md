@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -66,11 +73,11 @@ const { data, error, isPending } = useQuery({
 (Next.js server components, Remix loaders) all solve this. What they give you and
 hand-rolled effects do not:
 
-- Request deduplication across components mounting simultaneously
-- Background revalidation and stale-while-revalidate
-- Retry with backoff, and error and loading states as data
-- Cache invalidation by key after a mutation
-- Race-condition handling for out-of-order responses
+1. Request deduplication across components mounting simultaneously
+2. Background revalidation and stale-while-revalidate
+3. Retry with backoff, and error and loading states as data
+4. Cache invalidation by key after a mutation
+5. Race-condition handling for out-of-order responses
 
 **Never** copy fetched data into a global store. You then own invalidation,
 and the store and the server diverge silently.
@@ -109,10 +116,10 @@ component genuinely needs the same value, and only to the lowest common parent.
 changes, so a single context holding everything re-renders the whole tree on any
 change.
 
-- Split contexts by update frequency: a rarely-changing `ThemeContext` and a
+1. Split contexts by update frequency: a rarely-changing `ThemeContext` and a
   frequently-changing one should not be the same provider.
-- Memoise the context value, or every provider render invalidates all consumers.
-- Context is right for dependency injection (theme, locale, the current user) and
+2. Memoise the context value, or every provider render invalidates all consumers.
+3. Context is right for dependency injection (theme, locale, the current user) and
   wrong for high-frequency state.
 
 | Library | Model | Reach for it when |
@@ -142,12 +149,12 @@ type State = { status: "idle" } | { status: "loading" }
            | { status: "error"; error: Error } | { status: "success"; data: Data };
 ```
 
-- Never store derived data. Compute it. A `totalCents` alongside `items` will
+1. Never store derived data. Compute it. A `totalCents` alongside `items` will
   diverge.
-- Never duplicate the same value in two stores.
-- Normalise collections by id rather than nesting the same entity in several
+2. Never duplicate the same value in two stores.
+3. Normalise collections by id rather than nesting the same entity in several
   places, so one update does not need to find every copy.
-- Persisted state (`localStorage`) must be **versioned and migrated**, or a
+4. Persisted state (`localStorage`) must be **versioned and migrated**, or a
   returning user with an old shape crashes the application. Never persist tokens
   or personal data there. → `Frontend/hooks`
 

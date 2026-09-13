@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never wrap an indexed column in a function in the `WHERE` clause — `WHERE lower(email) = $1` cannot use an index on `email`. Either index the expression or store the normalised value.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for choosing indexes. Query rewriting is `Database/query-optimization`.
 
 Two facts govern everything below: **an index makes reads faster and writes
@@ -25,11 +36,13 @@ slower**, and **an index the planner cannot use costs you everything and returns
 nothing.** Index for measured query patterns, never speculatively.
 
 ---
+
 </purpose>
 
 # Index what you filter, join and sort on
 
 <rules>
+
 Start from the actual queries, then read the plan:
 
 ```sql
@@ -50,11 +63,13 @@ Always index:
 - **`ORDER BY` columns** where the sort would otherwise be external.
 
 ---
+
 </rules>
 
 # Composite index column order
 
 <rules>
+
 The single most consequential decision, and the one most often wrong.
 
 ```sql
@@ -78,11 +93,13 @@ usually replaces a single-column index on its leading column, so drop the
 redundant one.
 
 ---
+
 </rules>
 
 # Specialised index types
 
 <rules>
+
 | Type | Use |
 | --- | --- |
 | **B-tree** | Default; equality, ranges, sorting |
@@ -110,11 +127,13 @@ CREATE INDEX idx_users_email_lower ON users (lower(email));
 expression or store the normalised value.
 
 ---
+
 </rules>
 
 # When an index is ignored
 
 <rules>
+
 The planner declines an index more often than people expect:
 
 | Cause | Fix |
@@ -131,11 +150,13 @@ That fourth row matters: **a sequential scan is not automatically a bug.** For a
 query returning 40% of a table, a scan is the correct plan.
 
 ---
+
 </rules>
 
 # The cost of too many
 
 <rules>
+
 Every index must be updated on every `INSERT`, `UPDATE` and `DELETE`, and occupies
 memory that would otherwise cache data.
 
@@ -154,11 +175,13 @@ ORDER BY pg_relation_size(indexrelid) DESC;
 - Watch for **duplicate indexes** created by an ORM and a migration independently.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | One index per column | Composite queries still scan; writes slow | Composite in query order |
@@ -173,11 +196,13 @@ ORDER BY pg_relation_size(indexrelid) DESC;
 | Reading `EXPLAIN` without `ANALYZE` | Estimates, not reality | `EXPLAIN (ANALYZE, BUFFERS)` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Indexes were added in response to a measured plan, not speculation
 - [ ] Every foreign key is indexed
 - [ ] Composite indexes order columns equality, then range, then sort
@@ -189,4 +214,5 @@ ORDER BY pg_relation_size(indexrelid) DESC;
 - [ ] Unused and redundant indexes are audited and dropped
 - [ ] Index creation uses `CONCURRENTLY` in production
 - [ ] `ANALYZE` has run before drawing conclusions from a plan
+
 </checklist>

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never place the CSRF token in a `GET` query string — it leaks via `Referer`, logs and history.
+- Never reflect an arbitrary `Origin` into `Access-Control-Allow-Origin`. - Never combine `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true` — browsers reject the pair, and code that works around it has opened the door deliberately. - Keep the allowed-origin list explicit and short.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for ensuring a state-changing request was intended by the user, not
 triggered by another site using their ambient credentials.
 
@@ -27,11 +39,13 @@ token in an `Authorization` header is not attached automatically by a cross-site
 form post. Establish which case you are in before adding machinery.
 
 ---
+
 </purpose>
 
 # Layer 1 — SameSite cookies
 
-<rules>
+<security_rules>
+
 The first and cheapest control. Set it explicitly; do not rely on browser defaults.
 
 ```
@@ -60,11 +74,13 @@ So: `Lax` by default, plus one of the token strategies below for state-changing
 endpoints.
 
 ---
-</rules>
+
+</security_rules>
 
 # Layer 2 — synchroniser token
 
-<rules>
+<security_rules>
+
 The server issues a random token, stores it against the session, and requires it
 back in the request body or a header.
 
@@ -91,11 +107,13 @@ if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
 
 **Never** place the CSRF token in a `GET` query string — it leaks via `Referer`,
 logs and history.
-</rules>
+
+</security_rules>
 
 ## Double-submit cookie — only when signed
 
-<rules>
+<security_rules>
+
 Storing the token in a cookie and comparing it to a header avoids server state.
 Naively, it is **broken**: any same-site attacker (subdomain XSS, subdomain
 takeover) can set a cookie on the parent domain and choose both halves.
@@ -106,11 +124,13 @@ pair that matches their victim's session. Prefer the session-bound synchroniser
 token when you have a session store.
 
 ---
-</rules>
+
+</security_rules>
 
 # Layer 3 — Origin and Referer validation
 
-<rules>
+<security_rules>
+
 For state-changing requests, verify the request came from your own origin.
 
 ```js
@@ -132,11 +152,13 @@ This pairs well with `Sec-Fetch-Site: same-origin`, which is unforgeable by page
 script where supported.
 
 ---
-</rules>
+
+</security_rules>
 
 # Method discipline
 
-<rules>
+<security_rules>
+
 - **`GET`, `HEAD` and `OPTIONS` must be side-effect free.** A state-changing `GET`
   is exploitable with an `<img src>` tag and is not protected by `SameSite=Lax`.
 - Require `POST`, `PUT`, `PATCH` or `DELETE` for every mutation, and apply CSRF
@@ -147,11 +169,13 @@ script where supported.
   attacker cannot satisfy.
 
 ---
-</rules>
+
+</security_rules>
 
 # CORS is not CSRF protection
 
-<rules>
+<security_rules>
+
 They are frequently confused. **CORS governs whether the attacker can *read* the
 response. CSRF is about the request being *sent* at all.** A cross-site form post
 succeeds and changes state even though the attacker never sees the response.
@@ -165,11 +189,13 @@ Making CORS worse also makes CSRF worse:
 - Keep the allowed-origin list explicit and short.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Relying on `SameSite` alone | Subdomains are same-site; `None` disables it | Add a token or Origin check |
@@ -183,11 +209,13 @@ Making CORS worse also makes CSRF worse:
 | CSRF token in the query string | Leaks via `Referer`, logs, history | Header or request body |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Established whether the API uses cookie authentication at all
 - [ ] Session cookies set `SameSite=Lax` (or `Strict`) explicitly, plus `Secure` and `HttpOnly`
 - [ ] Any `SameSite=None` cookie is deliberate and documented
@@ -199,4 +227,5 @@ Making CORS worse also makes CSRF worse:
 - [ ] JSON APIs reject form-encoded and `text/plain` bodies
 - [ ] `Access-Control-Allow-Origin` is an explicit list and never a reflected value
 - [ ] CSRF tokens never appear in URLs
+
 </checklist>

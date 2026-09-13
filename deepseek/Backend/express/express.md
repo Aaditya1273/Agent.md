@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -135,16 +142,16 @@ Validate every input at the boundary with a schema, and reject unknown fields.
 
 # Request context and lifecycle
 
-- Attach a request id first and expose a child logger as `req.log`.
-- Carry request-scoped state in `AsyncLocalStorage`, not on module variables — a
+1. Attach a request id first and expose a child logger as `req.log`.
+2. Carry request-scoped state in `AsyncLocalStorage`, not on module variables — a
   module-scope `currentUser` leaks one request's identity into another's under
   concurrency.
-- Set `server.keepAliveTimeout` above your load balancer's idle timeout, or you
+3. Set `server.keepAliveTimeout` above your load balancer's idle timeout, or you
   will see intermittent `502`s from races on connection close (a classic behind
   AWS ALB, whose default is 60s).
-- Implement graceful shutdown: `server.close()`, drain in-flight requests, then
+4. Implement graceful shutdown: `server.close()`, drain in-flight requests, then
   exit.
-- Add `/healthz` (liveness, no dependency checks) and `/readyz` (readiness, checks
+5. Add `/healthz` (liveness, no dependency checks) and `/readyz` (readiness, checks
   dependencies) before any auth middleware. → `Backend/monitoring`
 
 ---
@@ -159,10 +166,10 @@ const res = await request(createApp({ db: testDb }))
 expect(res.status).toBe(201);
 ```
 
-- `supertest` against the app object — no port, no fixed host, parallel-safe.
-- Test the **denial** cases: unauthenticated, wrong tenant, malformed body. Those
+1. `supertest` against the app object — no port, no fixed host, parallel-safe.
+2. Test the **denial** cases: unauthenticated, wrong tenant, malformed body. Those
   are the assertions that catch a missing check. → `Backend/authorization`
-- One test that enumerates every registered route and asserts an unauthenticated
+3. One test that enumerates every registered route and asserts an unauthenticated
   request is rejected, with an explicit public allowlist, catches the endpoint
   somebody forgot to protect.
 

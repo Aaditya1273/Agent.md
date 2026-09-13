@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -70,11 +77,11 @@ ORDER BY n_dead_tup DESC;
 
 What blocks vacuum, in practice:
 
-- **Long-running transactions.** A session `idle in transaction` for hours pins
+1. **Long-running transactions.** A session `idle in transaction` for hours pins
   the oldest visible snapshot and stops vacuum reclaiming anything newer.
-- **Abandoned replication slots.** An inactive slot holds WAL and the xmin
+2. **Abandoned replication slots.** An inactive slot holds WAL and the xmin
   horizon indefinitely, and will fill the disk.
-- **Long queries on replicas** with `hot_standby_feedback = on`.
+3. **Long queries on replicas** with `hot_standby_feedback = on`.
 
 Set `idle_in_transaction_session_timeout` (e.g. `60s`) so a forgotten transaction
 cannot hold the horizon. Monitor `pg_replication_slots.active` — an inactive slot
@@ -118,10 +125,10 @@ SELECT * FROM events WHERE payload @> '{"type":"checkout"}';
 
 Rules:
 
-- Anything queried, sorted, or constrained on a hot path belongs in a real column.
-- Index with `GIN` and `jsonb_path_ops` for containment (`@>`) — smaller and
+1. Anything queried, sorted, or constrained on a hot path belongs in a real column.
+2. Index with `GIN` and `jsonb_path_ops` for containment (`@>`) — smaller and
   faster than the default operator class when you only need containment.
-- Extract a stable field to a generated column when it is queried constantly.
+3. Extract a stable field to a generated column when it is queried constantly.
 
 **Never** store what should be a foreign key inside `jsonb`. There is no
 referential integrity, and the join will not use an index the way you expect.

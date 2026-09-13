@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -182,3 +181,30 @@ In this order:
 - [ ] Verify: Every integration supports two valid credentials for zero-downtime rotation
 - [ ] Verify: Short-lived federated credentials used where the platform supports them
 - [ ] Verify: A written leak procedure exists that starts with revocation
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never commit a secret "temporarily". Never paste one into an issue, a pull request, a chat message, or a support ticket — those systems are searchable and often exportable.
+- Never log `process.env`, and never interpolate a secret into a log line, a URL, or an error message.
+- Never rely on `.gitignore` alone. It does not protect a file already tracked, and `git add -f` bypasses it.
+- Never use `ENV SECRET=…` or `ARG SECRET=…` in a `Dockerfile`. Both persist in the image layers and are readable with `docker history` by anyone who can pull the image. - Use build secrets that are not committed to a layer:
+- Never treat a history rewrite as remediation. Rotation is remediation.
+
+- [ ] No secret appears in source, config, or committed `.env` files
+- [ ] `.gitignore` covers `.env*`, `*.pem`, `*.key`, service-account JSON
+- [ ] `.env.example` lists keys with empty values only
+- [ ] A secret scanner runs in CI and over full history
+- [ ] Production secrets come from a secret manager or orchestrator injection
+- [ ] Required secrets are validated at startup with a clear failure
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

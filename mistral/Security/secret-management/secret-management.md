@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: secret-management
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for handling API keys, database passwords, signing keys and tokens.
@@ -113,11 +119,7 @@ and `git add -f` bypasses it.
 - Use **build secrets** that are not committed to a layer:
 
 ```dockerfile
-
 # syntax=docker/dockerfile:1
-
-[INST] Apply every rule in this section: syntax=docker/dockerfile:1. [/INST]
-
 RUN --mount=type=secret,id=npm_token \
     NPM_TOKEN=$(cat /run/secrets/npm_token) npm ci
 ```

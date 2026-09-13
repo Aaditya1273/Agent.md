@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never enable compression (CRIME) or renegotiation initiated by the client.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for transport security. Encryption of stored data is `Security/encryption`;
 the response headers that accompany TLS are `Security/headers`.
 
@@ -26,11 +37,13 @@ checks, not for internal services. Plaintext anywhere permits downgrade,
 injection of content, and theft of any credential that traverses it.
 
 ---
+
 </purpose>
 
 # Protocol versions
 
-<rules>
+<security_rules>
+
 | Version | Setting |
 | --- | --- |
 | **TLS 1.3** | Enable. Preferred — fewer round trips, no legacy ciphers, forward secrecy always |
@@ -58,11 +71,13 @@ key exchange does not provide this and is absent from TLS 1.3 for that reason.
 **Never** enable compression (CRIME) or renegotiation initiated by the client.
 
 ---
-</rules>
+
+</security_rules>
 
 # Certificates
 
-<rules>
+<security_rules>
+
 - Automate issuance and renewal with ACME (`certbot`, `lego`, `caddy`, or your
   platform's manager). **Manual renewal is how outages happen** — the certificate
   expires on a weekend and nobody is paged until users are.
@@ -77,11 +92,13 @@ key exchange does not provide this and is absent from TLS 1.3 for that reason.
 - Add a **CAA record** so only your chosen authority may issue for the domain.
 
 ---
-</rules>
+
+</security_rules>
 
 # HSTS
 
-<rules>
+<security_rules>
+
 ```
 Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 ```
@@ -92,11 +109,13 @@ Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
   and future subdomain must serve HTTPS before you submit. → `Security/headers`
 
 ---
-</rules>
+
+</security_rules>
 
 # Redirects and mixed content
 
-<rules>
+<security_rules>
+
 - Redirect HTTP to HTTPS with **`301`**, and redirect to the same path. Sending
   every plaintext request to `/` loses the user's destination.
 - The redirect is a **fallback, not the control** — the first plaintext request is
@@ -106,11 +125,13 @@ Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 - Set cookies `Secure` so they are never transmitted in plaintext.
 
 ---
-</rules>
+
+</security_rules>
 
 # Internal traffic
 
-<rules>
+<security_rules>
+
 Terminating TLS at a load balancer and speaking plaintext behind it is only
 acceptable when that internal network is genuinely trusted — and in a shared
 cloud VPC it usually is not.
@@ -128,23 +149,18 @@ const agent = new https.Agent({ ca: fs.readFileSync("/etc/ssl/internal-ca.pem") 
 ```
 
 ---
-</rules>
+
+</security_rules>
 
 # Verifying
 
-<rules>
+<security_rules>
+
 ```bash
-</rules>
-
 # Protocol, cipher, chain and expiry from the live endpoint
-
-<rules>
 openssl s_client -connect app.example.com:443 -servername app.example.com < /dev/null
-</rules>
 
 # Confirm weak protocols are actually refused
-
-<rules>
 openssl s_client -tls1_1 -connect app.example.com:443 < /dev/null   # expect failure
 ```
 
@@ -152,11 +168,13 @@ Test the **deployed origin**, not the configuration file. Then run an external
 scan (SSL Labs, `testssl.sh`) and re-run it after any proxy or platform change.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | TLS 1.0 / 1.1 still enabled | Deprecated; CBC and RC4 weaknesses | TLS 1.2 + 1.3 only |
@@ -171,11 +189,13 @@ scan (SSL Labs, `testssl.sh`) and re-run it after any proxy or platform change.
 | Static RSA key exchange | No forward secrecy | Require ECDHE |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Only TLS 1.2 and 1.3 are enabled; older protocols refused and verified refused
 - [ ] Cipher suites are AEAD with ECDHE key exchange
 - [ ] TLS compression and client-initiated renegotiation are disabled
@@ -188,4 +208,5 @@ scan (SSL Labs, `testssl.sh`) and re-run it after any proxy or platform change.
 - [ ] HTTP redirects `301` to the same path over HTTPS
 - [ ] No mixed content; all cookies are `Secure`
 - [ ] Internal service traffic uses mTLS or verified TLS, never disabled verification
+
 </checklist>

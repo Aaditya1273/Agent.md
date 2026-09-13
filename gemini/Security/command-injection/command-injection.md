@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -169,3 +168,29 @@ Assume the guard fails and limit what a successful injection achieves:
 - [ ] Verify: The process runs unprivileged and, where possible, sandboxed
 - [ ] Verify: Filenames and `git` refs are validated and never taken from the client verbatim
 - [ ] Verify: `stderr` is logged server-side and never returned to the caller
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never set `shell: true` to make a command "work". It reintroduces the parser you just removed. If you need a pipeline, build it with two processes and connect their streams rather than handing a string to `sh -c`.
+- Never try to sanitise your way to safety by stripping metacharacters. The set differs per shell, quoting rules are subtle, and encodings differ. Escaping helpers such as `shlex.quote` exist for the case where a shell is genuinely unavoidable — treat that as a last resort, not a default.
+- Never let input decide which binary runs. Allow-list the command:
+- Never resolve the binary through `PATH` in a privileged context. `PATH` may be attacker-influenced. Use an absolute path — `/usr/bin/convert`. - Reset the child environment rather than inheriting it. `LD_PRELOAD`, `PYTHONPATH`, `NODE_OPTIONS` and `IFS` all change behaviour:
+
+- [ ] No `exec`, `system`, `shell_exec` or `shell: true` receives input
+- [ ] Every invocation passes an argument array
+- [ ] `--` terminates options where the program supports it
+- [ ] Paths are resolved before being passed as arguments
+- [ ] The binary is chosen from a server-side allow-list, by absolute path
+- [ ] The child environment is set explicitly, not inherited
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

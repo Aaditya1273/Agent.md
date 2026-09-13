@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -74,14 +81,14 @@ waiting for any more.
 
 Fixes are architectural, not configuration:
 
-- **Shed load** — reject early with `503` and `Retry-After` rather than queueing.
+1. **Shed load** — reject early with `503` and `Retry-After` rather than queueing.
   → `Security/rate-limiting`
-- **Bound every queue.** An unbounded queue converts a throughput problem into a
+2. **Bound every queue.** An unbounded queue converts a throughput problem into a
   memory problem and then a crash.
-- **Set timeouts everywhere**, and make them shorter than the caller's. A 30s
+3. **Set timeouts everywhere**, and make them shorter than the caller's. A 30s
   downstream timeout behind a 10s client timeout means 20s of work nobody reads.
-- **Circuit-break** a failing dependency so its latency does not become yours.
-- **Prioritise** — health checks and payments should survive when search does not.
+4. **Circuit-break** a failing dependency so its latency does not become yours.
+5. **Prioritise** — health checks and payments should survive when search does not.
   Separate pools or a dedicated `readiness` path keeps `/health` answering while
   the main pool is saturated, so the orchestrator does not restart a busy but
   healthy instance.
@@ -120,12 +127,12 @@ Testing recovery is what distinguishes a stress test from a load test.
 
 After the load drops to zero, watch for:
 
-- Does latency return to baseline, and **how long** does that take?
-- Do queues drain, or keep growing from retries?
-- Do connection pools recover, or stay exhausted with `idle in transaction`?
-- Does memory return, or did the peak leak?
-- Do circuit breakers close again?
-- Did any process get OOM-killed and restart into a cold cache — and did the cold
+1. Does latency return to baseline, and **how long** does that take?
+2. Do queues drain, or keep growing from retries?
+3. Do connection pools recover, or stay exhausted with `idle in transaction`?
+4. Does memory return, or did the peak leak?
+5. Do circuit breakers close again?
+6. Did any process get OOM-killed and restart into a cold cache — and did the cold
   cache then cause a second failure?
 
 **Retry storms** are the usual reason recovery fails. Every client retrying

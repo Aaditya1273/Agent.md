@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never embed an unbounded array. A document has a 16 MB hard limit, and a growing array forces document relocation and rewrites the whole document on every push. An array that grows with user activity — comments, events, log lines — belongs in its own collection.
+- Never leave an in-memory sort in a hot query. Above 32 MB it errors outright rather than degrading. → `Database/indexes`
+- Never use `w: 1` for data whose loss matters. An election after a `w: 1` write can roll it back with no error ever reaching the client.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for MongoDB. "Schemaless" means the schema lives in application code
 instead of the database — it does not mean there isn't one. Every rule here
 exists because the database will not stop you.
@@ -27,11 +40,13 @@ data is relational and you are joining it with `$lookup` on every read, you chos
 wrong. → `Database/schema-design`
 
 ---
+
 </purpose>
 
 # Embed or reference
 
 <rules>
+
 The single most consequential modelling decision.
 
 | Embed when | Reference when |
@@ -59,11 +74,13 @@ the most recent few for fast reads and keep the full set in a separate
 collection.
 
 ---
+
 </rules>
 
 # Indexes
 
 <rules>
+
 ```js
 db.orders.createIndex({ tenantId: 1, createdAt: -1 });
 db.orders.find({ tenantId: t }).sort({ createdAt: -1 }).explain("executionStats");
@@ -86,11 +103,13 @@ also serves queries on `{a}` and `{a,b}` — do not create those separately.
 rather than degrading. → `Database/indexes`
 
 ---
+
 </rules>
 
 # Write concern and durability
 
 <rules>
+
 The defaults are not what most teams assume.
 
 ```js
@@ -116,11 +135,13 @@ const session = client.startSession({ causalConsistency: true });
 ```
 
 ---
+
 </rules>
 
 # Transactions
 
 <rules>
+
 Multi-document transactions exist (replica sets and sharded clusters) but are far
 more expensive than in a relational engine, and they have a default 60-second
 limit.
@@ -130,11 +151,13 @@ point of embedding. Reach for a transaction only when a genuine invariant spans
 collections. → `Database/transactions`
 
 ---
+
 </rules>
 
 # Schema validation
 
 <rules>
+
 The database will happily store `{ price: "twelve" }`. Add validation:
 
 ```js
@@ -157,11 +180,13 @@ Store money as integer minor units (`long`), never `double`. Store dates as BSON
 date operators.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Unbounded embedded array | 16 MB document cap; full rewrite per push | Separate collection, or subset pattern |
@@ -177,11 +202,13 @@ date operators.
 | `$where` / unindexed `$regex` | Full collection scan | Anchored regex on an indexed field |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Embed/reference decided per relationship, with cardinality stated
 - [ ] No embedded array grows without bound
 - [ ] Every hot query verified with `explain("executionStats")` showing `IXSCAN`
@@ -193,4 +220,5 @@ date operators.
 - [ ] `$jsonSchema` validation is enabled with `validationAction: "error"`
 - [ ] Money stored as integer minor units; dates stored as BSON dates
 - [ ] Transactions used only for invariants that genuinely span documents
+
 </checklist>

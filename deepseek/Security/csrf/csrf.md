@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -48,12 +55,12 @@ origin issuing a `POST`.
 
 **But `Lax` is not sufficient on its own:**
 
-- It does not protect **`GET` requests that change state**. That is a reason to
+1. It does not protect **`GET` requests that change state**. That is a reason to
   never mutate on `GET`, not a reason to trust `Lax`.
-- Same-site is *site*, not *origin*. `evil.example.com` is same-site with
+2. Same-site is *site*, not *origin*. `evil.example.com` is same-site with
   `app.example.com`. A subdomain takeover, or any XSS on a sibling subdomain,
   defeats it.
-- `SameSite=None` — needed for legitimate cross-site use — disables it entirely.
+3. `SameSite=None` — needed for legitimate cross-site use — disables it entirely.
 
 So: `Lax` by default, plus one of the token strategies below for state-changing
 endpoints.
@@ -79,11 +86,11 @@ if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
 }
 ```
 
-- Generate with a **CSPRNG** — `crypto.randomBytes`, never `Math.random()`.
-- Compare with **`timingSafeEqual`**, never `===`, and length-check first because
+1. Generate with a **CSPRNG** — `crypto.randomBytes`, never `Math.random()`.
+2. Compare with **`timingSafeEqual`**, never `===`, and length-check first because
   `timingSafeEqual` throws on mismatched lengths.
-- Bind the token to the **session**, not to a global value.
-- Rotate on login and privilege change, for the same reason session identifiers
+3. Bind the token to the **session**, not to a global value.
+4. Rotate on login and privilege change, for the same reason session identifiers
   rotate.
 
 **Never** place the CSRF token in a `GET` query string — it leaks via `Referer`,
@@ -114,11 +121,11 @@ if (new URL(origin).origin !== "https://app.example.com") {
 }
 ```
 
-- `Origin` is sent on all cross-origin requests and on same-origin `POST` in
+1. `Origin` is sent on all cross-origin requests and on same-origin `POST` in
   modern browsers. It cannot be set by page JavaScript.
-- **Fail closed** when the header is absent. Treating "missing" as "allowed" is
+2. **Fail closed** when the header is absent. Treating "missing" as "allowed" is
   the standard bypass.
-- Compare the parsed `.origin`, never `startsWith` — `https://app.example.com.evil.tld`
+3. Compare the parsed `.origin`, never `startsWith` — `https://app.example.com.evil.tld`
   passes a prefix check.
 
 This pairs well with `Sec-Fetch-Site: same-origin`, which is unforgeable by page
@@ -128,11 +135,11 @@ script where supported.
 
 # Method discipline
 
-- **`GET`, `HEAD` and `OPTIONS` must be side-effect free.** A state-changing `GET`
+1. **`GET`, `HEAD` and `OPTIONS` must be side-effect free.** A state-changing `GET`
   is exploitable with an `<img src>` tag and is not protected by `SameSite=Lax`.
-- Require `POST`, `PUT`, `PATCH` or `DELETE` for every mutation, and apply CSRF
+2. Require `POST`, `PUT`, `PATCH` or `DELETE` for every mutation, and apply CSRF
   validation to all of them.
-- Reject `POST` bodies of type `text/plain` or `application/x-www-form-urlencoded`
+3. Reject `POST` bodies of type `text/plain` or `application/x-www-form-urlencoded`
   on JSON APIs. Those content types are reachable from a simple cross-site form
   without a CORS preflight; requiring `application/json` forces a preflight the
   attacker cannot satisfy.
@@ -147,11 +154,11 @@ succeeds and changes state even though the attacker never sees the response.
 
 Making CORS worse also makes CSRF worse:
 
-- **Never** reflect an arbitrary `Origin` into `Access-Control-Allow-Origin`.
-- **Never** combine `Access-Control-Allow-Origin: *` with
+1. **Never** reflect an arbitrary `Origin` into `Access-Control-Allow-Origin`.
+2. **Never** combine `Access-Control-Allow-Origin: *` with
   `Access-Control-Allow-Credentials: true` — browsers reject the pair, and code
   that works around it has opened the door deliberately.
-- Keep the allowed-origin list explicit and short.
+3. Keep the allowed-origin list explicit and short.
 
 ---
 

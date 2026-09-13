@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "GPT-6 Astra"
   - "GPT-5.6"
   - "GPT-5.5"
-  - "GPT-5.4"
   - "GPT-5 Family"
   - "Future GPT Models"
 version: "1.0.0"
@@ -16,9 +16,9 @@ Version: 1.0.0
 
 Target Models
 
+- GPT-6 Astra
 - GPT-5.6
 - GPT-5.5
-- GPT-5.4
 - GPT-5 Family
 - Future GPT Models
 
@@ -603,9 +603,9 @@ Version: 1.0.0
 
 Target Models
 
+- GPT-6 Astra
 - GPT-5.6
 - GPT-5.5
-- GPT-5.4
 - GPT-5 Family
 - Future GPT Models
 

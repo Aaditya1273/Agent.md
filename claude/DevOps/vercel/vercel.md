@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never prefix a secret with `NEXT_PUBLIC_`. It is inlined into JavaScript served to every visitor, and rotating it requires a rebuild. - `NEXT_PUBLIC_*` values are captured at build time. Changing one in the dashboard does nothing until a redeploy — a recurring source of "I changed it and nothing happened". - Scope variables per environment (Production, Preview, Development). A preview deployment holding production credentials means every pull request can write to production. - Validate all variables at startup and fail the build or boot on a missing one. → `DevOps/environments`
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for running an application on Vercel. The platform removes most deployment
 work; what remains is the set of constraints its execution model imposes —
 statelessness, cold starts, connection limits, and a build step that inlines
@@ -26,11 +37,13 @@ values you may not want inlined.
 Framework specifics are `Backend/nextjs` and `Frontend/nextjs`.
 
 ---
+
 </purpose>
 
 # Environment variables: build-time versus runtime
 
 <rules>
+
 | Prefix | Available in | Baked into the client bundle |
 | --- | --- | --- |
 | `NEXT_PUBLIC_*` | Browser and server | **Yes**, at build time |
@@ -48,11 +61,13 @@ Framework specifics are `Backend/nextjs` and `Frontend/nextjs`.
   → `DevOps/environments`
 
 ---
+
 </rules>
 
 # Serverless constraints
 
 <rules>
+
 Every request may hit a cold instance. There is **no shared process state**.
 
 | Assumption that breaks | Reality | Fix |
@@ -79,11 +94,13 @@ instantiate the client once at module scope, and never inside a handler.
 → `Database/prisma`
 
 ---
+
 </rules>
 
 # Node runtime or Edge runtime
 
 <rules>
+
 | | Node | Edge |
 | --- | --- | --- |
 | APIs | Full Node standard library | Web APIs only |
@@ -105,11 +122,13 @@ Sydney querying a database in Frankfurt pays that round trip on every query — 
 compute helps only when the data is also close.
 
 ---
+
 </rules>
 
 # Caching and revalidation
 
 <rules>
+
 - Static and ISR pages are served from the edge; dynamic ones execute per request.
   Read the `next build` output and confirm each route's mode is what you intended.
   A personalised route rendered statically is a data-leak bug, not a performance
@@ -122,11 +141,13 @@ compute helps only when the data is also close.
   fight it with custom headers.
 
 ---
+
 </rules>
 
 # Previews, protection and cost
 
 <rules>
+
 - Every pull request gets a preview deployment. Treat them as **publicly reachable
   unless protected**: enable Deployment Protection (Vercel Authentication or a
   password) for anything containing real data.
@@ -152,11 +173,13 @@ export const config = {
 ```
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Secret in `NEXT_PUBLIC_*` | Inlined into client JavaScript | Server-only variable |
@@ -180,11 +203,13 @@ export const config = {
 | No spend limits | Cost discovered on the invoice | Limits and alerts |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] No secret is exposed through a `NEXT_PUBLIC_` variable
 - [ ] Build-time inlining of public variables is understood; changes trigger redeploys
 - [ ] Environment variables are scoped per environment
@@ -205,4 +230,5 @@ export const config = {
 - [ ] `next/image` `remotePatterns` are restricted to controlled domains
 - [ ] Preview deployments are protected
 - [ ] Spend limits and usage alerts are configured
+
 </checklist>

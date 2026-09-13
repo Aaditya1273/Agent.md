@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -230,3 +229,26 @@ noncurrent versions shows up as a bill before it shows up anywhere else.
 - [ ] Verify: Alerts fire on backup **age**, not only on job failure
 - [ ] Verify: Backup size deviation and configuration drift are alerted on
 - [ ] Verify: Backup storage cost is monitored
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never treat a backup as verified because the job exited zero. Verify the restore.
+
+- [ ] Wall-clock time from decision to a serving system — this is your real RTO
+- [ ] The most recent restorable point — this is your real RPO
+- [ ] Whether the procedure was executable by someone who did not write it
+- [ ] Whether every dependency was recoverable, including secrets and DNS
+- [ ] What was missing from the inventory
+- [ ] A written inventory lists every stateful asset and how it is backed up
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

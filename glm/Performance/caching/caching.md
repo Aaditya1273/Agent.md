@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -62,13 +68,13 @@ deploy takes a day to reach users.
 This is the highest-impact caching bug in existence: one user's page served to
 another.
 
-- Authenticated responses get `Cache-Control: private, no-store`.
-- If a response varies by user, either do not cache it in a shared layer, or make
+1. Authenticated responses get `Cache-Control: private, no-store`.
+2. If a response varies by user, either do not cache it in a shared layer, or make
   the user part of the **cache key** — not a `Vary` header, which fragments and
   is easy to get wrong.
-- `Vary: Cookie` disables the cache in practice (every user has a different
+3. `Vary: Cookie` disables the cache in practice (every user has a different
   cookie) while looking like it works.
-- Audit: does any cache key omit the tenant or user for a response that depends on
+4. Audit: does any cache key omit the tenant or user for a response that depends on
   them? → `API/api-security`
 
 ---

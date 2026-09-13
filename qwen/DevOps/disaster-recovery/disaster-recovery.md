@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: disaster-recovery
 category: DevOps
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -69,10 +75,10 @@ Plan for causes, because the response differs:
 
 Two are commonly missed and are the most likely to actually happen:
 
-- **Human error is more frequent than infrastructure failure.** Point-in-time
+1. **Human error is more frequent than infrastructure failure.** Point-in-time
   recovery matters more than multi-region, for most organisations. A delayed
   replica (an hour behind on purpose) is cheap insurance.
-- **Account compromise** defeats every backup that shares the account.
+2. **Account compromise** defeats every backup that shares the account.
   → `DevOps/backups`
 
 A delayed replica is configured with `recovery_min_apply_delay = '1h'` in Postgres,

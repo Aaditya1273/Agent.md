@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never rely on the client to enforce anything. A hidden button, a disabled field and an unrendered route are user-interface conveniences. Every one is reachable with `curl`.
+- Never authorise on an identifier supplied by the client — `?organisationId=`, `X-Tenant-Id`, or a `role` field in the request body. Derive the subject's scope from the session, always.
+- Never accept `role`, `isAdmin`, `plan` or `permissions` from a request body. Mass-assignment of these fields is direct privilege escalation. Allow-list the fields a user may update. - Never expose an admin action on a route distinguished only by obscurity. `/admin/*` needs the same object-level checks as everything else. - Re-check authorisation after any state transition — a user who was an owner when the request started may not be by the time it commits. - Log authorisation denials with subject, object and action. A spike is either an attack or a broken deployment, and you want to know which.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for enforcing what a user may do once you know who they are. Establishing
 identity is `Security/authentication`.
 
@@ -26,11 +39,13 @@ real-world breaches are not missing login — they are a logged-in user reaching
 object that belongs to someone else.
 
 ---
+
 </purpose>
 
 # Enforce on every request, at the data layer
 
-<rules>
+<security_rules>
+
 Authorisation belongs where the data is fetched, not in the UI and not only in a
 middleware that guards a URL pattern.
 
@@ -58,11 +73,13 @@ reachable with `curl`.
 from the **session**, always.
 
 ---
-</rules>
+
+</security_rules>
 
 # IDOR — the most common failure
 
-<rules>
+<security_rules>
+
 Insecure Direct Object Reference: the user changes an identifier and reaches
 another user's record.
 
@@ -78,11 +95,13 @@ another user's record.
   still reachable.
 
 ---
-</rules>
+
+</security_rules>
 
 # Modelling permissions
 
-<rules>
+<security_rules>
+
 Start simple and add structure only when it earns its place.
 
 | Model | Fits | Cost |
@@ -127,11 +146,13 @@ Principles that hold across all models:
   the moment an admin revokes them — see the revocation section of `Security/jwt`.
 
 ---
-</rules>
+
+</security_rules>
 
 # Multi-tenancy
 
-<rules>
+<security_rules>
+
 - Put the tenant identifier in **every** table and **every** query. A single
   unscoped `findMany` is a cross-tenant leak.
 - Prefer enforcement the application cannot forget: PostgreSQL **row-level
@@ -150,11 +171,13 @@ CREATE POLICY tenant_isolation ON invoices
   happily against code that ignores the tenant entirely.
 
 ---
-</rules>
+
+</security_rules>
 
 # Server-side and privilege escalation
 
-<rules>
+<security_rules>
+
 - **Never** accept `role`, `isAdmin`, `plan` or `permissions` from a request body.
   Mass-assignment of these fields is direct privilege escalation. Allow-list the
   fields a user may update.
@@ -166,11 +189,13 @@ CREATE POLICY tenant_isolation ON invoices
   an attack or a broken deployment, and you want to know which.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Route-level check with an unscoped query | IDOR: any id returns any record | Scope ownership into the query |
@@ -185,11 +210,13 @@ CREATE POLICY tenant_isolation ON invoices
 | Single-tenant test data | Passes against tenant-blind code | Test with two tenants |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every data access is scoped by owner or tenant in the query itself
 - [ ] No authorisation decision depends on a client-supplied identifier
 - [ ] Nested and bulk operations authorise every object, not just the first
@@ -201,4 +228,5 @@ CREATE POLICY tenant_isolation ON invoices
 - [ ] Multi-tenant queries are enforced structurally (RLS or repository layer)
 - [ ] Tests cover two tenants and a cross-tenant access attempt
 - [ ] Authorisation denials are logged with subject, object and action
+
 </checklist>

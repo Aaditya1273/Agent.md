@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for undoing a release. The relevant measure of a deployment system is not
 how rarely it fails — it is **how quickly a failure is reversed**.
 
@@ -25,19 +35,17 @@ The target: any release can be reverted in minutes, by one person, without a
 meeting. Everything below serves that.
 
 ---
+
 </purpose>
 
 # Detect before you can reverse
 
 <rules>
+
 You cannot roll back what you have not noticed. Automate the decision.
 
 ```yaml
-</rules>
-
 # Abort and revert if the new version breaches its budget during the bake window
-
-<rules>
 - alert: DeployErrorBudgetBurn
   expr: |
     sum(rate(http_requests_total{status=~"5..", version="$NEW"}[5m]))
@@ -57,11 +65,13 @@ You cannot roll back what you have not noticed. Automate the decision.
   → `Backend/monitoring`
 
 ---
+
 </rules>
 
 # Rolling back code is the easy part
 
 <rules>
+
 ```bash
 kubectl rollout undo deployment/api                    # previous ReplicaSet
 kubectl set image deployment/api api=$REGISTRY/api@sha256:<known-good>
@@ -92,11 +102,13 @@ Requirements for this to be fast and safe:
 back at all — check it, because some Helm charts set it to save etcd space.
 
 ---
+
 </rules>
 
 # Database changes are what actually block rollback
 
 <rules>
+
 Code rolls back in seconds. A schema change frequently cannot roll back at all —
 a dropped column's data is gone.
 
@@ -126,11 +138,13 @@ A destructive migration must be separated from the deploy that stops using the
 data, by enough time to prove the new code works.
 
 ---
+
 </rules>
 
 # Feature flags make rollback instant
 
 <rules>
+
 ```ts
 if (await flags.enabled("new-checkout", { userId })) return newCheckout();
 return legacyCheckout();
@@ -161,11 +175,13 @@ allows, and design so the fast ones are available. A change that can only be
 reversed by the last row is a change that has no rollback.
 
 ---
+
 </rules>
 
 # Rehearse it
 
 <rules>
+
 A rollback procedure that has never been executed is a document, not a capability.
 
 - Roll back in staging on a schedule, timed, following the runbook as written.
@@ -192,11 +208,13 @@ Decision owner: the deployer. No approval required to roll back.
 needs someone to be found is not a minutes-scale rollback.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No version label on metrics | A regression cannot be attributed to a deploy | Tag every signal |
@@ -215,11 +233,13 @@ needs someone to be found is not a minutes-scale rollback.
 | Fixing forward by default | Users affected throughout diagnosis | Roll back, then diagnose |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every metric and log line carries the deployed version
 - [ ] Deploy health compares the new version against the previous one
 - [ ] A bake window precedes full promotion
@@ -236,4 +256,5 @@ needs someone to be found is not a minutes-scale rollback.
 - [ ] Flag changes are audited
 - [ ] The rollback procedure is rehearsed on a schedule and timed
 - [ ] Rollback decision criteria are written down in advance
+
 </checklist>

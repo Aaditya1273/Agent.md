@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -47,13 +53,13 @@ test("checkout has no detectable violations", async ({ page }) => {
 });
 ```
 
-- Assert **zero violations** at the level you commit to (usually WCAG 2.1 AA).
-- Test **every state**, not just first paint: modal open, form in error, menu
+1. Assert **zero violations** at the level you commit to (usually WCAG 2.1 AA).
+2. Test **every state**, not just first paint: modal open, form in error, menu
   expanded, empty list. Most violations live in states a page-load scan never
   reaches.
-- Add `jest-axe` or `vitest-axe` at component level so a violation fails the pull
+3. Add `jest-axe` or `vitest-axe` at component level so a violation fails the pull
   request that introduced it, not a later audit.
-- **Never** suppress a rule without a comment naming the reason and an owner.
+4. **Never** suppress a rule without a comment naming the reason and an owner.
 
 ---
 
@@ -71,14 +77,14 @@ Every interactive element must be reachable and operable without a mouse.
 
 Checks that find real bugs:
 
-- **Focus is always visible.** `outline: none` without a replacement makes the
+1. **Focus is always visible.** `outline: none` without a replacement makes the
   interface unusable for keyboard users. Style `:focus-visible`, never remove it.
-- **Focus order follows visual order.** A `tabindex` above `0` breaks this and is
+2. **Focus order follows visual order.** A `tabindex` above `0` breaks this and is
   almost always wrong — use DOM order instead.
-- **Focus is trapped in a modal** while open, and **returns to the trigger** on
+3. **Focus is trapped in a modal** while open, and **returns to the trigger** on
   close.
-- **No keyboard trap.** You can always `Tab` out of a widget.
-- Skip link to main content is the first focusable element.
+4. **No keyboard trap.** You can always `Tab` out of a widget.
+5. Skip link to main content is the first focusable element.
 
 ```js
 test("modal traps focus and restores it on close", async ({ page }) => {
@@ -94,18 +100,18 @@ test("modal traps focus and restores it on close", async ({ page }) => {
 
 # Semantics
 
-- Use the **native element** first. `<button>` is focusable, activates on `Enter`
+1. Use the **native element** first. `<button>` is focusable, activates on `Enter`
   and `Space`, and announces as a button. A `<div role="button" tabindex="0">`
   requires you to reimplement all of that, and something always gets missed.
-- **`role` does not add behaviour.** Adding `role="button"` to a `<div>` changes
+2. **`role` does not add behaviour.** Adding `role="button"` to a `<div>` changes
   what a screen reader says, not what the keyboard does.
-- One `<h1>` per page; headings descend without skipping levels. Screen-reader
+3. One `<h1>` per page; headings descend without skipping levels. Screen-reader
   users navigate by heading far more than by reading linearly.
-- Every input has a programmatic label — `<label for>`, `aria-label`, or
+4. Every input has a programmatic label — `<label for>`, `aria-label`, or
   `aria-labelledby`. Placeholder text is **not** a label; it disappears on focus.
-- Images: meaningful ones need descriptive `alt`; decorative ones need `alt=""`,
+5. Images: meaningful ones need descriptive `alt`; decorative ones need `alt=""`,
   not a missing attribute.
-- Announce dynamic changes with `aria-live="polite"` (or `role="status"`). A
+6. Announce dynamic changes with `aria-live="polite"` (or `role="status"`). A
   form error that appears silently does not exist for a screen-reader user.
 
 **Never** use `aria-hidden="true"` on a focusable element — it produces a control
@@ -134,10 +140,10 @@ minutes with VoiceOver finds problems no automated rule expresses.
 
 # Contrast and motion
 
-- Text contrast: **4.5:1** normal, **3:1** for large text (≥ 24px, or ≥ 19px bold).
-- Non-text contrast **3:1** for interface components — input borders, focus
+1. Text contrast: **4.5:1** normal, **3:1** for large text (≥ 24px, or ≥ 19px bold).
+2. Non-text contrast **3:1** for interface components — input borders, focus
   indicators, icons carrying meaning.
-- Honour `prefers-reduced-motion` for anything animated. Vestibular disorders make
+3. Honour `prefers-reduced-motion` for anything animated. Vestibular disorders make
   parallax and large transitions genuinely painful.
 
 ```css

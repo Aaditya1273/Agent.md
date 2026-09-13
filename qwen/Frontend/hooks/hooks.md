@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: hooks
 category: Frontend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -38,10 +44,10 @@ if (isLoggedIn) { const [name, setName] = useState(""); }
 const [name, setName] = useState("");
 ```
 
-- Call hooks at the **top level** only. Never inside a condition, loop, nested
+1. Call hooks at the **top level** only. Never inside a condition, loop, nested
   function, or after an early `return`.
-- Call them only from components or other hooks.
-- Enable `eslint-plugin-react-hooks` and treat both `rules-of-hooks` and
+2. Call them only from components or other hooks.
+3. Enable `eslint-plugin-react-hooks` and treat both `rules-of-hooks` and
   `exhaustive-deps` as errors. A disabled `exhaustive-deps` warning is a stale
   closure waiting to happen.
 
@@ -155,11 +161,11 @@ export function useDebouncedValue<T>(value: T, delayMs = 300): T {
 }
 ```
 
-- Name it `useX` — the lint rules depend on that prefix to apply hook rules.
-- Return a consistent shape: a tuple for two values, an object for more.
-- Do not accept `props` wholesale; take the specific values needed.
-- A custom hook containing no hooks should be a plain function.
-- Test with `renderHook` from `@testing-library/react`.
+1. Name it `useX` — the lint rules depend on that prefix to apply hook rules.
+2. Return a consistent shape: a tuple for two values, an object for more.
+3. Do not accept `props` wholesale; take the specific values needed.
+4. A custom hook containing no hooks should be a plain function.
+5. Test with `renderHook` from `@testing-library/react`.
 
 ---
 

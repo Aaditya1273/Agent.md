@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -44,10 +51,10 @@ resources:
 
 Two rules that are widely misapplied:
 
-- **Always set memory requests and limits, and set them equal.** Equal
+1. **Always set memory requests and limits, and set them equal.** Equal
   request/limit gives the pod `Guaranteed` QoS, so it is evicted last under node
   pressure. Memory is incompressible: a limit is a kill, not a slowdown.
-- **Usually omit the CPU limit.** CPU is compressible; the request already
+2. **Usually omit the CPU limit.** CPU is compressible; the request already
   guarantees a share. A CPU limit throttles the process even when the node is idle,
   which shows up as unexplained p99 latency. Set one only for genuinely untrusted
   or noisy workloads.
@@ -68,11 +75,11 @@ readinessProbe: { httpGet: { path: /readyz,  port: 3000 }, periodSeconds: 5 }
 livenessProbe:  { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 10, failureThreshold: 3 }
 ```
 
-- **Startup** — has it booted? Its `failureThreshold × periodSeconds` must cover the
+1. **Startup** — has it booted? Its `failureThreshold × periodSeconds` must cover the
   slowest cold start, or a slow-starting pod is killed in a loop forever.
-- **Readiness** — can it serve *now*? May check dependencies. Failing it removes
+2. **Readiness** — can it serve *now*? May check dependencies. Failing it removes
   the pod from the Service without killing it.
-- **Liveness** — is the process wedged? **Must not check dependencies.** A liveness
+3. **Liveness** — is the process wedged? **Must not check dependencies.** A liveness
   probe hitting the database restarts every pod during a database incident,
   converting a degradation into a total outage. This is the most damaging
   misconfiguration in this package.
@@ -97,12 +104,12 @@ spec:
   selector: { matchLabels: { app: api } }
 ```
 
-- A `PodDisruptionBudget` is what stops a routine node drain or cluster upgrade
+1. A `PodDisruptionBudget` is what stops a routine node drain or cluster upgrade
   removing every replica at once. Without one, voluntary disruptions cause
   outages nobody planned.
-- Spread replicas across nodes and zones with `topologySpreadConstraints`; three
+2. Spread replicas across nodes and zones with `topologySpreadConstraints`; three
   replicas on one node survive nothing.
-- `preStop` sleep plus a grace period longer than the drain time, or every rollout
+3. `preStop` sleep plus a grace period longer than the drain time, or every rollout
   drops in-flight requests. → `DevOps/deployment`
 
 ---
@@ -119,14 +126,14 @@ securityContext:
   seccompProfile: { type: RuntimeDefault }
 ```
 
-- `runAsNonRoot: true` is verifiable only when the image declares a **numeric**
+1. `runAsNonRoot: true` is verifiable only when the image declares a **numeric**
   UID.
-- `readOnlyRootFilesystem` with an `emptyDir` mounted at `/tmp` for scratch space.
-- Default-deny `NetworkPolicy` per namespace, then allow the specific flows. A
+2. `readOnlyRootFilesystem` with an `emptyDir` mounted at `/tmp` for scratch space.
+3. Default-deny `NetworkPolicy` per namespace, then allow the specific flows. A
   cluster with no network policy lets any compromised pod reach every service.
-- Never mount the default ServiceAccount token unless the pod calls the API
+4. Never mount the default ServiceAccount token unless the pod calls the API
   (`automountServiceAccountToken: false`).
-- Enforce Pod Security Admission at `restricted` on application namespaces.
+5. Enforce Pod Security Admission at `restricted` on application namespaces.
   → `Security/headers`
 
 Secrets are base64, **not encrypted**, in etcd by default. Enable encryption at
@@ -138,16 +145,16 @@ manager) and never commit a `Secret` manifest.
 
 # Configuration and scaling
 
-- `ConfigMap` for non-sensitive configuration, `Secret` for the rest, both injected
+1. `ConfigMap` for non-sensitive configuration, `Secret` for the rest, both injected
   as environment variables or files — never baked into the image.
-- A ConfigMap change does **not** restart pods. Either checksum it into the pod
+2. A ConfigMap change does **not** restart pods. Either checksum it into the pod
   template annotation so a change rolls the deployment, or reload in-process.
-- `HorizontalPodAutoscaler` on the signal that reflects load: CPU for CPU-bound
+3. `HorizontalPodAutoscaler` on the signal that reflects load: CPU for CPU-bound
   services, a custom metric (requests in flight, queue backlog age) for I/O-bound
   ones. CPU-based scaling on an I/O-bound worker scales **down** while the backlog
   grows. → `Backend/workers`
-- Set `minReplicas ≥ 2` for anything that must stay available.
-- Cap `maxReplicas` at what downstream dependencies can absorb — autoscaling
+4. Set `minReplicas ≥ 2` for anything that must stay available.
+5. Cap `maxReplicas` at what downstream dependencies can absorb — autoscaling
   otherwise converts a backlog into a database outage.
 
 ---

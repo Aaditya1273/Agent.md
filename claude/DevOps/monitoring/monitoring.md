@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for monitoring infrastructure: nodes, clusters, databases, queues,
 networking and third-party dependencies. Application instrumentation is
 `Backend/monitoring`.
@@ -27,11 +37,13 @@ unhealthy; only user-facing signals tell you the product is broken.** Alert on t
 second, use the first to diagnose.
 
 ---
+
 </purpose>
 
 # Collect the layers that fail
 
 <rules>
+
 | Layer | Signals worth collecting |
 | --- | --- |
 | Node | CPU steal, memory pressure, disk usage and inode count, disk I/O wait, network errors |
@@ -57,20 +69,18 @@ network, catches DNS, CDN and certificate failures that internal metrics cannot
 see.
 
 ---
+
 </rules>
 
 # Alert on symptoms, page on user impact
 
 <rules>
+
 An alert should mean **a user is affected, and you can do something now**. Define
 the SLO first; the alert follows from it.
 
 ```yaml
-</rules>
-
 # Multi-window burn rate: fast burn pages, slow burn opens a ticket
-
-<rules>
 - alert: CheckoutFastBurn
   expr: |
     (1 - sum(rate(sli_good_total{journey="checkout"}[1h]))
@@ -96,29 +106,16 @@ a clear owner, and a reason it cannot wait until morning. Anything failing those
 is a ticket.
 
 ```promql
-</rules>
-
 # Disk: predict, do not threshold. Four hours of warning is actionable.
-
-<rules>
 predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 4*3600) < 0
-</rules>
 
 # Inodes exhaust independently of bytes — `df -h` still shows free space
-
-<rules>
 node_filesystem_files_free / node_filesystem_files < 0.1
-</rules>
 
 # Certificates: a scheduled outage with a known date
-
-<rules>
 probe_ssl_earliest_cert_expiry - time() < 7 * 86400
-</rules>
 
 # Replication lag, in seconds behind the primary → `Database/replication`
-
-<rules>
 pg_stat_replication_replay_lag_seconds > 30
 ```
 
@@ -127,11 +124,13 @@ four hours ahead, which is actionable; "disk 90% full" on a slowly-growing volum
 is noise, and on a fast-filling one it is already too late.
 
 ---
+
 </rules>
 
 # Dashboards people actually open
 
 <rules>
+
 Build from the questions asked during an incident, not from every available
 metric.
 
@@ -157,11 +156,13 @@ dashboards nobody opens. A wall of unread graphs trains people to ignore all of
 them.
 
 ---
+
 </rules>
 
 # Cost and retention
 
 <rules>
+
 Observability spend grows superlinearly with traffic, and metric cardinality is
 the usual cause.
 
@@ -175,11 +176,13 @@ the usual cause.
   Friday is discovered on the invoice otherwise.
 
 ---
+
 </rules>
 
 # Operational hygiene
 
 <rules>
+
 - Monitoring must not share a failure domain with what it monitors. An alerting
   system hosted in the cluster it watches goes down with it.
 - Have a **dead-man's switch**: a heartbeat alert that fires when monitoring stops
@@ -202,11 +205,13 @@ the usual cause.
 | Queues | Broker metrics — `ApproximateAgeOfOldestMessage` → `Backend/queues` |
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Alerting on CPU without user impact | Pages for something nobody notices | Alert on symptoms |
@@ -227,11 +232,13 @@ the usual cause.
 | No escalation policy | Unacknowledged pages go nowhere | Defined escalation chain |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Node, cluster, database, queue, cache and load-balancer signals are collected
 - [ ] Disk usage **and** inode usage are monitored with predictive alerts
 - [ ] Certificate and domain expiry alert at 30 and 7 days
@@ -249,4 +256,5 @@ the usual cause.
 - [ ] Observability cost is monitored and alerted on
 - [ ] Dashboards answer specific incident questions and show deploy markers
 - [ ] An escalation policy defines who is paged and when it escalates
+
 </checklist>

@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -44,13 +50,13 @@ filterwarnings = ["error"]
 markers = ["slow: takes >1s", "integration: needs the database"]
 ```
 
-- `--strict-markers`: a typo'd `@pytest.mark.integraton` is an error, not a
+1. `--strict-markers`: a typo'd `@pytest.mark.integraton` is an error, not a
   silently unselected test.
-- `filterwarnings = ["error"]`: deprecation warnings fail the suite while they
+2. `filterwarnings = ["error"]`: deprecation warnings fail the suite while they
   are cheap to fix.
-- `xfail_strict`: an `xfail` that starts passing fails, so fixed bugs get their
+3. `xfail_strict`: an `xfail` that starts passing fails, so fixed bugs get their
   marker removed.
-- `src/` layout with the package installed editable, so `import orders` in tests
+4. `src/` layout with the package installed editable, so `import orders` in tests
   is the installed package. → `Backend/python-conventions`
 
 ---
@@ -74,16 +80,16 @@ def order(session) -> Order:
     return OrderFactory(session=session)
 ```
 
-- Default scope is `function`. Widen it only for things that are expensive to
+1. Default scope is `function`. Widen it only for things that are expensive to
   build **and** immutable (an engine, a compiled schema, a loaded model). A
   session-scoped fixture that holds mutable state is order-dependent flakiness.
-- Fixtures compose: `order` depends on `session`, which depends on `engine`.
+2. Fixtures compose: `order` depends on `session`, which depends on `engine`.
   Ask for what you need by name; do not build the world in one mega-fixture.
-- `yield` fixtures for teardown; the code after `yield` runs even when the test
+3. `yield` fixtures for teardown; the code after `yield` runs even when the test
   fails.
-- `conftest.py` per directory for fixtures that belong to that layer; a
+4. `conftest.py` per directory for fixtures that belong to that layer; a
   600-line root `conftest.py` is a sign the layers are not separated.
-- `autouse=True` is a global; use it for things every test genuinely needs
+5. `autouse=True` is a global; use it for things every test genuinely needs
   (freezing the clock, disabling network) and nothing else.
 
 ---
@@ -98,11 +104,11 @@ def test_bulk_discount(qty: int, discount: int) -> None:
     assert discount_for(qty) == discount
 ```
 
-- One case per parameter set, each reported and re-runnable by id
+1. One case per parameter set, each reported and re-runnable by id
   (`-k threshold`). A `for` loop inside a test stops at the first failure and
   hides the rest.
-- `ids=` for readable failures; the default `qty0-discount0` tells you nothing.
-- `pytest.param(..., marks=pytest.mark.xfail(reason="#123"))` for a known
+2. `ids=` for readable failures; the default `qty0-discount0` tells you nothing.
+3. `pytest.param(..., marks=pytest.mark.xfail(reason="#123"))` for a known
   failing case inside the table, instead of deleting it.
 
 ---
@@ -116,9 +122,9 @@ pytest --lf                                  # only what failed last time
 pytest -x --ff                               # stop at first, run failures first
 ```
 
-- Declare every marker in config. Markers are the contract between the suite
+1. Declare every marker in config. Markers are the contract between the suite
   and CI; undeclared ones are noise.
-- `@pytest.mark.skipif(sys.platform == "win32", reason="...")` with a reason,
+2. `@pytest.mark.skipif(sys.platform == "win32", reason="...")` with a reason,
   always. A bare `skip` is a test that quietly stopped existing.
 
 ---
@@ -134,13 +140,13 @@ def test_retries_on_timeout(monkeypatch):
     monkeypatch.setattr(payments, "charge", AsyncMock(side_effect=[TimeoutError, "ok"]))
 ```
 
-- Fake the interface *you* defined (`Mailer`, `PaymentGateway`), not the vendor
+1. Fake the interface *you* defined (`Mailer`, `PaymentGateway`), not the vendor
   SDK. Mocking `stripe.Charge.create` tests your guess about Stripe's API.
-- `monkeypatch` over `unittest.mock.patch` decorators: it undoes itself, works on
+2. `monkeypatch` over `unittest.mock.patch` decorators: it undoes itself, works on
   env vars and attributes, and reads top-to-bottom.
-- `AsyncMock` for async callables; a `Mock` returns a non-awaitable and the test
+3. `AsyncMock` for async callables; a `Mock` returns a non-awaitable and the test
   passes for the wrong reason.
-- Block real network in the suite (`pytest-socket`, or an autouse fixture that
+4. Block real network in the suite (`pytest-socket`, or an autouse fixture that
   raises on `socket.connect`). A test that hits a real API is an outage waiting
   for CI. → `Testing/unit`
 
@@ -173,15 +179,15 @@ pytest -n auto                                                    # pytest-xdist
 pytest --durations=10                                             # find the slow ones
 ```
 
-- Coverage is a diagnostic for *untested* code; 100% with assertion-free tests
+1. Coverage is a diagnostic for *untested* code; 100% with assertion-free tests
   is worse than 70% with real assertions. Set a floor to stop regressions, then
   ignore the number.
-- The unit run should finish in seconds. Anything slower is I/O leaking in:
+2. The unit run should finish in seconds. Anything slower is I/O leaking in:
   find it with `--durations`, mark it `slow` or `integration`, move the real
   work behind a fake.
-- `-n auto` requires tests that do not share state — which the fixture rules
+3. `-n auto` requires tests that do not share state — which the fixture rules
   above already guarantee.
-- Freeze time (`freezegun`/`time-machine`) and seed randomness; a test that
+4. Freeze time (`freezegun`/`time-machine`) and seed randomness; a test that
   depends on the wall clock fails at midnight.
 
 ---

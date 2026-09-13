@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never use `aria-hidden="true"` on a focusable element — it produces a control that can be reached but not announced, the worst of both.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for verifying an interface is usable by people relying on assistive
 technology, keyboards, magnification, or reduced motion.
 
@@ -27,11 +38,13 @@ alt text is wrong, the focus order is nonsensical, or the live region announces
 nothing. Automate the mechanical half and check the rest by hand.
 
 ---
+
 </purpose>
 
 # Automated checks
 
 <rules>
+
 Run `axe-core` in the existing test suite rather than as a separate audit that
 happens quarterly.
 
@@ -57,11 +70,13 @@ test("checkout has no detectable violations", async ({ page }) => {
 - **Never** suppress a rule without a comment naming the reason and an owner.
 
 ---
+
 </rules>
 
 # Keyboard
 
 <rules>
+
 Every interactive element must be reachable and operable without a mouse.
 
 | Key | Expected |
@@ -94,11 +109,13 @@ test("modal traps focus and restores it on close", async ({ page }) => {
 ```
 
 ---
+
 </rules>
 
 # Semantics
 
 <rules>
+
 - Use the **native element** first. `<button>` is focusable, activates on `Enter`
   and `Space`, and announces as a button. A `<div role="button" tabindex="0">`
   requires you to reimplement all of that, and something always gets missed.
@@ -117,11 +134,13 @@ test("modal traps focus and restores it on close", async ({ page }) => {
 that can be reached but not announced, the worst of both.
 
 ---
+
 </rules>
 
 # What automation cannot check
 
 <rules>
+
 Reserve manual time for these:
 
 | Check | How |
@@ -138,11 +157,13 @@ Test with a real screen reader at least once per significant feature. Fifteen
 minutes with VoiceOver finds problems no automated rule expresses.
 
 ---
+
 </rules>
 
 # Contrast and motion
 
 <rules>
+
 - Text contrast: **4.5:1** normal, **3:1** for large text (≥ 24px, or ≥ 19px bold).
 - Non-text contrast **3:1** for interface components — input borders, focus
   indicators, icons carrying meaning.
@@ -160,11 +181,13 @@ minutes with VoiceOver finds problems no automated rule expresses.
 ```
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `axe` on page load only | Misses modal, error and expanded states | Scan each state |
@@ -179,11 +202,13 @@ minutes with VoiceOver finds problems no automated rule expresses.
 | Suppressing a rule without a reason | Permanent silent regression | Comment with owner |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `axe-core` runs in CI and asserts zero WCAG 2.1 AA violations
 - [ ] Scans cover modal, error, expanded and empty states — not just page load
 - [ ] Every interactive element is reachable and operable by keyboard
@@ -196,4 +221,5 @@ minutes with VoiceOver finds problems no automated rule expresses.
 - [ ] Text meets 4.5:1 contrast, interface components 3:1
 - [ ] `prefers-reduced-motion` is honoured
 - [ ] A real screen reader has been used on each significant feature
+
 </checklist>

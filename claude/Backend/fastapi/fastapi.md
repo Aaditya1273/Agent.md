@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for building a FastAPI service that stays fast and testable past the first
 hundred endpoints. FastAPI gives you validation, DI and docs for free; the cost is
 that a wrong choice about `async` or a leaked ORM model is invisible until load.
@@ -26,27 +36,22 @@ Model design is `Backend/pydantic`; event-loop rules are `Backend/python-async`;
 the ORM is `Database/sqlalchemy`.
 
 ---
+
 </purpose>
 
 # App factory and feature routers
 
 <rules>
+
 ```python
-</rules>
-
 # app/main.py — builds the app. No engine creation at import time.
-
-<rules>
 def create_app(settings: Settings) -> FastAPI:
     app = FastAPI(title="Orders", version=settings.version, lifespan=lifespan)
     app.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
     app.include_router(health.router)
     return app
-</rules>
 
 # app/orders/router.py
-
-<rules>
 router = APIRouter()
 
 @router.post("", status_code=201, response_model=OrderOut)
@@ -61,11 +66,13 @@ async def create_order(body: OrderIn, svc: OrderService = Depends(get_order_serv
 - Return `create_app(...)` from a factory so tests build an app with test settings.
 
 ---
+
 </rules>
 
 # Dependencies, not globals
 
 <rules>
+
 ```python
 def get_session(request: Request) -> Iterator[Session]:
     with request.app.state.sessionmaker() as session:
@@ -73,11 +80,8 @@ def get_session(request: Request) -> Iterator[Session]:
 
 def get_order_service(session: Session = Depends(get_session)) -> OrderService:
     return OrderService(OrderRepo(session))
-</rules>
 
 # tests
-
-<rules>
 app.dependency_overrides[get_session] = lambda: fake_session
 ```
 
@@ -89,11 +93,13 @@ tested without one, and cannot be given a per-request transaction. Put the
 alias it once: `SessionDep = Annotated[Session, Depends(get_session)]`.
 
 ---
+
 </rules>
 
 # Pydantic at the boundary, ORM in the middle
 
 <rules>
+
 ```python
 class OrderIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -115,11 +121,13 @@ async def get_order(order_id: int, svc: ServiceDep) -> OrderOut: ...
   output and what the OpenAPI schema documents.
 
 ---
+
 </rules>
 
 # `async def` versus `def`
 
 <rules>
+
 | Handler body | Declare as | Why |
 | --- | --- | --- |
 | `await`s an async driver (`asyncpg`, `httpx.AsyncClient`) | `async def` | Runs on the loop |
@@ -135,11 +143,13 @@ performance bug and it does not show up until concurrency. If in doubt, use
 otherwise async handler. → `Backend/python-async`
 
 ---
+
 </rules>
 
 # Background work
 
 <rules>
+
 ```python
 @router.post("/{order_id}/receipt", status_code=202)
 async def send_receipt(order_id: int, tasks: BackgroundTasks, mailer: MailerDep):
@@ -153,11 +163,13 @@ that must happen — payments, emails that matter, exports — goes to a real qu
 → `Backend/background-jobs`
 
 ---
+
 </rules>
 
 # Errors
 
 <rules>
+
 ```python
 class OrderNotFound(Exception): ...
 
@@ -175,11 +187,13 @@ async def order_not_found(_: Request, exc: OrderNotFound) -> JSONResponse:
   and a catch-all handler that logs with the request id. → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Settings
 
 <rules>
+
 ```python
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="APP_", env_file=".env")
@@ -195,11 +209,13 @@ Read the environment once, validate it once, inject it with `Depends(get_setting
 A missing `APP_DATABASE_URL` should fail at startup, not on the first query.
 
 ---
+
 </rules>
 
 # OpenAPI hygiene
 
 <rules>
+
 - Every route: `summary`, `response_model`, and `responses={404: {...}}` for the
   error codes it actually returns. The generated spec is your client contract.
 - Use `tags` per feature and `operation_id`s that make good client method names
@@ -209,11 +225,13 @@ A missing `APP_DATABASE_URL` should fail at startup, not on the first query.
   enumerable: `FastAPI(docs_url=None, openapi_url=None)`.
 
 ---
+
 </rules>
 
 # Testing
 
 <rules>
+
 ```python
 @pytest.fixture
 def client(fake_session):
@@ -232,11 +250,13 @@ startup code never executes. For async handlers that need a real loop, use
 `httpx.AsyncClient(transport=ASGITransport(app=app))`. → `Testing/pytest`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Engine or client created at import | Tests and imports hit the network | Create in `lifespan` |
@@ -253,11 +273,13 @@ startup code never executes. For async handlers that need a real loop, use
 | `/docs` exposed on internal services | Free API enumeration | `docs_url=None` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `create_app(settings)` factory; no connections at import time
 - [ ] One `APIRouter` per feature, mounted with `prefix` and `tags`
 - [ ] Resources opened in `lifespan` and injected via `Depends`
@@ -271,4 +293,5 @@ startup code never executes. For async handlers that need a real loop, use
 - [ ] Routes declare `summary`, `responses`, and stable `operation_id`s
 - [ ] Docs disabled on services that must not be enumerable
 - [ ] Tests use `dependency_overrides` and `TestClient` as a context manager
+
 </checklist>

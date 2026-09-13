@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for React Server Components. The model: components render on the server by
 default, ship no JavaScript, and can read data directly. Interactivity opts in
 with `"use client"`.
@@ -29,11 +39,13 @@ Client-component specifics are `Frontend/client-components`; framework wiring is
 `Backend/nextjs`.
 
 ---
+
 </purpose>
 
 # What belongs where
 
 <rules>
+
 | Server component | Client component |
 | --- | --- |
 | Data fetching, database access | `useState`, `useReducer`, `useEffect` |
@@ -62,11 +74,13 @@ also ends up in the bundle. One `"use client"` at the top of a layout ships the
 entire tree below it.
 
 ---
+
 </rules>
 
 # The boundary is a security boundary
 
 <rules>
+
 ```ts
 // lib/db.ts
 import "server-only";        // importing this from a client component fails the build
@@ -95,11 +109,13 @@ export const db = new PrismaClient();
   → `Backend/authorization`
 
 ---
+
 </rules>
 
 # Fetch without waterfalls
 
 <rules>
+
 Server components can `await` directly, which removes the client-side
 fetch-on-render waterfall. It also makes it easy to create a **server-side**
 waterfall by awaiting sequentially.
@@ -130,11 +146,13 @@ const [user, orders] = await Promise.all([getUser(id), getOrders(id)]);
   trades a slow page for a shifting one. → `Frontend/performance`
 
 ---
+
 </rules>
 
 # Composition across the boundary
 
 <rules>
+
 A client component cannot import a server component — but it can **render one
 passed as `children`**:
 
@@ -158,11 +176,13 @@ Other rules:
   Anything that must change on click belongs in a client component.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `"use client"` at the top of a page or layout | The entire subtree ships to the browser | Push it to interactive leaves |
@@ -179,11 +199,13 @@ Other rules:
 | Restructuring instead of `children` composition | Heavy dependencies pushed to the client | Pass server output as `children` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Components are server components by default
 - [ ] `"use client"` appears at the smallest interactive leaves, not at layouts
 - [ ] Every server-only module is marked with `server-only`
@@ -196,4 +218,5 @@ Other rules:
 - [ ] Slow sections are wrapped in `<Suspense>` with correctly sized fallbacks
 - [ ] Server content is passed to interactive shells as `children`
 - [ ] No hooks, state or browser APIs appear in server components
+
 </checklist>

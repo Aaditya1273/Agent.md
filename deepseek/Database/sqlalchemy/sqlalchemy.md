@@ -14,8 +14,15 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -47,12 +54,12 @@ class Order(Base):
     items: Mapped[list["LineItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
 ```
 
-- `Mapped[...]` + `mapped_column()` — typed, and the type checker sees it.
+1. `Mapped[...]` + `mapped_column()` — typed, and the type checker sees it.
   `Column()` on a declarative class is the 1.x style.
-- Constraints and indexes are named. Auto-generated names differ per backend and
+2. Constraints and indexes are named. Auto-generated names differ per backend and
   make Alembic diffs unstable.
-- `server_default` for timestamps so rows inserted outside the ORM get one too.
-- `ondelete` on the foreign key, explicitly. `RESTRICT` makes deletion a decision;
+3. `server_default` for timestamps so rows inserted outside the ORM get one too.
+4. `ondelete` on the foreign key, explicitly. `RESTRICT` makes deletion a decision;
   a silent `CASCADE` from a tenant deletes history.
 
 ---
@@ -71,17 +78,17 @@ def create_order(data: OrderIn) -> Order:
         return order                             # committed when the block exits
 ```
 
-- **One session per unit of work**, opened by the caller (request, job, CLI
+1. **One session per unit of work**, opened by the caller (request, job, CLI
   command) and passed in. A module-level session shared across requests is a
   race and a memory leak.
-- `sessionmaker.begin()` is the transaction. Do not sprinkle `session.commit()`
+2. `sessionmaker.begin()` is the transaction. Do not sprinkle `session.commit()`
   through the service; one commit at the boundary means partial writes cannot
   happen.
-- `expire_on_commit=False` when you return ORM objects past the commit;
+3. `expire_on_commit=False` when you return ORM objects past the commit;
   otherwise the first attribute access after commit issues a `SELECT`, or fails
   if the session is closed.
-- `flush()` to get generated keys mid-transaction; never `commit()` for that.
-- The engine is created once per process, at startup, with a pool sized to the
+4. `flush()` to get generated keys mid-transaction; never `commit()` for that.
+5. The engine is created once per process, at startup, with a pool sized to the
   database's connection limit divided by the number of processes.
 
 ---
@@ -106,14 +113,14 @@ orders = session.scalars(stmt).all()
 | `raiseload("*")` | Default in tests and services | Any unplanned lazy load raises |
 | lazy (default) | Nothing in request code | N+1 |
 
-- Lazy loading is the N+1. Declare loads on the statement, or set
+1. Lazy loading is the N+1. Declare loads on the statement, or set
   `lazy="raise"` on relationships so an unplanned load fails loudly in tests
   instead of silently costing 500 queries in production.
-- `session.scalars(select(...))` returns ORM objects; `session.execute()` returns
+2. `session.scalars(select(...))` returns ORM objects; `session.execute()` returns
   rows. Do not `.all()` a million rows — `yield_per(1000)` for streaming.
-- Bulk changes: `session.execute(update(Order).where(...).values(...))`, not a
+3. Bulk changes: `session.execute(update(Order).where(...).values(...))`, not a
   loop of loads and saves.
-- Assert query counts in tests with an event listener on `before_cursor_execute`;
+4. Assert query counts in tests with an event listener on `before_cursor_execute`;
   it is the only reliable N+1 detector. → `Database/query-optimization`
 
 ---
@@ -125,17 +132,17 @@ alembic revision --autogenerate -m "orders: add status index"
 # then READ the generated file before committing it
 ```
 
-- Autogenerate is a draft. It misses `CHECK` constraints on some backends,
+1. Autogenerate is a draft. It misses `CHECK` constraints on some backends,
   renames appear as drop+add (data loss), and enum changes need hand-written
   `ALTER TYPE`. Review every revision.
-- Every revision has a working `downgrade()`; "irreversible" is a decision that
+2. Every revision has a working `downgrade()`; "irreversible" is a decision that
   needs a comment, not a `pass`.
-- Adding an index on a large Postgres table: `op.create_index(...,
+3. Adding an index on a large Postgres table: `op.create_index(...,
   postgresql_concurrently=True)` inside `with op.get_context().autocommit_block()`.
   A plain `CREATE INDEX` locks writes for the duration.
-- Data migrations use `op.get_bind()` with core statements, not the ORM models —
+4. Data migrations use `op.get_bind()` with core statements, not the ORM models —
   the models describe the schema *after* the migration.
-- `alembic check` (or `--autogenerate` producing an empty diff) in CI catches a
+5. `alembic check` (or `--autogenerate` producing an empty diff) in CI catches a
   model change without a migration. → `Database/migration`
 
 ---
@@ -151,14 +158,14 @@ async def get_open(session: AsyncSession, tenant_id: int) -> list[Order]:
     return (await session.scalars(stmt)).all()
 ```
 
-- `expire_on_commit=False` is mandatory: an expired attribute would trigger an
+1. `expire_on_commit=False` is mandatory: an expired attribute would trigger an
   implicit **sync** load inside async code and raise `MissingGreenlet`.
-- Lazy loading does not work in async. Every relationship you touch must be
+2. Lazy loading does not work in async. Every relationship you touch must be
   eager-loaded on the statement, or explicitly `await session.refresh(obj,
   ["items"])`.
-- The async driver must be async: `asyncpg` or `psycopg` v3 async. A sync driver
+3. The async driver must be async: `asyncpg` or `psycopg` v3 async. A sync driver
   behind `create_async_engine` fails at connect.
-- Do not share an `AsyncSession` across tasks; one session per task, sessions
+4. Do not share an `AsyncSession` across tasks; one session per task, sessions
   are not concurrency-safe.
 
 ---

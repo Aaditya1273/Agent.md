@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -23,8 +30,8 @@ Rules for webhooks in both directions. A webhook is an HTTP request to a server
 you do not control, about an event that already happened. Two facts drive
 everything:
 
-- **Delivery is at-least-once.** Duplicates are normal, not a bug.
-- **The receiver's endpoint is public.** Anyone can POST to it, so the payload
+1. **Delivery is at-least-once.** Duplicates are normal, not a bug.
+2. **The receiver's endpoint is public.** Anyone can POST to it, so the payload
   must be cryptographically attributable.
 
 ---
@@ -48,11 +55,11 @@ const sig = crypto.createHmac("sha256", secret).update(signed).digest("base64");
 
 Requirements:
 
-- Include the **timestamp inside the signed payload**, so it cannot be altered.
-- Include a unique **event id**, so receivers can deduplicate.
-- Support **multiple active signatures** (`v1,sigA v1,sigB`) so a secret can be
+1. Include the **timestamp inside the signed payload**, so it cannot be altered.
+2. Include a unique **event id**, so receivers can deduplicate.
+3. Support **multiple active signatures** (`v1,sigA v1,sigB`) so a secret can be
   rotated without a coordinated cutover.
-- One secret per endpoint, generated with a CSPRNG, shown once.
+4. One secret per endpoint, generated with a CSPRNG, shown once.
   → `Security/secret-management`
 
 **Never** sign a re-serialised body. `JSON.stringify(req.body)` reorders keys and
@@ -113,9 +120,9 @@ ON CONFLICT (id) DO NOTHING;      -- zero rows affected means already processed
 Ordering is **not** guaranteed. A `subscription.updated` may arrive before
 `subscription.created`. Handle it:
 
-- Include a monotonic `sequence` or the resource's `updated_at` in the payload and
+1. Include a monotonic `sequence` or the resource's `updated_at` in the payload and
   discard events older than the state you already hold.
-- Or treat the webhook as a **notification only** and re-fetch current state from
+2. Or treat the webhook as a **notification only** and re-fetch current state from
   the sender's API. This is the most robust pattern and sidesteps ordering
   entirely.
 
@@ -147,11 +154,11 @@ webhook system has.
 
 # Endpoint design
 
-- Return `200`/`204` quickly — under a second. A `202` is also fine.
-- Any non-2xx means "retry"; be sure that is what you intend.
-- Receivers should respond `200` to an event type they do not recognise, not
+1. Return `200`/`204` quickly — under a second. A `202` is also fine.
+2. Any non-2xx means "retry"; be sure that is what you intend.
+3. Receivers should respond `200` to an event type they do not recognise, not
   `400` — otherwise adding a new event type breaks existing integrations.
-- Guard against SSRF when a customer supplies the destination URL: reject private
+4. Guard against SSRF when a customer supplies the destination URL: reject private
   address ranges, link-local addresses, and redirects to them, resolving DNS at
   request time.
 

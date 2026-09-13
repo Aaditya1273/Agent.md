@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -140,12 +146,12 @@ that does not handle it — which is the main reason to use unions at all.
 
 Other modelling rules:
 
-- Branded types for identifiers that must not be interchangeable:
+1. Branded types for identifiers that must not be interchangeable:
   `type UserId = string & { readonly __brand: "UserId" }` stops a passing an order
   id where a user id is expected.
-- `readonly` on arrays and props that must not be mutated.
-- `satisfies` to check a literal against a type while keeping its narrow inference.
-- Prefer inference for return types; annotate only public API surfaces where an
+2. `readonly` on arrays and props that must not be mutated.
+3. `satisfies` to check a literal against a type while keeping its narrow inference.
+4. Prefer inference for return types; annotate only public API surfaces where an
   explicit contract is valuable.
 
 ---
@@ -162,12 +168,12 @@ interface ButtonProps extends React.ComponentPropsWithoutRef<"button"> {
 const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value);
 ```
 
-- Extend `ComponentPropsWithoutRef<"element">` so every native attribute is
+1. Extend `ComponentPropsWithoutRef<"element">` so every native attribute is
   accepted and typed, instead of re-declaring `className`, `onClick` and the rest.
-- Type state explicitly when the initial value does not determine it:
+2. Type state explicitly when the initial value does not determine it:
   `useState<User | null>(null)`.
-- `useRef<HTMLInputElement>(null)` — the type parameter matters for `.current`.
-- Avoid `React.FC`: it adds nothing now and historically implied `children`.
+3. `useRef<HTMLInputElement>(null)` — the type parameter matters for `.current`.
+4. Avoid `React.FC`: it adds nothing now and historically implied `children`.
 
 ---
 

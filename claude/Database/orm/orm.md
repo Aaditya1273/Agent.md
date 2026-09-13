@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never access a relation inside a loop. → `Database/query-optimization`
+- Never make an HTTP call, send an email, or await user input inside a transaction. It holds locks and a connection for the duration of someone else's latency. - Use `{ decrement: n }`-style atomic operators rather than read-then-write in application code — the read-modify-write loses updates under concurrency. - Handle serialization failures and deadlocks with a bounded retry. → `Database/transactions`
+- Never build SQL by string concatenation, even inside an ORM's raw escape hatch. `$queryRaw` with a tagged template parameterises; `$queryRawUnsafe` with an interpolated string does not. → `Security/sql-injection`
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for working with an ORM (Prisma, Drizzle, TypeORM, SQLAlchemy, ActiveRecord,
 Ent). An ORM removes boilerplate and gives you types. It does not remove the need
 to understand the SQL — it hides it, which is the problem this package addresses.
@@ -26,11 +39,13 @@ Working rule: **you must be able to see the SQL for any query you ship.** If you
 cannot, you are not in a position to say whether it is correct or fast.
 
 ---
+
 </purpose>
 
 # See the SQL
 
 <rules>
+
 Turn on query logging in development, permanently:
 
 ```js
@@ -40,20 +55,12 @@ new PrismaClient({ log: [{ emit: "event", level: "query" }] })
 ```
 
 ```py
-</rules>
-
 # SQLAlchemy
-
-<rules>
 create_engine(url, echo=True)
 ```
 
 ```rb
-</rules>
-
 # ActiveRecord — already on in development; make it visible
-
-<rules>
 ActiveRecord::Base.logger = Logger.new($stdout)
 ```
 
@@ -61,11 +68,13 @@ Two things become obvious immediately: the number of queries per request, and an
 query the ORM built that you would never have written.
 
 ---
+
 </rules>
 
 # N+1 is the default failure
 
 <rules>
+
 Lazy loading turns a property access into a query. It is invisible in the code
 and catastrophic under load.
 
@@ -97,11 +106,13 @@ expect(queryCount(() => getFeed(userId))).toBeLessThan(5);
 **Never** access a relation inside a loop. → `Database/query-optimization`
 
 ---
+
 </rules>
 
 # Select only what you need
 
 <rules>
+
 An ORM's default is to hydrate every column into an object.
 
 ```js
@@ -117,11 +128,13 @@ response is how password hashes and internal flags leak. Serialise from an
 explicit shape, never from the ORM entity directly.
 
 ---
+
 </rules>
 
 # Transactions
 
 <rules>
+
 Scope a transaction to one unit of work, and keep everything slow outside it.
 
 ```js
@@ -140,11 +153,13 @@ await db.$transaction(async (tx) => {
   → `Database/transactions`
 
 ---
+
 </rules>
 
 # Migrations
 
 <rules>
+
 Use the ORM's migration tool, but read the generated SQL before applying it.
 Generators routinely produce a table rewrite or a blocking index build where a
 safe equivalent exists.
@@ -156,11 +171,13 @@ safe equivalent exists.
   → `Database/migration`
 
 ---
+
 </rules>
 
 # Connection handling
 
 <rules>
+
 The ORM owns the pool. Misconfiguring it is the most common ORM-caused outage,
 and it looks like a slow query rather than what it is: waiting for a connection.
 
@@ -180,11 +197,13 @@ Instrument `pool.wait_time` or the equivalent. If p99 request latency is high
 while the database is idle, the queue is in the pool, not in the engine.
 
 ---
+
 </rules>
 
 # When to drop to SQL
 
 <rules>
+
 Use raw SQL, parameterised, when the ORM's generated query is wrong or slow:
 
 ```js
@@ -200,11 +219,13 @@ hatch. `$queryRaw` with a tagged template parameterises; `$queryRawUnsafe` with 
 interpolated string does not. → `Security/sql-injection`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No query logging in development | The SQL is invisible until production | Log every query with duration |
@@ -220,11 +241,13 @@ interpolated string does not. → `Security/sql-injection`
 | Repository abstraction over the ORM | The ORM already is one | Use it directly |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Query logging with durations is enabled in development
 - [ ] Relations are eager-loaded; no relation access inside a loop
 - [ ] Query counts are asserted in integration tests for key endpoints
@@ -236,4 +259,5 @@ interpolated string does not. → `Security/sql-injection`
 - [ ] Generated migrations are reviewed as SQL before merge
 - [ ] Index creation on large tables is concurrent
 - [ ] Raw SQL is parameterised; no string concatenation anywhere
+
 </checklist>

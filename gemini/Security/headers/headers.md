@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -200,3 +199,27 @@ before enforcing.
 - [ ] Verify: Session cookies use `HttpOnly`, `Secure`, `SameSite` and `__Host-` where possible
 - [ ] Verify: Authenticated responses send `Cache-Control: no-store`
 - [ ] Verify: Headers are set at exactly one layer and verified against the live origin
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never add `preload` casually. Submission to the browser preload list is effectively irreversible on a useful timescale — every subdomain must serve HTTPS forever. Verify every subdomain first, including internal and legacy hosts.
+- Never hard-code a nonce or derive it from anything predictable. A static nonce is equivalent to `'unsafe-inline'`.
+
+- [ ] CSP set with a per-response CSPRNG nonce and `strict-dynamic`
+- [ ] No `'unsafe-inline'` or `'unsafe-eval'` in `script-src`
+- [ ] `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` present
+- [ ] HSTS `max-age` ≥ 1 year with `includeSubDomains`, HTTPS only
+- [ ] `preload` used only after auditing every subdomain
+- [ ] `X-Content-Type-Options: nosniff` on every response
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

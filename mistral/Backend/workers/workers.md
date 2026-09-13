@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: workers
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for the processes that consume queues and run background work. Job design
@@ -126,11 +132,7 @@ scale up.
 | CPU | Only for genuinely CPU-bound pools |
 
 ```yaml
-
 # KEDA: scale on backlog, with a floor that keeps latency low for a quiet queue
-
-[INST] Apply every rule in this section: KEDA: scale on backlog, with a floor that keeps latency low for a quiet queue. [/INST]
-
 triggers:
   - type: aws-sqs-queue
     metadata: { queueURL: …, queueLength: "20" }
@@ -189,11 +191,7 @@ OTEL_SERVICE_NAME=orders-worker
 ```
 
 ```yaml
-
 # The grace period must exceed the longest job, or the drain is cut off.
-
-[INST] Apply every rule in this section: The grace period must exceed the longest job, or the drain is cut off.. [/INST]
-
 spec:
   terminationGracePeriodSeconds: 180
   containers:

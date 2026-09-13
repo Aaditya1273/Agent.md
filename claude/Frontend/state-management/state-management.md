@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never copy fetched data into a global store. You then own invalidation, and the store and the server diverge silently.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for deciding where application state lives. Most "state management problems"
 are really one mistake: **treating server data as client state.**
 
@@ -27,11 +38,13 @@ Managing the first with the tools for the second produces most of the complexity
 people attribute to React.
 
 ---
+
 </purpose>
 
 # Classify first, then choose
 
 <rules>
+
 | Kind | Example | Where it belongs |
 | --- | --- | --- |
 | Server data | Orders, profile, search results | A server-cache library |
@@ -46,11 +59,13 @@ global state library once server data moves to a cache and filters move to the
 URL.
 
 ---
+
 </rules>
 
 # Server data belongs in a server cache
 
 <rules>
+
 ```tsx
 // Manual: no deduplication, no revalidation, no retry, no cache — reimplemented
 // slightly differently in every component that needs orders.
@@ -82,11 +97,13 @@ The query key **is** the cache identity: include every parameter that changes th
 result, or two different filters will share one cache entry.
 
 ---
+
 </rules>
 
 # The URL is state
 
 <rules>
+
 Filters, sort, pagination, the open tab, the selected record — all belong in the
 URL.
 
@@ -104,11 +121,13 @@ never put a secret or personal data in a query string, where it lands in logs an
 `Referer` headers. → `API/api-security`
 
 ---
+
 </rules>
 
 # Client state: local first
 
 <rules>
+
 Start with `useState` in the component that owns it. Lift only when a second
 component genuinely needs the same value, and only to the lowest common parent.
 
@@ -137,11 +156,13 @@ across distant components — pick a small one with selector-based subscriptions
 applications that need strict traceability of every transition.
 
 ---
+
 </rules>
 
 # Keep state modelling honest
 
 <rules>
+
 ```ts
 // Permits { isLoading: true, error: Error, data: Data } — three impossible states
 { isLoading: boolean; error: Error | null; data: Data | null }
@@ -164,11 +185,13 @@ Optimistic updates need a rollback path. Applying the change and only then
 discovering the mutation failed, with no way back, is worse than a spinner.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Server data in a global store | You own invalidation; it diverges | Server-cache library |
@@ -189,11 +212,13 @@ discovering the mutation failed, with no way back, is worse than a spinner.
 | Optimistic update with no rollback | Failed mutations leave wrong UI | Roll back on error |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every piece of state is classified before choosing where it lives
 - [ ] Server data lives in a server-cache library or framework loader
 - [ ] Query keys include every parameter that affects the result
@@ -210,4 +235,5 @@ discovering the mutation failed, with no way back, is worse than a spinner.
 - [ ] Persisted state is versioned with a migration path
 - [ ] No tokens or personal data are persisted client-side
 - [ ] Optimistic updates roll back on failure
+
 </checklist>

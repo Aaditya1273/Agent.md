@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -51,10 +58,10 @@ await fs.readFile(file);
 
 Two details do the work:
 
-- **`path.resolve` normalises first.** It collapses `..`, `.`, duplicate
+1. **`path.resolve` normalises first.** It collapses `..`, `.`, duplicate
   separators and mixed forms *before* the check, so the comparison is against
   what the filesystem will actually open.
-- **The trailing separator in the comparison.** Without `+ path.sep`, the
+2. **The trailing separator in the comparison.** Without `+ path.sep`, the
   directory `/srv/uploads-evil` passes a plain `startsWith("/srv/uploads")`.
 
 **Never** validate by string inspection:
@@ -112,14 +119,14 @@ compare `st_dev`/`st_ino`.
 
 # Uploads
 
-- **Never** persist the client's filename. Generate your own — a UUID or a content
+1. **Never** persist the client's filename. Generate your own — a UUID or a content
   hash — and store the original name as metadata only.
-- Derive the extension from **sniffed content type**, not from the supplied name.
-- Store outside the web root, or in object storage, so an uploaded file cannot be
+2. Derive the extension from **sniffed content type**, not from the supplied name.
+3. Store outside the web root, or in object storage, so an uploaded file cannot be
   requested as a script.
-- Serve with `Content-Disposition: attachment` and
+4. Serve with `Content-Disposition: attachment` and
   `X-Content-Type-Options: nosniff`.
-- Serve user content from a **separate origin** so a stored HTML file cannot reach
+5. Serve user content from a **separate origin** so a stored HTML file cannot reach
   your cookies — see `Security/xss`.
 
 ---
@@ -151,11 +158,11 @@ range requests and dotfiles.
 
 If you must handle it yourself:
 
-- Deny dotfiles by default (`.git`, `.env`, `.ssh`).
-- Do not follow symlinks unless deliberate.
-- Reject null bytes (`%00`) outright; historically they truncated paths in C
+1. Deny dotfiles by default (`.git`, `.env`, `.ssh`).
+2. Do not follow symlinks unless deliberate.
+3. Reject null bytes (`%00`) outright; historically they truncated paths in C
   string handling.
-- Canonicalise once, at the boundary, and pass the resolved path onward.
+4. Canonicalise once, at the boundary, and pass the resolved path onward.
 
 ---
 

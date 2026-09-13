@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: prefetching
 category: Performance
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -47,9 +53,9 @@ needs right now?** If yes, it is a regression, not an optimisation.
 
 Two frequent mistakes:
 
-- **`preload` without `as`** — the browser cannot set a priority or reuse the
+1. **`preload` without `as`** — the browser cannot set a priority or reuse the
   response, and the resource is fetched **twice**.
-- **`preload` for fonts without `crossorigin`** — fonts fetch in CORS mode, so the
+2. **`preload` for fonts without `crossorigin`** — fonts fetch in CORS mode, so the
   preload does not match and downloads again.
 
 Preload only what blocks the first render: typically one font and the LCP image.
@@ -107,11 +113,11 @@ conversion is genuinely predictable.
 
 **Prerendering runs the page**, including its JavaScript. Consequences:
 
-- Analytics will record a page view for a page nobody saw. Gate on the Page
+1. Analytics will record a page view for a page nobody saw. Gate on the Page
   Visibility API or `document.prerendering`.
-- Any side effect — a POST, a counter increment, a "mark as read" — executes.
+2. Any side effect — a POST, a counter increment, a "mark as read" — executes.
   Never prerender a page that mutates state on load.
-- It costs real CPU and memory on the user's device. Prerender one likely
+3. It costs real CPU and memory on the user's device. Prerender one likely
   destination, not ten.
 
 ---
@@ -123,14 +129,14 @@ const c = (navigator as any).connection;
 if (c?.saveData || /2g/.test(c?.effectiveType ?? "")) return;   // do not prefetch
 ```
 
-- Honour `Save-Data` and `prefers-reduced-data`. Prefetching on a metered
+1. Honour `Save-Data` and `prefers-reduced-data`. Prefetching on a metered
   connection spends the user's money on something they may never use.
-- Skip prefetching on slow connections — the bandwidth is needed for the current
+2. Skip prefetching on slow connections — the bandwidth is needed for the current
   page.
-- Consider battery: speculative work on a low battery is a poor trade.
-- Prefetched responses obey `Cache-Control`. A resource marked `no-store` is
+3. Consider battery: speculative work on a low battery is a poor trade.
+4. Prefetched responses obey `Cache-Control`. A resource marked `no-store` is
   fetched and discarded — pure waste. Check the headers on anything you prefetch.
-- **Never prefetch authenticated or personalised URLs speculatively** — the
+5. **Never prefetch authenticated or personalised URLs speculatively** — the
   response may be cached, logged or attributed to the wrong session, and it
   creates load nobody asked for. → `Performance/caching`
 

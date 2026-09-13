@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -203,3 +202,24 @@ if (!allowed) return res.status(429)
 - [ ] Verify: Volumetric abuse is rejected at the edge
 - [ ] Verify: New limits ship in log-only mode first
 - [ ] Verify: Limits are documented, with a path to request an increase
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Each limiter's purpose — protection or quota — is stated
+- [ ] The algorithm is token bucket or sliding window, not a fixed window
+- [ ] Counter updates are atomic
+- [ ] Limits are enforced from a shared store, not per instance
+- [ ] Limiting keys on both identity and network address
+- [ ] Client IP is derived from a trusted-proxy hop count
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

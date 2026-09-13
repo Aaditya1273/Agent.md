@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: redis
 category: Database
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -131,10 +137,10 @@ return fresh;
 
 Two failure modes worth designing against:
 
-- **Stampede.** A hot key expires and a thousand requests hit the database at
+1. **Stampede.** A hot key expires and a thousand requests hit the database at
   once. Fix with a short lock around the recompute, or jittered TTLs
   (`EX: 300 + random(60)`).
-- **Stale after write.** Invalidate on write; do not rely on TTL alone for data
+2. **Stale after write.** Invalidate on write; do not rely on TTL alone for data
   the user just changed and expects to see.
 
 Every cache needs a stated invalidation mechanism before it is added.

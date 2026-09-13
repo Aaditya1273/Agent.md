@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -131,10 +138,10 @@ return fresh;
 
 Two failure modes worth designing against:
 
-- **Stampede.** A hot key expires and a thousand requests hit the database at
+1. **Stampede.** A hot key expires and a thousand requests hit the database at
   once. Fix with a short lock around the recompute, or jittered TTLs
   (`EX: 300 + random(60)`).
-- **Stale after write.** Invalidate on write; do not rely on TTL alone for data
+2. **Stale after write.** Invalidate on write; do not rely on TTL alone for data
   the user just changed and expects to see.
 
 Every cache needs a stated invalidation mechanism before it is added.

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 The method that applies to every performance problem, regardless of layer. The
 specific techniques live in the other Performance packages; this is how to decide
 which one you need.
@@ -26,11 +36,13 @@ The failure this prevents: spending a week on a 40 KB bundle saving while the p9
 is dominated by a 3-second unindexed query.
 
 ---
+
 </purpose>
 
 # The loop
 
 <rules>
+
 ```
 1. Define the target      "checkout p95 under 800ms, from 2.4s"
 2. Measure the baseline   in production, at p95/p99, not p50
@@ -48,11 +60,13 @@ Never do step 4 twice at once. Two simultaneous changes give you one number and 
 attribution.
 
 ---
+
 </rules>
 
 # Measure at the right percentile, in the right place
 
 <rules>
+
 | Statistic | Hides |
 | --- | --- |
 | Mean | Everything. A p50 of 40 ms with a p99 of 9 s averages out fine |
@@ -71,11 +85,13 @@ In fan-out systems, remember that a p99 in a dependency becomes a p50 for a
 request that calls it a hundred times.
 
 ---
+
 </rules>
 
 # Profile before optimising
 
 <rules>
+
 | Layer | Tool |
 | --- | --- |
 | Database | `EXPLAIN (ANALYZE, BUFFERS)`, `pg_stat_statements`, `pg_stat_activity` → `Performance/queries` |
@@ -95,11 +111,7 @@ If CPU is flat while latency is high, you are queueing somewhere. Look at pool
 utilisation and lock waits before touching any code.
 
 ```bash
-</rules>
-
 # Where is the time? Three commands that answer it faster than reading code.
-
-<rules>
 psql -c "SELECT calls, round(total_exec_time) ms, query
          FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10;"
 
@@ -108,20 +120,18 @@ curl -w '@curl-format.txt' -o /dev/null -s "$URL"   # DNS/TCP/TLS/TTFB breakdown
 ```
 
 ```
-</rules>
-
 # Server-Timing makes the breakdown visible in browser devtools for every request
-
-<rules>
 Server-Timing: db;dur=412;desc="14 queries", render;dur=38, cache;desc="miss"
 ```
 
 ---
+
 </rules>
 
 # Change complexity, not constants
 
 <rules>
+
 Ranked by typical payoff:
 
 | Change | Effect |
@@ -147,11 +157,13 @@ Common single-fix wins, in the order they usually appear:
 5. Work in a request that belongs in a job.
 
 ---
+
 </rules>
 
 # Prove it, then keep it
 
 <rules>
+
 - Re-measure under the **same** conditions. A "50% improvement" measured at a
   different time of day is noise.
 - No measured improvement means **revert**. Complexity added for an unproven gain
@@ -166,11 +178,13 @@ Optimisation trades away simplicity. Keep the readable version until it is
 demonstrably too slow, and comment the fast version with what it replaced and why.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Optimising without measuring | Effort on the wrong thing | Profile first |
@@ -189,11 +203,13 @@ demonstrably too slow, and comment the fast version with what it replaced and wh
 | Scaling hardware to hide a bug | Pays rent forever | Fix the cause |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] A numeric performance target exists per critical journey
 - [ ] The baseline is measured in production at p95/p99
 - [ ] Metrics are segmented by device, connection, region and tenant
@@ -207,4 +223,5 @@ demonstrably too slow, and comment the fast version with what it replaced and wh
 - [ ] A regression guard is added in CI for each fixed problem
 - [ ] The change and its measured effect are recorded in the pull request
 - [ ] Non-obvious optimised code carries a comment explaining what it replaced
+
 </checklist>

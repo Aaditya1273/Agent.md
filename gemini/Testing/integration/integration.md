@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -200,3 +199,26 @@ runs the suite.
 - [ ] Verify: Cross-tenant authorisation is covered with two tenants
 - [ ] Verify: Containers start once per run and tests parallelise by worker
 - [ ] Verify: The suite runs on every pull request
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never rely on tests running in a particular order, and never let one test depend on data another created. Each test builds what it needs.
+
+- [ ] Tests run against the same database engine and major version as production
+- [ ] Real migrations are applied in setup, not a schema dump
+- [ ] Each test is isolated by transaction, truncation, or per-worker schema
+- [ ] No test depends on another's data or on execution order
+- [ ] Test data comes from factories with overrides, not shared fixtures
+- [ ] No real external API is called; fakes intercept at the HTTP boundary
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

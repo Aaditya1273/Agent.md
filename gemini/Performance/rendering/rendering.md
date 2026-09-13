@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -187,3 +186,26 @@ const deferred = useDeferredValue(query);      // list lags; input does not
 - [ ] Verify: `prefers-reduced-motion` is honoured
 - [ ] Verify: Profiling is done with CPU throttling and verified on a real low-end device
 - [ ] Verify: INP is tracked in the field at p75, segmented by device class
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never block the main thread with a long task. A 300 ms synchronous handler is 300 ms of unresponsive UI. Break long work with `scheduler.yield()`, or move it to a web worker. - Mark non-urgent updates so typing stays responsive:
+
+- [ ] Animations use only `transform` and `opacity`
+- [ ] `will-change` is applied narrowly and removed after use
+- [ ] DOM reads and writes are batched; no forced synchronous layout in loops
+- [ ] Geometry is observed with `ResizeObserver`/`IntersectionObserver`, not polled
+- [ ] Long lists are virtualised
+- [ ] Off-screen content is not rendered, or uses `content-visibility`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

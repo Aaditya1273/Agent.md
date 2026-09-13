@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: secret-management
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -51,13 +57,13 @@ and often exportable.
 Environment variables are the common baseline, and they leak in specific ways
 worth knowing:
 
-- **They appear in crash dumps and error reporters.** Scrub `process.env` before
+1. **They appear in crash dumps and error reporters.** Scrub `process.env` before
   sending a report to Sentry or similar.
-- **They are readable by every process the user runs**, and on Linux via
+2. **They are readable by every process the user runs**, and on Linux via
   `/proc/<pid>/environ` for the same user.
-- **`docker inspect` shows them** for a running container.
-- **They land in shell history** when set inline on a command.
-- **Child processes inherit them.** A build step that shells out passes every
+3. **`docker inspect` shows them** for a running container.
+4. **They land in shell history** when set inline on a command.
+5. **Child processes inherit them.** A build step that shells out passes every
   secret along.
 
 ```js
@@ -101,10 +107,10 @@ and `git add -f` bypasses it.
 
 # Containers and builds
 
-- **Never** use `ENV SECRET=…` or `ARG SECRET=…` in a `Dockerfile`. Both persist
+1. **Never** use `ENV SECRET=…` or `ARG SECRET=…` in a `Dockerfile`. Both persist
   in the image layers and are readable with `docker history` by anyone who can
   pull the image.
-- Use **build secrets** that are not committed to a layer:
+2. Use **build secrets** that are not committed to a layer:
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -112,9 +118,9 @@ RUN --mount=type=secret,id=npm_token \
     NPM_TOKEN=$(cat /run/secrets/npm_token) npm ci
 ```
 
-- Inject runtime secrets through the orchestrator — Kubernetes `Secret` mounted
+3. Inject runtime secrets through the orchestrator — Kubernetes `Secret` mounted
   as a file, ECS task secrets, systemd credentials.
-- A Kubernetes `Secret` is **base64, not encrypted**, at rest by default. Enable
+4. A Kubernetes `Secret` is **base64, not encrypted**, at rest by default. Enable
   encryption at rest, restrict RBAC on the `secrets` resource, and prefer an
   external-secrets operator backed by a real manager.
 
@@ -122,14 +128,14 @@ RUN --mount=type=secret,id=npm_token \
 
 # Rotation
 
-- **Rotate on a schedule** and **immediately on any suspicion** of exposure.
-- Design every integration to support **two valid credentials at once**, so
+1. **Rotate on a schedule** and **immediately on any suspicion** of exposure.
+2. Design every integration to support **two valid credentials at once**, so
   rotation is: issue new → deploy → verify → revoke old. Without overlap,
   rotation means downtime, and rotation that means downtime does not happen.
-- Prefer **short-lived, automatically issued credentials** over long-lived static
+3. Prefer **short-lived, automatically issued credentials** over long-lived static
   ones: IAM roles, workload identity, OIDC federation from CI. The best secret is
   the one that expires in an hour without anyone acting.
-- Keep an inventory: what exists, who can read it, when it was last rotated. An
+4. Keep an inventory: what exists, who can read it, when it was last rotated. An
   unrotatable secret nobody owns is the one that ends up in an incident report.
 
 ---

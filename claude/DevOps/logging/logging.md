@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for the logging **platform**: how logs get from a process to somewhere
 searchable, how long they are kept, and what they cost. What an application should
 write is `Backend/logging`.
@@ -27,11 +37,13 @@ fastest. Most of these rules are about keeping them useful and affordable at the
 same time.
 
 ---
+
 </purpose>
 
 # Applications write to stdout; the platform does the rest
 
 <rules>
+
 ```
 process → stdout (JSON) → collector (Vector / Fluent Bit / OTel) → store → query
 ```
@@ -53,11 +65,13 @@ as forty separate lines is unsearchable. Most runtimes can emit the trace inside
 one JSON field instead, which is better.
 
 ---
+
 </rules>
 
 # Structure at the source, not with regex later
 
 <rules>
+
 A collector-side regex parsing unstructured text is fragile, expensive, and breaks
 the moment a message changes.
 
@@ -66,11 +80,7 @@ collector, keep the parser in version control, and test it. Otherwise: JSON at t
 source.
 
 ```toml
-</rules>
-
 # Vector: parse once, redact, drop noise, then route by class.
-
-<rules>
 [transforms.parse]
 type = "remap"
 inputs = ["kubernetes_logs"]
@@ -102,11 +112,13 @@ A field named three ways cannot be queried across services, which defeats the
 purpose of centralising logs at all.
 
 ---
+
 </rules>
 
 # Retention by value, not one policy for everything
 
 <rules>
+
 | Class | Hot | Archive | Driver |
 | --- | --- | --- | --- |
 | Application debug | 3–7 days | none | Debugging is recent |
@@ -122,11 +134,13 @@ purpose of centralising logs at all.
   personal data, which is the strongest argument for logging identifiers only.
 
 ---
+
 </rules>
 
 # Control the cost
 
 <rules>
+
 Logging bills grow with traffic **and** with verbosity, and both grow silently.
 
 - **Sample** high-volume success paths — keep 1–10% of healthy `2xx` request lines,
@@ -142,11 +156,13 @@ Logging bills grow with traffic **and** with verbosity, and both grow silently.
   discovered on the invoice.
 
 ---
+
 </rules>
 
 # Access, PII and integrity
 
 <rules>
+
 - Log storage is a **sensitive data store**. Access-control it, and audit reads —
   it frequently contains more personal data than the database does.
 - Redact at the collector as a **second** line of defence; the application must
@@ -160,13 +176,8 @@ Logging bills grow with traffic **and** with verbosity, and both grow silently.
   cannot fill the node disk:
 
 ```yaml
-</rules>
-
 # Fluent Bit: bounded on-disk buffering, so a downstream outage degrades
-
 # logging rather than taking the node down with a full filesystem.
-
-<rules>
 [SERVICE]
     storage.path              /var/log/flb-storage/
     storage.max_chunks_up     128
@@ -180,11 +191,13 @@ Logging bills grow with traffic **and** with verbosity, and both grow silently.
   the node — which is common in exactly the incidents you most want to investigate.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Application writing log files | Lost on restart; fills the disk | stdout plus a collector |
@@ -205,11 +218,13 @@ Logging bills grow with traffic **and** with verbosity, and both grow silently.
 | Logs only on the node | Lost with the node, during the incident | Ship promptly |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Applications write structured JSON to stdout and nothing else
 - [ ] A collector attaches environment, service and version metadata
 - [ ] Multi-line stack traces arrive as a single record
@@ -227,4 +242,5 @@ Logging bills grow with traffic **and** with verbosity, and both grow silently.
 - [ ] Redaction happens at the source and again at the collector
 - [ ] Audit logs are append-only or stored in WORM storage
 - [ ] Logs are shipped off the host promptly
+
 </checklist>

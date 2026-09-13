@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for limiting request rates. Two distinct goals, often conflated:
 
 - **Protection** — keep one caller from exhausting capacity for everyone.
@@ -27,11 +37,13 @@ They need different keys, different windows, and different responses. Decide
 which one each limiter serves before configuring it.
 
 ---
+
 </purpose>
 
 # Algorithms
 
 <rules>
+
 | Algorithm | Burst | Memory per key | Boundary problem |
 | --- | --- | --- | --- |
 | Fixed window | 2× at the boundary | 1 counter | **Yes** — 2× the limit across a boundary |
@@ -62,11 +74,13 @@ full limit at `59.9s` and again at `60.1s` — twice the intended rate. Do not u
 them for anything protective. → `Database/redis`
 
 ---
+
 </rules>
 
 # Choose the key deliberately
 
 <rules>
+
 | Key | Limits | Weakness |
 | --- | --- | --- |
 | API key / account | Fairness, quotas | Absent for unauthenticated traffic |
@@ -90,11 +104,13 @@ endpoint costing 30 database seconds should consume more tokens than a health
 check.
 
 ---
+
 </rules>
 
 # Respond correctly
 
 <rules>
+
 ```
 HTTP/1.1 429 Too Many Requests
 Retry-After: 30
@@ -115,11 +131,13 @@ Publish the limits in your documentation. An undocumented limit is discovered
 during an integration's launch.
 
 ---
+
 </rules>
 
 # Distributed enforcement
 
 <rules>
+
 Per-instance counters mean the effective limit is `limit × instances`, and it
 changes when you autoscale.
 
@@ -134,11 +152,7 @@ changes when you autoscale.
 - Local in-process limiting is a reasonable second layer, never the only one.
 
 ```nginx
-</rules>
-
 # Edge layer: reject volumetric abuse before it reaches an application process
-
-<rules>
 limit_req_zone $binary_remote_addr zone=api:20m rate=20r/s;
 limit_req      zone=api burst=40 nodelay;
 limit_req_status 429;
@@ -163,11 +177,13 @@ if (!allowed) return res.status(429)
 | Database / connection pool | Final backstop | `statement_timeout` |
 
 ---
+
 </rules>
 
 # Do not punish legitimate clients
 
 <rules>
+
 - **Warn before enforcing.** Ship a new limit in log-only mode, measure who would
   have been blocked, then enforce.
 - Give a higher burst allowance than the sustained rate; real clients are bursty.
@@ -178,11 +194,13 @@ if (!allowed) return res.status(429)
 - Provide a documented path to a raised limit.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Fixed window for protection | 2× the limit across the boundary | Token or sliding window |
@@ -201,11 +219,13 @@ if (!allowed) return res.status(429)
 | Undefined store-failure behaviour | Unpredictable under partial outage | Explicit fail-open/closed |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Each limiter's purpose — protection or quota — is stated
 - [ ] The algorithm is token bucket or sliding window, not a fixed window
 - [ ] Counter updates are atomic
@@ -220,4 +240,5 @@ if (!allowed) return res.status(429)
 - [ ] Volumetric abuse is rejected at the edge
 - [ ] New limits ship in log-only mode first
 - [ ] Limits are documented, with a path to request an increase
+
 </checklist>

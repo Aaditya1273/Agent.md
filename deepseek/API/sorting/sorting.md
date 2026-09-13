@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -64,13 +71,13 @@ function orderBy(sort = "-createdAt") {
 }
 ```
 
-- The column name comes from **your** map. Parameterisation does not protect
+1. The column name comes from **your** map. Parameterisation does not protect
   identifiers — a bound parameter cannot be a column name, so an interpolated one
   is injection. → `Security/sql-injection`
-- Direction resolves to the literal `ASC`/`DESC`, never to client text.
-- Unknown key → `400` with the field named. Silently falling back to a default
+2. Direction resolves to the literal `ASC`/`DESC`, never to client text.
+3. Unknown key → `400` with the field named. Silently falling back to a default
   hides client bugs and makes results look correct while being wrong.
-- Cap the number of sort keys; each one adds an index requirement.
+4. Cap the number of sort keys; each one adds an index requirement.
 
 Aliases also decouple the API from the schema, so renaming `total_cents` is not a
 breaking change. → `API/filtering`
@@ -123,18 +130,18 @@ allowed sort combination.
 
 # Nulls, text and case
 
-- **Null placement is engine-specific.** Postgres puts `NULL` first on `DESC`;
+1. **Null placement is engine-specific.** Postgres puts `NULL` first on `DESC`;
   MySQL puts it last. State it explicitly (`NULLS LAST`) so behaviour does not
   change with the database.
-- **Text sorting is collation-dependent.** `'Ä'` sorts differently under `C`,
+2. **Text sorting is collation-dependent.** `'Ä'` sorts differently under `C`,
   `en_US` and `de_DE`. Pick a collation, declare it on the column, and index it —
   changing collation later invalidates every text index.
-- **Case sensitivity**: `ORDER BY name` puts `Zebra` before `apple` under a binary
+3. **Case sensitivity**: `ORDER BY name` puts `Zebra` before `apple` under a binary
   collation. Sort on `lower(name)` with a matching expression index, and document
   the choice.
-- **Numbers stored as text** sort lexicographically: `"10" < "9"`. Store numbers
+4. **Numbers stored as text** sort lexicographically: `"10" < "9"`. Store numbers
   as numbers.
-- **Enumerations** rarely sort usefully by their string value. If `pending` should
+5. **Enumerations** rarely sort usefully by their string value. If `pending` should
   precede `shipped`, sort by an explicit rank column or a `CASE` expression, not
   alphabetically.
 

@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: authentication
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for implementing authentication: how to store credentials, how to issue and
@@ -159,11 +165,7 @@ captured token remains valid until natural expiry.
 [INST] Apply every rule in this section: Fail identically for every cause. [/INST]
 
 ```
-
 # Correct — one message, one status, one timing profile
-
-[INST] Apply every rule in this section: Correct — one message, one status, one timing profile. [/INST]
-
 401  "Invalid email or password."
 ```
 

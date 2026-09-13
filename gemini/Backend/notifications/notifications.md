@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -231,3 +230,24 @@ database archaeology session.
 - [ ] Verify: Every notification records channel, decision, provider id and outcome
 - [ ] Verify: Delivery failure, suppression and unsubscribe rates are alerted on
 - [ ] Verify: An internal per-user view explains why each notification was or was not sent
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Producers emit events; the notification service decides channels
+- [ ] Preferences are modelled as event type × channel with conservative defaults
+- [ ] Security and billing notices cannot be disabled
+- [ ] Quiet hours use the user's timezone
+- [ ] Unsubscribe is one click and honoured immediately
+- [ ] Preference changes are recorded with timestamps
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

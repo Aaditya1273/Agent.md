@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -78,12 +84,12 @@ function clause(field: string, op: string, raw: unknown) {
 
 Three properties matter:
 
-- The **column name comes from your table**, keyed by an alias. A client-supplied
+1. The **column name comes from your table**, keyed by an alias. A client-supplied
   column name interpolated into SQL is injection even if the value is
   parameterised. → `Security/sql-injection`
-- The **operator comes from a fixed map**. `OPS[op]` with an unknown key is
+2. The **operator comes from a fixed map**. `OPS[op]` with an unknown key is
   `undefined`, not a fragment.
-- Values are **parameterised and type-coerced**. Reject `?totalCents[gte]=abc`
+3. Values are **parameterised and type-coerced**. Reject `?totalCents[gte]=abc`
   with `400`, do not coerce it to `0`.
 
 Exposing your internal column names in the API also freezes your schema — the
@@ -95,16 +101,16 @@ alias layer means a column rename is not a breaking change.
 
 An expressive filter language lets a client construct a query nobody planned for.
 
-- Every filterable field must be **indexed**, or explicitly documented as slow and
+1. Every filterable field must be **indexed**, or explicitly documented as slow and
   rate-limited more strictly. → `Database/indexes`
-- Cap the number of filters per request (e.g. 10) and the size of an `in` list
+2. Cap the number of filters per request (e.g. 10) and the size of an `in` list
   (e.g. 100).
-- **Leading-wildcard search (`%term%`) cannot use a B-tree index.** Offer
+3. **Leading-wildcard search (`%term%`) cannot use a B-tree index.** Offer
   `startsWith` instead, or route full-text search to a trigram/GIN index or a
   search engine — not to `LIKE '%…%'` on a large table.
-- Always combine filtering with pagination and a bounded `limit`.
+4. Always combine filtering with pagination and a bounded `limit`.
   → `API/pagination`
-- Tenant scoping is not a filter. It is applied server-side to every query,
+5. Tenant scoping is not a filter. It is applied server-side to every query,
   regardless of what the client sent. → `Security/authorization`
 
 Check the plan for the worst legal combination, not the common one:
@@ -129,15 +135,15 @@ release. → `Database/query-optimization`
 
 # Semantics worth defining once
 
-- **Multiple fields combine with `AND`.** If you need `OR`, add it explicitly
+1. **Multiple fields combine with `AND`.** If you need `OR`, add it explicitly
   rather than overloading repeated parameters.
-- **Absent versus empty**: `?status=` should be a `400`, not "match everything" and
+2. **Absent versus empty**: `?status=` should be a `400`, not "match everything" and
   not "match empty string".
-- **Null matching** needs an explicit operator (`?deletedAt[isNull]=true`) —
+3. **Null matching** needs an explicit operator (`?deletedAt[isNull]=true`) —
   `= NULL` never matches.
-- **Ranges are inclusive** unless the operator says otherwise, and dates are
+4. **Ranges are inclusive** unless the operator says otherwise, and dates are
   RFC 3339 UTC.
-- **Case sensitivity** is a documented property per field, backed by a matching
+5. **Case sensitivity** is a documented property per field, backed by a matching
   index (`lower(email)` needs an expression index).
 
 Document every filterable field, its operators and its type in the OpenAPI

@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: monitoring
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for instrumenting a service so that you can tell whether it is healthy, and
@@ -162,13 +168,8 @@ Define the objective before the alert. An alert with no SLO behind it is a
 threshold someone guessed.
 
 ```yaml
-
 # 99.9% of checkout requests succeed within 500ms over 28 days.
-
 # Error budget: 0.1% ≈ 40 minutes per month.
-
-[INST] Apply every rule in this section: Error budget: 0.1% ≈ 40 minutes per month.. [/INST]
-
 ```
 
 Alert on **burn rate**, not on instantaneous thresholds:

@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: rate-limiting
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -95,14 +101,14 @@ concurrency more requests pass than the limit permits.
 
 # Distributed state
 
-- An in-memory counter per process means the real limit is `limit × instances`,
+1. An in-memory counter per process means the real limit is `limit × instances`,
   and it resets on every deploy. Acceptable for a single instance; wrong for
   anything scaled.
-- Use a shared store — Redis, or the platform's own limiter at the edge.
-- Prefer limiting **at the edge** (CDN, API gateway) for volumetric abuse: it
+2. Use a shared store — Redis, or the platform's own limiter at the edge.
+3. Prefer limiting **at the edge** (CDN, API gateway) for volumetric abuse: it
   never reaches your origin. Keep application-level limits for per-account and
   per-endpoint rules the edge cannot see.
-- **Fail open or closed deliberately.** If Redis is down, decide in advance
+4. **Fail open or closed deliberately.** If Redis is down, decide in advance
   whether to allow (availability) or deny (protection), and log the decision.
   Silently allowing because an exception was swallowed is the common accident.
 
@@ -118,27 +124,27 @@ RateLimit-Reset: 30
 Retry-After: 30
 ```
 
-- Return **`429`**, not `403`. `403` tells a client it is forbidden forever.
-- Always send **`Retry-After`**. Without it, well-behaved clients retry
+1. Return **`429`**, not `403`. `403` tells a client it is forbidden forever.
+2. Always send **`Retry-After`**. Without it, well-behaved clients retry
   immediately and make the situation worse.
-- Expose remaining budget so clients can self-pace.
-- Apply **jitter** to any server-suggested backoff, or every throttled client
+3. Expose remaining budget so clients can self-pace.
+4. Apply **jitter** to any server-suggested backoff, or every throttled client
   returns simultaneously.
-- **Never** leak whether an account exists through differing limits — see
+5. **Never** leak whether an account exists through differing limits — see
   `Security/authentication`.
 
 ---
 
 # Tuning
 
-- Measure real traffic **before** setting a limit. A limit below the p99 of
+1. Measure real traffic **before** setting a limit. A limit below the p99 of
   legitimate use is an outage you scheduled for yourself.
-- Set different limits per endpoint class: a search or export endpoint costs
+2. Set different limits per endpoint class: a search or export endpoint costs
   orders of magnitude more than a health check.
-- Run in **observe-only** first, logging what would have been rejected.
-- Exempt health checks and internal service traffic explicitly, by credential —
+3. Run in **observe-only** first, logging what would have been rejected.
+4. Exempt health checks and internal service traffic explicitly, by credential —
   never by IP range alone.
-- Alert on sustained `429` rates. A spike is either an attack or a broken client,
+5. Alert on sustained `429` rates. A spike is either an attack or a broken client,
   and both are worth knowing about.
 
 ---

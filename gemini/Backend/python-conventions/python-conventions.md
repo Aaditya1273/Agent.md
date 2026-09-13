@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -216,3 +215,24 @@ style. → `Testing/pytest`
 - [ ] Verify: `logging.getLogger(__name__)` with structured `extra`; no `print`
 - [ ] Verify: `ruff` with `S` and `B` rule sets enabled
 - [ ] Verify: `.python-version` pinned; secrets come from the environment
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] `pyproject.toml` is the only manifest; `requires-python` set
+- [ ] Lockfile committed; CI installs with `--frozen`
+- [ ] `src/` layout, package installed editable
+- [ ] No `utils.py`; no I/O at import time
+- [ ] `mypy --strict` (or pyright strict) passes in CI
+- [ ] Builtin generics and `X | None` throughout
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

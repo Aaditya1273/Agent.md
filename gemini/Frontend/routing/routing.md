@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -185,3 +184,24 @@ keyboard access.
 - [ ] Verify: Data loads with the navigation, not after mount
 - [ ] Verify: Routes and their data are prefetched on intent
 - [ ] Verify: Pending navigations keep the previous view visible
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Filters, sort, pagination, tab and selection are all in the URL
+- [ ] No secrets or personal data appear in URLs
+- [ ] Default parameter values are omitted
+- [ ] Every route parameter is validated and coerced
+- [ ] URL changes are accompanied by permanent redirects
+- [ ] Layouts are nested so shared shell state survives navigation
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

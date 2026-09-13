@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never write an E2E test for something a unit test can catch. It costs 1,000× the runtime for the same information.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for choosing what to test, at which level, and when to stop.
 
 The purpose of a test suite is **confidence to change the code**. Any test that
@@ -26,11 +37,13 @@ refactored without a behaviour change — is a liability on the balance sheet, n
 an asset.
 
 ---
+
 </purpose>
 
 # The shape of the suite
 
 <rules>
+
 | Level | Share | Runtime | Catches |
 | --- | --- | --- | --- |
 | **Unit** | ~70% | milliseconds | Logic, edge cases, error paths |
@@ -57,11 +70,13 @@ integration tests than a marketing site.
 ```
 
 ---
+
 </rules>
 
 # Choosing a level
 
 <rules>
+
 Ask what could break, then choose the cheapest test that would catch it.
 
 Concretely: a discount calculation is `unit`; "does `findFirst` filter by
@@ -83,11 +98,13 @@ for `describe`/`it` and `expect`, not a browser.
 the runtime for the same information.
 
 ---
+
 </rules>
 
 # What not to test
 
 <rules>
+
 Every test has a maintenance cost. Skip:
 
 - **Framework and library behaviour.** Trust that `Array.map`, `JSON.parse` and
@@ -102,11 +119,13 @@ The question to ask: *if this test fails, will it be because of a real bug, or
 because someone renamed something?*
 
 ---
+
 </rules>
 
 # Legacy code
 
 <rules>
+
 Do not attempt to retrofit coverage everywhere at once. It will not finish.
 
 1. **Characterise before changing.** Write a test that asserts current behaviour,
@@ -119,17 +138,15 @@ Do not attempt to retrofit coverage everywhere at once. It will not finish.
    it to zero and stops caring.
 
 ---
+
 </rules>
 
 # Enforcing the shape
 
 <rules>
+
 ```yaml
-</rules>
-
 # Run the cheap tiers on every push; gate merges on the critical journey only.
-
-<rules>
 jobs:
   unit:         { run: "npm run test:unit -- --coverage" }
   integration:  { run: "npm run test:integration" }
@@ -151,11 +168,13 @@ jobs:
 Tools worth naming: `vitest` / `jest` for unit, `supertest` and `testcontainers`
 for integration, `playwright` for E2E, `stryker` for mutation testing, and
 `c8` / `istanbul` for coverage reporting.
+
 </rules>
 
 # Signals the strategy is failing
 
 <rules>
+
 Treat these as evidence, not as a reason to write more tests:
 
 | Signal | Likely cause |
@@ -172,11 +191,13 @@ code.** The instinct to reach for a heavier mocking framework is the wrong
 response; extracting the dependency is the right one.
 
 ---
+
 </rules>
 
 # Practical rules
 
 <rules>
+
 - **Every bug fix ships with a failing-then-passing test.** No exceptions — this
   is the single highest-value rule in the document.
 - Keep the unit suite under **a minute** so it runs on save — `vitest --watch`
@@ -189,11 +210,13 @@ response; extracting the dependency is the right one.
   gain.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Coverage percentage as a goal | Assertion-free tests reach 100% | Mutation testing; cover changed lines |
@@ -207,11 +230,13 @@ response; extracting the dependency is the right one.
 | Keeping every test forever | Maintenance cost compounds | Delete redundant tests |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The suite shape matches the risk, not a fixed ratio
 - [ ] Each test sits at the cheapest level that would catch its failure
 - [ ] No E2E test covers logic a unit test could
@@ -223,4 +248,5 @@ response; extracting the dependency is the right one.
 - [ ] Unit and integration run on every pull request
 - [ ] Failure output identifies the problem without reading the test
 - [ ] Hard-to-test code is treated as a design signal, not a mocking problem
+
 </checklist>

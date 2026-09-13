@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: orm
 category: Database
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -116,12 +122,12 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-- **Never** make an HTTP call, send an email, or await user input inside a
+1. **Never** make an HTTP call, send an email, or await user input inside a
   transaction. It holds locks and a connection for the duration of someone else's
   latency.
-- Use `{ decrement: n }`-style atomic operators rather than read-then-write in
+2. Use `{ decrement: n }`-style atomic operators rather than read-then-write in
   application code — the read-modify-write loses updates under concurrency.
-- Handle serialization failures and deadlocks with a bounded retry.
+3. Handle serialization failures and deadlocks with a bounded retry.
   → `Database/transactions`
 
 ---
@@ -132,10 +138,10 @@ Use the ORM's migration tool, but read the generated SQL before applying it.
 Generators routinely produce a table rewrite or a blocking index build where a
 safe equivalent exists.
 
-- Review every generated migration as code, in the pull request.
-- Add `CREATE INDEX CONCURRENTLY` by hand — most generators do not emit it.
-- Never edit an applied migration; write a new one.
-- Verify the migration is reversible, or state explicitly that it is not.
+1. Review every generated migration as code, in the pull request.
+2. Add `CREATE INDEX CONCURRENTLY` by hand — most generators do not emit it.
+3. Never edit an applied migration; write a new one.
+4. Verify the migration is reversible, or state explicitly that it is not.
   → `Database/migration`
 
 ---

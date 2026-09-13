@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: queries
 category: Performance
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -143,15 +149,15 @@ const prefs  = await getPrefs(id);
 const [user, orders, prefs] = await Promise.all([getUser(id), getOrders(id), getPrefs(id)]);
 ```
 
-- Bound the concurrency. `Promise.all` over 5,000 items opens 5,000 queries and
+1. Bound the concurrency. `Promise.all` over 5,000 items opens 5,000 queries and
   exhausts the connection pool — which presents as "the database is slow" when it
   is actually queueing. → `Database/postgres`
-- Bulk writes: one `INSERT ... VALUES (…),(…),(…)` or `COPY` beats a thousand
+2. Bulk writes: one `INSERT ... VALUES (…),(…),(…)` or `COPY` beats a thousand
   single-row inserts by orders of magnitude.
-- Use a limiter rather than raw `Promise.all` for large sets:
+3. Use a limiter rather than raw `Promise.all` for large sets:
   `pLimit(10)`, a semaphore, or the ORM's own batching. The right bound is the
   free capacity in `DB_POOL_SIZE`, not the number of items.
-- Keep network calls **out of transactions** — an open transaction holds locks and
+4. Keep network calls **out of transactions** — an open transaction holds locks and
   a connection for the duration of someone else's latency.
   → `Database/transactions`
 

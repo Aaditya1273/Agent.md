@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -38,10 +44,10 @@ process → stdout (JSON) → collector (Vector / Fluent Bit / OTel) → store �
 An application that opens log files, rotates them, or ships them directly is doing
 the platform's job badly:
 
-- File logging in a container writes to the ephemeral layer and disappears on
+1. File logging in a container writes to the ephemeral layer and disappears on
   restart — exactly when you need it.
-- Unrotated files fill the disk, which takes the service down.
-- A direct-to-backend shipper couples the application to a vendor and blocks on
+2. Unrotated files fill the disk, which takes the service down.
+3. A direct-to-backend shipper couples the application to a vendor and blocks on
   the network during an outage.
 
 Write JSON to stdout, one object per line, and let the collector attach
@@ -106,10 +112,10 @@ purpose of centralising logs at all.
 | Audit logs | 90 days hot | **7 years** | Compliance → `Security/audit-log` |
 | Build/CI logs | 30 days | none | |
 
-- Hot storage is indexed and expensive; archive is object storage and cheap.
-- Audit logs are a separate stream with a separate lifecycle, **write-once** where
+1. Hot storage is indexed and expensive; archive is object storage and cheap.
+2. Audit logs are a separate stream with a separate lifecycle, **write-once** where
   possible. Never mix them with application logs whose retention is days.
-- Deletion obligations apply: a GDPR erasure request covers logs containing
+3. Deletion obligations apply: a GDPR erasure request covers logs containing
   personal data, which is the strongest argument for logging identifiers only.
 
 ---
@@ -118,32 +124,32 @@ purpose of centralising logs at all.
 
 Logging bills grow with traffic **and** with verbosity, and both grow silently.
 
-- **Sample** high-volume success paths — keep 1–10% of healthy `2xx` request lines,
+1. **Sample** high-volume success paths — keep 1–10% of healthy `2xx` request lines,
   100% of errors. Record the sampling rate so counts can be reconstructed.
-- Drop known-worthless lines at the collector: health-check requests, static asset
+2. Drop known-worthless lines at the collector: health-check requests, static asset
   hits, framework startup noise.
-- **Never derive a metric by counting log lines.** It is expensive and breaks the
+3. **Never derive a metric by counting log lines.** It is expensive and breaks the
   moment sampling changes. Emit a counter.
-- Make log level runtime-configurable per service, so `debug` can be raised during
+4. Make log level runtime-configurable per service, so `debug` can be raised during
   an incident and lowered afterwards — a permanently-`debug` service is usually the
   single largest cost line.
-- Alert on log volume per service. A logging loop shipped on a Friday is otherwise
+5. Alert on log volume per service. A logging loop shipped on a Friday is otherwise
   discovered on the invoice.
 
 ---
 
 # Access, PII and integrity
 
-- Log storage is a **sensitive data store**. Access-control it, and audit reads —
+1. Log storage is a **sensitive data store**. Access-control it, and audit reads —
   it frequently contains more personal data than the database does.
-- Redact at the collector as a **second** line of defence; the application must
+2. Redact at the collector as a **second** line of defence; the application must
   redact first. Collector-side redaction alone means the secret already crossed the
   network. → `Security/secret-management`
-- A credential in a log is a disclosed credential: log storage is replicated,
+3. A credential in a log is a disclosed credential: log storage is replicated,
   backed up and widely readable. Rotate it.
-- Audit logs need integrity: append-only, hash-chained or WORM storage, so a
+4. Audit logs need integrity: append-only, hash-chained or WORM storage, so a
   compromised account cannot erase its own trail.
-- Ship logs off the host promptly, and cap the local buffer so a backend outage
+5. Ship logs off the host promptly, and cap the local buffer so a backend outage
   cannot fill the node disk:
 
 ```yaml

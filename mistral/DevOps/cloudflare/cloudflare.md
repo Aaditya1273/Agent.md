@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: cloudflare
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for putting Cloudflare in front of an application, and for running code at
@@ -57,11 +63,7 @@ query string or a cookie**. Most applications therefore see a low hit ratio and
 conclude the CDN is not helping.
 
 ```
-
 # Cache rule: hashed assets, cached hard, everywhere
-
-[INST] Apply every rule in this section: Cache rule: hashed assets, cached hard, everywhere. [/INST]
-
 When  URI Path matches ^/(assets|_next/static)/
 Then  Cache eligibility: Eligible
       Edge TTL: 1 year   Browser TTL: 1 year
@@ -138,11 +140,7 @@ that caching does not apply.
 - Version and roll back deployments (`wrangler versions`), and use gradual
   deployments for risky changes. → `DevOps/rollback`
 ```toml
-
 # wrangler.toml — bindings, not secrets. Secrets go in `wrangler secret put`.
-
-[INST] Apply every rule in this section: wrangler.toml — bindings, not secrets. Secrets go in `wrangler secret put`.. [/INST]
-
 name = "edge-router"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"

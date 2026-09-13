@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,20 +14,35 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never run `LISTEN/NOTIFY`, session-level advisory locks, or `SET LOCAL`-free `SET` through a transaction-mode pooler. The session that receives the command is not the session that runs the next query.
+- Never store what should be a foreign key inside `jsonb`. There is no referential integrity, and the join will not use an index the way you expect.
+- Never enable an extension in production without checking whether your managed provider supports it — an unsupported extension blocks a major-version upgrade.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules specific to PostgreSQL. Portable schema design is `Database/schema-design`;
 this covers what Postgres does differently and what bites teams that treat it as
 a generic SQL box.
 
 ---
+
 </purpose>
 
 # Connections and pooling
 
 <rules>
+
 A Postgres connection is a forked OS process with its own memory. A few hundred
 is not "a lot of connections" — it is a resource crisis.
 
@@ -54,11 +69,13 @@ connections than that reduces throughput — the database spends its time contex
 switching, not working.
 
 ---
+
 </rules>
 
 # MVCC, bloat and vacuum
 
 <rules>
+
 Postgres never updates a row in place. An `UPDATE` writes a new tuple and marks
 the old one dead. `VACUUM` reclaims dead tuples; if it cannot keep up, tables and
 indexes bloat, and plans degrade even though row counts have not changed.
@@ -91,11 +108,13 @@ ALTER TABLE events SET (autovacuum_vacuum_scale_factor = 0.02,
 ```
 
 ---
+
 </rules>
 
 # Settings that matter
 
 <rules>
+
 | Setting | Guidance |
 | --- | --- |
 | `shared_buffers` | ~25% of RAM |
@@ -110,11 +129,13 @@ ALTER TABLE events SET (autovacuum_vacuum_scale_factor = 0.02,
 worker. A high global value times a hundred connections exhausts memory.
 
 ---
+
 </rules>
 
 # jsonb
 
 <rules>
+
 `jsonb` is for genuinely open-ended data — third-party webhook payloads, user
 attributes with no fixed set. It is not a way to avoid designing a schema.
 
@@ -134,11 +155,13 @@ Rules:
 referential integrity, and the join will not use an index the way you expect.
 
 ---
+
 </rules>
 
 # Extensions worth enabling
 
 <rules>
+
 | Extension | Why |
 | --- | --- |
 | `pg_stat_statements` | Query-level timing. Enable it before you need it |
@@ -151,11 +174,13 @@ referential integrity, and the join will not use an index the way you expect.
 provider supports it — an unsupported extension blocks a major-version upgrade.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Direct connections from serverless | Connection exhaustion on cold starts | PgBouncer, transaction mode |
@@ -170,11 +195,13 @@ provider supports it — an unsupported extension blocks a major-version upgrade
 | Advisory locks through a transaction pooler | Different backend each call | Session mode, or a lock table |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] A transaction-mode pooler sits between the application and the database
 - [ ] Total pool capacity is below `max_connections` with headroom
 - [ ] No session-scoped features are used through a transaction-mode pooler
@@ -186,4 +213,5 @@ provider supports it — an unsupported extension blocks a major-version upgrade
 - [ ] `work_mem` is sized per node, not per query
 - [ ] `jsonb` holds only genuinely schemaless data, indexed with GIN
 - [ ] Extension use is confirmed supported by the hosting provider
+
 </checklist>

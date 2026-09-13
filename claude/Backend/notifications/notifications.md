@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for notifying users across channels. The engineering problem is not sending
 to any one channel — it is having **one event produce the right message on the
 right channels for each user**, without duplicates and without becoming noise.
@@ -25,11 +35,13 @@ right channels for each user**, without duplicates and without becoming noise.
 Channel-specific delivery is `Backend/email`. This package is the layer above.
 
 ---
+
 </purpose>
 
 # One event, many channels
 
 <rules>
+
 Producers emit an **event**. They do not decide the channel, the copy, or whether
 the user wants it.
 
@@ -56,11 +68,13 @@ Calling `sendEmail()` from a business service couples the domain to a channel an
 guarantees that the next channel means editing every call site.
 
 ---
+
 </rules>
 
 # Preferences, and the ones you cannot override
 
 <rules>
+
 A preference matrix of event type × channel, with sane defaults:
 
 | | In-app | Push | Email | SMS |
@@ -83,11 +97,13 @@ the ones that matter.
   compliance question. → `Security/audit-log`
 
 ---
+
 </rules>
 
 # Deduplication and batching
 
 <rules>
+
 Duplicate notifications are the fastest route to a muted channel.
 
 - Deduplicate on `idempotencyKey` within a window. Retries, replays and
@@ -114,11 +130,13 @@ Urgency decides the path:
 | Informational (weekly summary) | Email | Digest |
 
 ---
+
 </rules>
 
 # Channel realities
 
 <rules>
+
 | Channel | Constraint |
 | --- | --- |
 | Push | Tokens expire and are revoked; a `NotRegistered` response means delete the token, not retry |
@@ -150,11 +168,13 @@ Push token hygiene matters: an accumulating list of dead tokens slows every send
 and skews delivery metrics. Delete on the first permanent rejection.
 
 ---
+
 </rules>
 
 # Observability and debugging
 
 <rules>
+
 "Did the customer get the email?" must be answerable in one query.
 
 Record per notification: event type, recipient, channel, template version,
@@ -196,11 +216,13 @@ was or was not sent. Without it, every "I didn't get it" report becomes a
 database archaeology session.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Business code calling `sendEmail()` | Couples domain to channel; new channels touch every call site | Emit an event |
@@ -221,11 +243,13 @@ database archaeology session.
 | Unsubscribe that does not work immediately | Compliance exposure | Honour on the next send |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Producers emit events; the notification service decides channels
 - [ ] Preferences are modelled as event type × channel with conservative defaults
 - [ ] Security and billing notices cannot be disabled
@@ -244,4 +268,5 @@ database archaeology session.
 - [ ] Every notification records channel, decision, provider id and outcome
 - [ ] Delivery failure, suppression and unsubscribe rates are alerted on
 - [ ] An internal per-user view explains why each notification was or was not sent
+
 </checklist>

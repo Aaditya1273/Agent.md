@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for organising a Go codebase so it reads like Go — not like Java or
 TypeScript translated. Go rewards small packages, plain types, and code that
 does the obvious thing. Most "Go is verbose" complaints come from fighting that.
@@ -26,11 +36,13 @@ Errors are `Backend/go-errors`; HTTP is `Backend/go-http`; concurrency is
 `Backend/go-concurrency`.
 
 ---
+
 </purpose>
 
 # Module layout
 
 <rules>
+
 ```
 go.mod                     # one module per repository, at the root
 cmd/
@@ -53,11 +65,13 @@ internal/
   and that reason is rarely yours.
 
 ---
+
 </rules>
 
 # Package naming
 
 <rules>
+
 ```go
 // Bad: stutter. Callers write orders.OrdersService.
 package orders
@@ -75,11 +89,13 @@ func New(store Store) *Service
 - Package `main` is for binaries only; nothing imports it.
 
 ---
+
 </rules>
 
 # Interfaces belong to the consumer
 
 <rules>
+
 ```go
 // In the package that USES storage, not the one that implements it.
 package orders
@@ -98,11 +114,13 @@ type Store interface {
 - The bigger the interface, the weaker the abstraction. `io.Reader` is one method.
 
 ---
+
 </rules>
 
 # Zero values, receivers, constructors
 
 <rules>
+
 ```go
 // A useful zero value: no constructor needed.
 var mu sync.Mutex
@@ -123,11 +141,13 @@ func (s *Service) Place(ctx context.Context, o Order) error
   first: `func (s *Service) Get(ctx context.Context, id string)`.
 
 ---
+
 </rules>
 
 # The tooling gate
 
 <rules>
+
 ```sh
 gofmt -l .                     # must print nothing
 go vet ./...
@@ -146,11 +166,13 @@ go test -race ./...
   what people reach for a framework to get.
 
 ---
+
 </rules>
 
 # Configuration
 
 <rules>
+
 ```go
 type Config struct {
     Addr        string        `env:"ADDR" default:":8080"`
@@ -169,11 +191,13 @@ type Config struct {
   values; files only when the config is large and structured.
 
 ---
+
 </rules>
 
 # Logging with log/slog
 
 <rules>
+
 ```go
 logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 logger.Info("order placed", "order_id", o.ID, "tenant", o.Tenant, "total_cents", o.Total)
@@ -191,11 +215,13 @@ logger.Error("payment failed", "err", err, "order_id", o.ID)
   carries the context up; logging it three times on the way is noise.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `pkg/utils` or `common/` | Becomes a dependency sink for everything | Name packages by what they do |
@@ -212,11 +238,13 @@ logger.Error("payment failed", "err", err, "order_id", o.ID)
 | Framework for what `net/http` does | Extra dependency, hidden behaviour | Standard library first |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] One `go.mod` at the repository root with a pinned `go` version
 - [ ] Binaries live under `cmd/<name>/main.go` and contain wiring only
 - [ ] Application code lives under `internal/`
@@ -229,4 +257,5 @@ logger.Error("payment failed", "err", err, "order_id", o.ID)
 - [ ] Required config fails fast at startup with the variable name
 - [ ] Logging uses `log/slog` with structured attributes
 - [ ] `gofmt`, `go vet`, `staticcheck`, and `go test -race` run in CI
+
 </checklist>

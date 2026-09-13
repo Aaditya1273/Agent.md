@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never route reads to a replica based on the query looking read-only. The question is whether the caller can tolerate stale data, and only the caller knows.
+- Never promote a replica manually during an incident without checking its replay position. Promoting the most-behind replica discards every write the others had.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for running replicas. Replication solves two different problems — read
 scaling and availability — and the configuration for each differs. Conflating
 them produces a system that is neither.
@@ -27,11 +39,13 @@ failover can lose the writes it had not yet received.** Every rule follows from
 that.
 
 ---
+
 </purpose>
 
 # Modes and what they guarantee
 
 <rules>
+
 | Mode | Commit waits for | Data loss on failover | Write latency |
 | --- | --- | --- | --- |
 | Asynchronous | Primary only | Up to the current lag | Lowest |
@@ -39,11 +53,7 @@ that.
 | Synchronous (`remote_apply`) | Replica applied it | None | Highest; a slow replica stalls writes |
 
 ```
-</rules>
-
 # PostgreSQL — durable, and tolerant of one replica being down
-
-<rules>
 synchronous_commit = remote_write
 synchronous_standby_names = 'ANY 1 (replica_a, replica_b)'
 ```
@@ -58,11 +68,13 @@ asynchronous. Alert on that fallback; it is the moment your durability guarantee
 disappears. → `Database/mysql`
 
 ---
+
 </rules>
 
 # Read routing
 
 <rules>
+
 Not every read may go to a replica. Classify explicitly:
 
 | Read | Route to |
@@ -94,11 +106,13 @@ SELECT pg_last_wal_replay_lsn() >= $1;          -- on the replica, before readin
 question is whether the caller can tolerate stale data, and only the caller knows.
 
 ---
+
 </rules>
 
 # Lag
 
 <rules>
+
 Monitor lag in **bytes and seconds**, on the replica.
 
 ```sql
@@ -129,11 +143,13 @@ cost of holding the primary's vacuum horizon. Pick one deliberately.
 → `Database/postgres`
 
 ---
+
 </rules>
 
 # Settings that govern behaviour
 
 <rules>
+
 | Setting | Engine | Effect |
 | --- | --- | --- |
 | `wal_level = replica` | Postgres | Minimum for streaming; `logical` for logical replication |
@@ -155,11 +171,13 @@ against operator error: it is one hour behind on purpose, so a destructive
 statement can be caught before it applies.
 
 ---
+
 </rules>
 
 # Failover
 
 <rules>
+
 Automatic failover requires three things, and it is dangerous without all of them:
 
 1. **A consensus-based manager** (Patroni, orchestrator, or the managed service's
@@ -182,11 +200,13 @@ Rehearse: a scheduled failover drill in staging every quarter, timed, with the
 runbook followed as written. → `DevOps/disaster-recovery`
 
 ---
+
 </rules>
 
 # Replicas are not backups
 
 <rules>
+
 Replication propagates `DROP TABLE` in milliseconds. It protects against hardware
 and host failure, not against a bad migration, a buggy delete, or ransomware.
 
@@ -194,11 +214,13 @@ You need point-in-time recovery from base backups plus WAL archives, tested by
 restore. → `Database/backup`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Treating replicas as backups | Deletes replicate instantly | Independent PITR backups |
@@ -213,11 +235,13 @@ restore. → `Database/backup`
 | Long analytics queries on a serving replica | Cancels replay or stalls it | Dedicated analytics replica |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Replication mode is chosen deliberately and its data-loss window is written down
 - [ ] Synchronous standbys are configured as a quorum, not a single named node
 - [ ] Semi-synchronous timeout fallback raises an alert
@@ -229,4 +253,5 @@ restore. → `Database/backup`
 - [ ] Failover is rehearsed on a schedule and timed
 - [ ] Surviving replicas are re-pointed after promotion
 - [ ] Independent, restore-tested backups exist separately from replication
+
 </checklist>

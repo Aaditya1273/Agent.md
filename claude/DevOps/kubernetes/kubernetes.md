@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for deploying applications to Kubernetes. Kubernetes will run almost any
 manifest — the difference between a stable cluster and a thrashing one is a small
 set of fields most manifests omit.
@@ -25,11 +35,13 @@ set of fields most manifests omit.
 Deployment strategy is `DevOps/deployment`; images are `DevOps/docker`.
 
 ---
+
 </purpose>
 
 # Requests and limits decide scheduling and eviction
 
 <rules>
+
 ```yaml
 resources:
   requests: { cpu: "250m", memory: "512Mi" }    # what the scheduler reserves
@@ -60,11 +72,13 @@ Runtime memory settings must respect the limit: a Node heap or JVM sized from ho
 memory will be OOM-killed in a limited container. → `Backend/node`
 
 ---
+
 </rules>
 
 # Probes: three questions, three answers
 
 <rules>
+
 ```yaml
 startupProbe:   { httpGet: { path: /healthz, port: 3000 }, failureThreshold: 30, periodSeconds: 2 }
 readinessProbe: { httpGet: { path: /readyz,  port: 3000 }, periodSeconds: 5 }
@@ -83,11 +97,13 @@ livenessProbe:  { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 10, fa
 Point liveness at a trivial handler; put dependency checks in readiness only.
 
 ---
+
 </rules>
 
 # Survive disruption
 
 <rules>
+
 ```yaml
 spec:
   replicas: 3
@@ -111,11 +127,13 @@ spec:
   drops in-flight requests. → `DevOps/deployment`
 
 ---
+
 </rules>
 
 # Security context
 
 <rules>
+
 ```yaml
 securityContext:
   runAsNonRoot: true
@@ -142,11 +160,13 @@ manager) and never commit a `Secret` manifest.
 → `Security/secret-management`
 
 ---
+
 </rules>
 
 # Configuration and scaling
 
 <rules>
+
 - `ConfigMap` for non-sensitive configuration, `Secret` for the rest, both injected
   as environment variables or files — never baked into the image.
 - A ConfigMap change does **not** restart pods. Either checksum it into the pod
@@ -160,11 +180,13 @@ manager) and never commit a `Secret` manifest.
   otherwise converts a backlog into a database outage.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No resource requests | `BestEffort` QoS; evicted first | Always set requests |
@@ -187,11 +209,13 @@ manager) and never commit a `Secret` manifest.
 | `latest` image tags | Restart pulls a different build | Pin by digest |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every container declares CPU and memory requests
 - [ ] Memory limit equals memory request
 - [ ] CPU limits are omitted unless the workload is untrusted or noisy
@@ -211,4 +235,5 @@ manager) and never commit a `Secret` manifest.
 - [ ] Autoscaling uses a signal that reflects real load
 - [ ] `minReplicas` is at least 2 and `maxReplicas` is capped at downstream capacity
 - [ ] Images are pinned by digest
+
 </checklist>

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -81,16 +88,16 @@ update the row. This is the only moment the plaintext is available.
 
 # Password policy
 
-- **Minimum 8 characters. Maximum at least 64.** A low maximum is a strong signal
+1. **Minimum 8 characters. Maximum at least 64.** A low maximum is a strong signal
   the password is being stored in a fixed-width column, unhashed.
-- **Accept every Unicode character**, including spaces and emoji. Normalise to
+2. **Accept every Unicode character**, including spaces and emoji. Normalise to
   `NFKC` before hashing so the same typed password verifies across platforms.
-- **Check against a breach corpus** (Have I Been Pwned range API, or a local
+3. **Check against a breach corpus** (Have I Been Pwned range API, or a local
   copy). Rejecting known-breached passwords prevents more account takeover than
   any composition rule.
-- **No composition rules.** Do not require a symbol, a digit and mixed case.
+4. **No composition rules.** Do not require a symbol, a digit and mixed case.
   They push users toward `Password1!` and provide no measurable benefit.
-- **No forced rotation** on a schedule. Rotate on evidence of compromise only.
+5. **No forced rotation** on a schedule. Rotate on evidence of compromise only.
 
 ---
 
@@ -172,23 +179,23 @@ against your own users.
 Offer TOTP (`RFC 6238`) or WebAuthn. **Prefer WebAuthn** — it is phishing-resistant
 because the credential is bound to the origin.
 
-- SMS is a weak factor (SIM swap). Offer it only as a fallback, never as the only
+1. SMS is a weak factor (SIM swap). Offer it only as a fallback, never as the only
   option.
-- Verify TOTP against a **±1 step** window, no wider.
-- **Burn each TOTP code once.** Without single-use enforcement, a code is replayable
+2. Verify TOTP against a **±1 step** window, no wider.
+3. **Burn each TOTP code once.** Without single-use enforcement, a code is replayable
   for its full validity window.
-- Generate single-use recovery codes at enrolment and hash them like passwords.
+4. Generate single-use recovery codes at enrolment and hash them like passwords.
 
 ---
 
 # Password reset
 
-- Tokens must be **single-use**, **short-lived** (≤ 60 minutes), and CSPRNG-generated.
-- **Store the hash of the reset token**, not the token. A leaked database must not
+1. Tokens must be **single-use**, **short-lived** (≤ 60 minutes), and CSPRNG-generated.
+2. **Store the hash of the reset token**, not the token. A leaked database must not
   yield working reset links.
-- Invalidate all existing sessions on password change, except optionally the one
+3. Invalidate all existing sessions on password change, except optionally the one
   performing the change.
-- Never send the new or existing password by email.
+4. Never send the new or existing password by email.
 
 ---
 

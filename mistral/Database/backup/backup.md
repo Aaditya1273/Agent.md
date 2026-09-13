@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: backup
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for backing up a database. The only meaningful definition: **a backup is
@@ -46,18 +52,11 @@ PITR is what lets you restore to 14:32:59 — one second before the migration th
 deleted the column.
 
 ```bash
-
 # Postgres: continuous archiving
-
-[INST] Apply every rule in this section: Postgres: continuous archiving. [/INST]
-
 archive_mode = on
 archive_command = 'pgbackrest --stanza=main archive-push %p'
 
 # Base backup, then restore to a moment
-
-[INST] Apply every rule in this section: Base backup, then restore to a moment. [/INST]
-
 pgbackrest --stanza=main backup --type=full
 pgbackrest --stanza=main --type=time --target='2026-08-23 14:32:59+00' restore
 ```
@@ -115,11 +114,7 @@ Three copies, on two media types, one off-site — and, for ransomware, one
 | Yearly | As legally required | Retention obligations |
 
 ```
-
 # pgbackrest — expiry is declarative; the tool prunes, not a cron job with rm
-
-[INST] Apply every rule in this section: pgbackrest — expiry is declarative; the tool prunes, not a cron job with rm. [/INST]
-
 repo1-retention-full=4
 repo1-retention-diff=14
 repo1-retention-archive=7
@@ -174,11 +169,7 @@ FROM pg_stat_archiver;
 ```
 
 ```bash
-
 # Backup age in seconds — export this as a gauge, alert above 26h for a daily job
-
-[INST] Apply every rule in this section: Backup age in seconds — export this as a gauge, alert above 26h for a daily job. [/INST]
-
 pgbackrest --stanza=main --output=json info \
   | jq '.[0].backup[-1].timestamp.stop'
 ```

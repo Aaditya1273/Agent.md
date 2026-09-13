@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -206,3 +205,26 @@ injectable. → `Security/xss`
 - [ ] Verify: Interactive elements are semantic and keyboard-reachable
 - [ ] Verify: Every input has an associated label; focus is managed on navigation
 - [ ] Verify: Business logic lives outside components and is unit-tested
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never memoise to fix an infinite loop. That is a dependency bug; fix the dependency.
+
+- [ ] No state stores what can be derived from other state or props
+- [ ] State lives at the lowest common owner of its consumers
+- [ ] Related state is modelled so impossible combinations cannot exist
+- [ ] Effects are used only to synchronise with systems outside React
+- [ ] Derived values are computed during render, not in effects
+- [ ] State resets are done with `key`, not effects
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

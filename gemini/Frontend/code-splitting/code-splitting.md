@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -194,3 +193,24 @@ renders, and only then requests chunk B.
 - [ ] Verify: Prefetching respects `saveData` and does not compete with critical resources
 - [ ] Verify: Shared chunks are grouped by change frequency, not into one vendor blob
 - [ ] Verify: No library is bundled twice at different versions
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] The bundle has been analysed and the largest contributors identified
+- [ ] A size budget is enforced in CI
+- [ ] Each route produces its own chunk, verified in the build output
+- [ ] Heavy components are split individually
+- [ ] Conditional and admin-only code is behind a dynamic import
+- [ ] Modal and drawer content is not in the initial bundle
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

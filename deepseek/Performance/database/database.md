@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -64,15 +71,15 @@ app replicas × pool size  ≤  max_connections − reserved
 pool size ≈ (cores × 2) + effective_spindle_count
 ```
 
-- A **transaction-mode pooler** (PgBouncer, Supavisor) sits between the
+1. A **transaction-mode pooler** (PgBouncer, Supavisor) sits between the
   application and the database. In serverless it is mandatory — every cold start
   otherwise opens a connection nobody closes.
-- More connections **reduce** throughput past the sweet spot: the database spends
+2. More connections **reduce** throughput past the sweet spot: the database spends
   its time context switching. Measure before raising the pool.
-- Watch `pool_wait_time` / `db_pool_in_use`. Wait time above a few milliseconds
+3. Watch `pool_wait_time` / `db_pool_in_use`. Wait time above a few milliseconds
   means requests are queueing for a connection, and every latency graph will
   mislead you until it is fixed.
-- Workers and the API share `max_connections`. Size them together.
+4. Workers and the API share `max_connections`. Size them together.
   → `Backend/workers`
 
 ---
@@ -91,13 +98,13 @@ JOIN pg_stat_activity blocking ON blocking.pid = ANY(pg_blocking_pids(blocked.pi
 
 Rules that remove most contention:
 
-- **Short transactions.** No network calls, no user interaction, no queue publish
+1. **Short transactions.** No network calls, no user interaction, no queue publish
   inside one. → `Database/transactions`
-- **Consistent lock ordering** across code paths, or two transactions deadlock by
+2. **Consistent lock ordering** across code paths, or two transactions deadlock by
   taking the same rows in opposite orders.
-- A **row counter updated by every request** is a serialisation point regardless of
+3. A **row counter updated by every request** is a serialisation point regardless of
   index quality. Use an aggregate table, a periodic rollup, or sharded counters.
-- DDL takes an exclusive lock and queues behind any open transaction — then blocks
+4. DDL takes an exclusive lock and queues behind any open transaction — then blocks
   every subsequent query on that table, including reads. Always set `lock_timeout`
   before DDL. → `Database/migration`
 
@@ -105,20 +112,20 @@ Rules that remove most contention:
 
 # Capacity and maintenance
 
-- **Working set versus RAM.** Once the frequently-read data no longer fits in
+1. **Working set versus RAM.** Once the frequently-read data no longer fits in
   `shared_buffers` plus the OS cache, latency changes character — reads become
   disk-bound and the graph steps rather than sloping. Track the buffer cache hit
   ratio.
-- **Bloat.** MVCC leaves dead tuples; if autovacuum cannot keep up, tables and
+2. **Bloat.** MVCC leaves dead tuples; if autovacuum cannot keep up, tables and
   indexes grow and plans degrade with no change in row count. Monitor
   `n_dead_tup` and `last_autovacuum`, and tune autovacuum per hot table rather
   than globally.
-- **Checkpoints** cause periodic write storms. Spread them
+3. **Checkpoints** cause periodic write storms. Spread them
   (`checkpoint_completion_target`), and correlate latency spikes against
   checkpoint logs before blaming a query.
-- **Replicas** offload reads, but only for reads that tolerate staleness — and
+4. **Replicas** offload reads, but only for reads that tolerate staleness — and
   they add a data-loss window on failover. → `Database/replication`
-- **Partition** large time-series tables so old data can be dropped in one
+5. **Partition** large time-series tables so old data can be dropped in one
   operation and queries prune to one partition. Note it complicates unique
   constraints and foreign keys; do it when the table is genuinely large, not
   preemptively.
@@ -134,12 +141,12 @@ lock_timeout = '5s';
 idle_in_transaction_session_timeout = '60s';
 ```
 
-- `statement_timeout` per role: short for the web application, longer for
+1. `statement_timeout` per role: short for the web application, longer for
   reporting. Reporting queries should not run on the primary at all.
-- Assert query counts per endpoint in tests. → `Performance/queries`
-- Run migrations through a linter (`squawk`, `atlas lint`) that flags full-table
+2. Assert query counts per endpoint in tests. → `Performance/queries`
+3. Run migrations through a linter (`squawk`, `atlas lint`) that flags full-table
   rewrites and blocking index builds.
-- Load-test against production-shaped **volume**, not production-shaped schema.
+4. Load-test against production-shaped **volume**, not production-shaped schema.
   Plans depend on data distribution, so a query that is instant on 100 rows can be
   an outage on 10 million. → `Testing/load`
 

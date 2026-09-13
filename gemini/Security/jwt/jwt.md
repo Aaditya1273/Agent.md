@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -205,3 +204,28 @@ must revoke the whole family — that is the signal a token was stolen.
 - [ ] Verify: A revocation strategy exists — deny-list, token version, or short expiry
 - [ ] Verify: Refresh tokens rotate on use; reuse revokes the family
 - [ ] Verify: Tokens never appear in URLs; payload contains no secrets or PII
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never skip `aud` validation in a multi-service estate. A token minted for the analytics API is otherwise accepted by the payments API.
+- Never trust unvalidated custom claims for authorisation — `{"role":"admin"}` in a token you did not verify the issuer of is just attacker input.
+- Never claim tokens are revoked because the client deleted them. Deleting a token client-side is a UI gesture, not a security control.
+
+- [ ] An opaque session was considered and stateless verification is genuinely needed
+- [ ] Verification passes an explicit `algorithms` allow-list; `none` never appears
+- [ ] `HS256` used only where signer and verifier are the same service
+- [ ] `exp`, `iss` and `aud` validated on every request; skew ≤ 60 s
+- [ ] `jwt.decode()` is never used as an authentication step
+- [ ] Access tokens expire in 5–15 minutes
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

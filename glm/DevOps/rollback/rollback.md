@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -40,12 +46,12 @@ You cannot roll back what you have not noticed. Automate the decision.
   for: 3m
 ```
 
-- Compare the **new version against the old**, not against an absolute threshold —
+1. Compare the **new version against the old**, not against an absolute threshold —
   a 2% error rate may be normal for one service and catastrophic for another.
-- Bake for a defined window before promoting further.
-- Automate the rollback trigger. Relying on someone watching a dashboard fails at
+2. Bake for a defined window before promoting further.
+3. Automate the rollback trigger. Relying on someone watching a dashboard fails at
   2am, which is when it matters.
-- Tag every metric and log line with the version (`version`, `git_sha`,
+4. Tag every metric and log line with the version (`version`, `git_sha`,
   `deployment_id`), or you cannot attribute a regression to a deploy at all.
   The same label must appear on `http_requests_total`, `http_request_duration_seconds`
   and every business counter, or the comparison above cannot be written.
@@ -62,13 +68,13 @@ kubectl set image deployment/api api=$REGISTRY/api@sha256:<known-good>
 
 Requirements for this to be fast and safe:
 
-- **Immutable, digest-addressed artefacts.** Rebuilding from a git revert takes
+1. **Immutable, digest-addressed artefacts.** Rebuilding from a git revert takes
   ten minutes you do not have and may produce different bytes.
-- Keep the previous N versions available in the registry and, where applicable, in
+2. Keep the previous N versions available in the registry and, where applicable, in
   the platform's revision history.
-- The rollback path must be the **same mechanism** as the deploy path. A separate
+3. The rollback path must be the **same mechanism** as the deploy path. A separate
   emergency procedure is one nobody has practised.
-- **Revert the commit too**, so the next deploy does not reintroduce the fault.
+4. **Revert the commit too**, so the next deploy does not reintroduce the fault.
 
 | Platform | Roll back with | Retention setting |
 | --- | --- | --- |
@@ -128,13 +134,13 @@ return legacyCheckout();
 A flag decouples deploy from release. The fix for a bad feature becomes a
 configuration change — seconds, no rollout, no rebuild — instead of a redeploy.
 
-- Kill-switch anything risky: a new payment path, a rewritten flow, an expensive
+1. Kill-switch anything risky: a new payment path, a rewritten flow, an expensive
   query.
-- Roll out by percentage so a fault affects 1% of users, not everyone.
-- Keep both paths working while the flag exists, and **remove the flag** once the
+2. Roll out by percentage so a fault affects 1% of users, not everyone.
+3. Keep both paths working while the flag exists, and **remove the flag** once the
   new path is proven. Stale flags become dead branches nobody dares delete, and an
   untested legacy path is not a rollback target.
-- Flag state changes are audited: who turned what on, when.
+4. Flag state changes are audited: who turned what on, when.
 
 | Mechanism | Reversal time | Cost |
 | --- | --- | --- |
@@ -155,13 +161,13 @@ reversed by the last row is a change that has no rollback.
 
 A rollback procedure that has never been executed is a document, not a capability.
 
-- Roll back in staging on a schedule, timed, following the runbook as written.
-- Include the awkward cases: a rollback with a migration in flight, a rollback of
+1. Roll back in staging on a schedule, timed, following the runbook as written.
+2. Include the awkward cases: a rollback with a migration in flight, a rollback of
   a queue-consumer change with messages in the new format.
-- Write down the decision criteria in advance — what error rate, over what window,
+3. Write down the decision criteria in advance — what error rate, over what window,
   triggers a rollback — so the choice is not made under pressure by whoever
   happens to be online.
-- Prefer rolling back over fixing forward during an incident. Diagnosis takes
+4. Prefer rolling back over fixing forward during an incident. Diagnosis takes
   longer than reversal, and users are affected throughout.
 
 A written trigger looks like this, and belongs in the runbook before the

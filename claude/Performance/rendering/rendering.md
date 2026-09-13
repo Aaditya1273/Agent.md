@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never block the main thread with a long task. A 300 ms synchronous handler is 300 ms of unresponsive UI. Break long work with `scheduler.yield()`, or move it to a web worker. - Mark non-urgent updates so typing stays responsive:
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for keeping the browser's rendering work cheap. The measurable target is
 **INP under 200 ms** and animations that hold their frame budget.
 
@@ -26,11 +37,13 @@ browser needs part of that for itself. Roughly 10 ms of your work per frame is t
 ceiling. Exceed it and frames are dropped, which users perceive as jank.
 
 ---
+
 </purpose>
 
 # The pipeline, and where to stop
 
 <rules>
+
 ```
 JavaScript → Style → Layout → Paint → Composite
 ```
@@ -61,11 +74,13 @@ an element to its own layer and consumes GPU memory; applying it broadly makes
 things worse.
 
 ---
+
 </rules>
 
 # Avoid layout thrash
 
 <rules>
+
 Reading a layout property after writing one forces the browser to recompute layout
 **synchronously**, in the middle of your loop.
 
@@ -89,11 +104,13 @@ Prefer `ResizeObserver` and `IntersectionObserver` over polling geometry: they
 deliver measurements without forcing layout.
 
 ---
+
 </rules>
 
 # Render less
 
 <rules>
+
 - **Virtualise long lists.** Rendering 10,000 rows is slow regardless of how cheap
   each row is. `@tanstack/virtual` or equivalent renders the visible window plus a
   small overscan.
@@ -111,11 +128,13 @@ and index keys make React reuse the wrong DOM nodes. Both show up as rendering
 cost with no obvious cause. → `Frontend/react`
 
 ---
+
 </rules>
 
 # Keep interaction responsive
 
 <rules>
+
 INP measures the worst interaction latency users experience: input → processing →
 next paint.
 
@@ -139,11 +158,13 @@ const deferred = useDeferredValue(query);      // list lags; input does not
   → `Testing/accessibility`
 
 ---
+
 </rules>
 
 # Measure, do not guess
 
 <rules>
+
 - **DevTools Performance panel** with 4–6× CPU throttling. Look for long tasks
   (> 50 ms), forced synchronous layout, and frames exceeding the budget.
 - **React Profiler** for component render counts and durations — but confirm
@@ -154,11 +175,13 @@ const deferred = useDeferredValue(query);      // list lags; input does not
   hardware is the truth. → `Performance/optimization`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Animating `left`, `top`, `width`, `height` | Layout every frame | `transform` |
@@ -178,11 +201,13 @@ const deferred = useDeferredValue(query);      // list lags; input does not
 | Trusting the React Profiler alone | The cost is often layout | Browser performance profile |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Animations use only `transform` and `opacity`
 - [ ] `will-change` is applied narrowly and removed after use
 - [ ] DOM reads and writes are batched; no forced synchronous layout in loops
@@ -200,4 +225,5 @@ const deferred = useDeferredValue(query);      // list lags; input does not
 - [ ] `prefers-reduced-motion` is honoured
 - [ ] Profiling is done with CPU throttling and verified on a real low-end device
 - [ ] INP is tracked in the field at p75, segmented by device class
+
 </checklist>

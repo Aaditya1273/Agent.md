@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: authorization
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -63,14 +69,14 @@ from the **session**, always.
 Insecure Direct Object Reference: the user changes an identifier and reaches
 another user's record.
 
-- Check ownership **on every operation**, including read, update, delete, export,
+1. Check ownership **on every operation**, including read, update, delete, export,
   and every nested resource. `/invoices/42/attachments/7` needs the attachment
   checked too, not just the invoice.
-- Apply it to **bulk operations**. `POST /invoices/delete` with a list of ids must
+2. Apply it to **bulk operations**. `POST /invoices/delete` with a list of ids must
   verify every element, not the first.
-- **Return `404`, not `403`**, for objects the user may not see. `403` confirms
+3. **Return `404`, not `403`**, for objects the user may not see. `403` confirms
   the object exists, which is an enumeration oracle.
-- Random identifiers (UUIDv4, ULID) reduce guessability. They are **not**
+4. Random identifiers (UUIDv4, ULID) reduce guessability. They are **not**
   authorisation — an identifier that leaks in a URL, a log, or a shared link is
   still reachable.
 
@@ -114,20 +120,20 @@ function can(user, permission, resource) {
 
 Principles that hold across all models:
 
-- **Deny by default.** An endpoint with no explicit rule must refuse, not allow.
+1. **Deny by default.** An endpoint with no explicit rule must refuse, not allow.
   Enumerate permitted actions, never forbidden ones.
-- **Least privilege.** Grant the narrowest permission that works, including for
+2. **Least privilege.** Grant the narrowest permission that works, including for
   service accounts and background jobs.
-- **Re-evaluate on privilege change.** Roles cached in a session or JWT are stale
+3. **Re-evaluate on privilege change.** Roles cached in a session or JWT are stale
   the moment an admin revokes them — see the revocation section of `Security/jwt`.
 
 ---
 
 # Multi-tenancy
 
-- Put the tenant identifier in **every** table and **every** query. A single
+1. Put the tenant identifier in **every** table and **every** query. A single
   unscoped `findMany` is a cross-tenant leak.
-- Prefer enforcement the application cannot forget: PostgreSQL **row-level
+2. Prefer enforcement the application cannot forget: PostgreSQL **row-level
   security** with a session variable, or a repository layer that refuses an
   unscoped query.
 ```sql
@@ -139,21 +145,21 @@ CREATE POLICY tenant_isolation ON invoices
   USING (organisation_id = current_setting('app.organisation_id')::uuid);
 ```
 
-- Test with **two tenants** whose ids differ. A single-tenant test suite passes
+3. Test with **two tenants** whose ids differ. A single-tenant test suite passes
   happily against code that ignores the tenant entirely.
 
 ---
 
 # Server-side and privilege escalation
 
-- **Never** accept `role`, `isAdmin`, `plan` or `permissions` from a request body.
+1. **Never** accept `role`, `isAdmin`, `plan` or `permissions` from a request body.
   Mass-assignment of these fields is direct privilege escalation. Allow-list the
   fields a user may update.
-- **Never** expose an admin action on a route distinguished only by obscurity.
+2. **Never** expose an admin action on a route distinguished only by obscurity.
   `/admin/*` needs the same object-level checks as everything else.
-- Re-check authorisation **after** any state transition — a user who was an owner
+3. Re-check authorisation **after** any state transition — a user who was an owner
   when the request started may not be by the time it commits.
-- Log authorisation **denials** with subject, object and action. A spike is either
+4. Log authorisation **denials** with subject, object and action. A spike is either
   an attack or a broken deployment, and you want to know which.
 
 ---

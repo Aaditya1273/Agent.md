@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for Docker Compose. Its real value is **local development parity**: one
 command brings up the same database engine, cache and broker that production
 runs, so nobody debugs a SQLite-versus-Postgres difference.
@@ -27,11 +37,13 @@ hosts, no autoscaling. Use it for development, CI, and genuinely single-host
 deployments. → `DevOps/kubernetes`
 
 ---
+
 </purpose>
 
 # `depends_on` alone does not wait
 
 <rules>
+
 ```yaml
 services:
   api:
@@ -68,11 +80,13 @@ Even with this, the application should retry its initial connection — dependen
 restart, and Compose does not re-order anything when they do.
 
 ---
+
 </rules>
 
 # Named volumes for state, bind mounts for source
 
 <rules>
+
 | Mount | Use for | Note |
 | --- | --- | --- |
 | Named volume | Database data, uploads | Managed by Docker, survives `down` |
@@ -94,11 +108,13 @@ command in development and a data-loss command anywhere else — never run it
 against anything you care about.
 
 ---
+
 </rules>
 
 # Configuration and secrets
 
 <rules>
+
 ```yaml
 services:
   api:
@@ -119,11 +135,13 @@ Use `compose.override.yaml` for local-only changes; it is merged automatically a
 can stay untracked, which keeps personal port choices out of the shared file.
 
 ---
+
 </rules>
 
 # Ports, networks and isolation
 
 <rules>
+
 - Publish only what you need on the host. `ports: ["5432:5432"]` exposes your
   development database on every interface — on a shared or public network that is
   an open database. Bind to loopback explicitly: `"127.0.0.1:5432:5432"`.
@@ -135,11 +153,13 @@ can stay untracked, which keeps personal port choices out of the shared file.
   container and volume names.
 
 ---
+
 </rules>
 
 # CI and single-host deployment
 
 <rules>
+
 For CI, Compose is a reasonable way to stand up real dependencies:
 
 ```bash
@@ -161,11 +181,13 @@ If you do deploy Compose to a single host, add what production needs:
   a gap. There is no rolling update.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `depends_on` without a condition | Waits for start, not readiness | `service_healthy` plus a healthcheck |
@@ -186,11 +208,13 @@ If you do deploy Compose to a single host, add what production needs:
 | No resource limits | One container takes the host | `deploy.resources.limits` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every dependency has a healthcheck with a realistic `start_period`
 - [ ] `depends_on` uses `condition: service_healthy` where readiness matters
 - [ ] The application retries its initial dependency connections
@@ -207,4 +231,5 @@ If you do deploy Compose to a single host, add what production needs:
 - [ ] CI uses `--wait` rather than sleeping
 - [ ] Host deployments set restart policies, resource limits and log rotation
 - [ ] The absence of rolling updates is understood and accepted, or Compose is not used
+
 </checklist>

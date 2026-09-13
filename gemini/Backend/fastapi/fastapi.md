@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -240,3 +239,24 @@ startup code never executes. For async handlers that need a real loop, use
 - [ ] Verify: Routes declare `summary`, `responses`, and stable `operation_id`s
 - [ ] Verify: Docs disabled on services that must not be enumerable
 - [ ] Verify: Tests use `dependency_overrides` and `TestClient` as a context manager
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] `create_app(settings)` factory; no connections at import time
+- [ ] One `APIRouter` per feature, mounted with `prefix` and `tags`
+- [ ] Resources opened in `lifespan` and injected via `Depends`
+- [ ] Every input model sets `extra="forbid"`
+- [ ] Every route has a `response_model` distinct from the ORM model
+- [ ] Handlers calling sync libraries are `def`, not `async def`
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

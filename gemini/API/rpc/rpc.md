@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -199,3 +198,26 @@ long-lived stream pins a client to one pod across a rollout.
 - [ ] Verify: The standard health-checking service is implemented and wired to probes
 - [ ] Verify: Reflection is disabled in production; TLS/mTLS is enforced
 - [ ] Verify: Interceptors provide request ids, structured logs, metrics and traces
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never return `INTERNAL` for a client mistake — it is unretryable, alerts your on-call, and tells the caller nothing actionable.
+
+- [ ] Field numbers are never reused; removals use `reserved` for number and name
+- [ ] Every enum reserves `0` as `UNSPECIFIED`
+- [ ] `buf lint` and `buf breaking` run in CI against the merge base
+- [ ] Every client call sets an explicit deadline
+- [ ] Deadlines propagate through the call chain with a shrinking budget
+- [ ] Servers check for cancellation before and during expensive work
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

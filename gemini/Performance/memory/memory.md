@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -190,3 +189,24 @@ no traffic increase is a leak, and it is visible long before the first OOM.
 - [ ] Verify: The runtime heap is sized below the container limit with headroom
 - [ ] Verify: Container memory limit equals the request
 - [ ] Verify: Memory trend is alerted on, not just a threshold
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Every in-process cache has a maximum size and a TTL
+- [ ] Shared caches are used instead of per-instance ones where appropriate
+- [ ] Listeners, intervals and subscriptions are removed on teardown
+- [ ] No request-scoped data is stored on module-scope objects
+- [ ] Files, uploads and large responses are streamed, not buffered
+- [ ] Request body size and decompressed size are capped
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

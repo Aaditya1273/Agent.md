@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for testing security as part of the normal suite, not as an annual audit.
 
 The framing that matters: **a functional test proves the feature works; a security
@@ -28,11 +38,13 @@ Reviewing a change by hand is `Security/security-review`. This package is about
 tests that run automatically.
 
 ---
+
 </purpose>
 
 # The layers, and what each actually catches
 
 <rules>
+
 | Layer | Catches | Misses |
 | --- | --- | --- |
 | **SAST** (`semgrep`, CodeQL) | Injection patterns, dangerous APIs, taint flows | Business-logic abuse, authorisation |
@@ -46,11 +58,13 @@ Automated tools do not find broken access control, which is the most common and
 most damaging category → `Security/owasp`. That gap is filled by tests you write.
 
 ---
+
 </rules>
 
 # Abuse-case tests
 
 <rules>
+
 The highest-value security tests in any suite. Write them exactly like functional
 tests, but assert that the wrong thing is **refused**.
 
@@ -89,11 +103,13 @@ Write one abuse test for each of these, per resource:
 - A `GET` that should have been a `POST`
 
 ---
+
 </rules>
 
 # Wiring the tools into CI
 
 <rules>
+
 ```yaml
 - name: Dependencies
   run: npm audit --omit=dev --audit-level=high
@@ -123,11 +139,13 @@ Useful rule packs to start from rather than writing your own: `p/owasp-top-ten`,
 `p/nodejs`, `p/react`, `p/secrets` for `semgrep`; the `security-extended` suite for
 CodeQL; and `--severity HIGH,CRITICAL` with `--ignore-unfixed` for `trivy` so the
 build is not blocked by a CVE with no available patch.
+
 </rules>
 
 # Testing the security controls themselves
 
 <rules>
+
 Controls decay silently. Assert them:
 
 ```js
@@ -154,11 +172,13 @@ Also assert: session cookies carry `HttpOnly` and `Secure`; errors do not includ
 a stack trace; an unauthenticated request to a protected route returns `401`.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Scans that only report | Nobody reads the output | Fail the build on high/critical |
@@ -173,11 +193,13 @@ a stack trace; an unauthenticated request to a protected route returns `401`.
 | Real credentials in test fixtures | Leaks through the repository | Generated per-test values |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Dependency, SAST, secret and container scans run on every pull request
 - [ ] Each gates the build on high and critical severity
 - [ ] Suppressions carry an owner and an expiry
@@ -189,4 +211,5 @@ a stack trace; an unauthenticated request to a protected route returns `401`.
 - [ ] Rate limiting on authentication routes is asserted
 - [ ] Error responses are asserted to contain no stack trace
 - [ ] No real credential appears in any fixture
+
 </checklist>

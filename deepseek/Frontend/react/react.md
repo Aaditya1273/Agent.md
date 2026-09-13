@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -120,13 +127,13 @@ changes.
 `memo`, `useMemo` and `useCallback` are not free: they add allocation, comparison
 cost and code that must stay correct.
 
-- Profile first with the React DevTools Profiler. Optimise the component that
+1. Profile first with the React DevTools Profiler. Optimise the component that
   actually shows up.
-- The React Compiler handles most memoisation automatically. If it is enabled,
+2. The React Compiler handles most memoisation automatically. If it is enabled,
   manual memoisation is usually noise.
-- `useMemo` for a genuinely expensive computation or a referentially-stable value
+3. `useMemo` for a genuinely expensive computation or a referentially-stable value
   passed to a memoised child — not for `{a: 1}`.
-- Composition often beats memoisation: passing `children` through means the parent
+4. Composition often beats memoisation: passing `children` through means the parent
   re-rendering does not re-render them.
 
 **Never** memoise to fix an infinite loop. That is a dependency bug; fix the
@@ -155,14 +162,14 @@ injectable. → `Security/xss`
 
 # Accessibility is not optional
 
-- Semantic elements first: `<button>`, `<a href>`, `<nav>`, `<main>`. A `<div
+1. Semantic elements first: `<button>`, `<a href>`, `<nav>`, `<main>`. A `<div
   onClick>` is not keyboard-reachable and is invisible to a screen reader.
-- Every input has a `<label>` associated by `htmlFor`.
-- Focus must be visible and managed: on route change, on modal open, and returned
+2. Every input has a `<label>` associated by `htmlFor`.
+3. Focus must be visible and managed: on route change, on modal open, and returned
   on close.
-- ARIA is a last resort. A correct native element needs none.
-- Images have `alt`; decorative images have `alt=""`.
-- Test with a keyboard only, and run `axe` in CI. → `Testing/accessibility`
+4. ARIA is a last resort. A correct native element needs none.
+5. Images have `alt`; decorative images have `alt=""`.
+6. Test with a keyboard only, and run `axe` in CI. → `Testing/accessibility`
 
 ---
 

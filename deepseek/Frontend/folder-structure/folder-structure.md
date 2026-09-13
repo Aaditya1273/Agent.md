@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -95,10 +102,10 @@ model when the codebase warrants it.
 
 `shared/` is where structure goes to die if anything can enter it.
 
-- Something used by **one** feature lives in that feature.
-- Used by two? Duplicate it, or leave it where it is. Premature abstraction over
+1. Something used by **one** feature lives in that feature.
+2. Used by two? Duplicate it, or leave it where it is. Premature abstraction over
   two similar-looking cases produces a component with seven boolean props.
-- Used by **three**, with the same meaning? Promote it — and give it its own
+3. Used by **three**, with the same meaning? Promote it — and give it its own
   tests.
 
 Never create `utils.ts`, `helpers.ts`, `common/` or `misc/`. A name that does not
@@ -150,12 +157,12 @@ resolve at runtime.
 
 # Signals to restructure
 
-- A directory with more than ~15 files is usually two features.
-- A file over ~300 lines is usually two files.
-- A "feature" imported by every other feature is infrastructure — move it to
+1. A directory with more than ~15 files is usually two features.
+2. A file over ~300 lines is usually two files.
+3. A "feature" imported by every other feature is infrastructure — move it to
   `shared/` or `app/`.
-- A cycle between features means one concept has been split across both.
-- A `shared/` directory growing faster than `features/` means the promotion rule
+4. A cycle between features means one concept has been split across both.
+5. A `shared/` directory growing faster than `features/` means the promotion rule
   is not being applied.
 
 Restructure when the signal appears, not on a schedule, and do it as its own

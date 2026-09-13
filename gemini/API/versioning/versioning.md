@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -198,3 +197,26 @@ field is what makes a removal decision defensible. → `Backend/logging`
 - [ ] Verify: The sunset window is at least 12 months for a public API
 - [ ] Verify: Brownouts are scheduled and announced before removal
 - [ ] Verify: CI fails on a breaking OpenAPI diff within a version
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never remove a version without per-consumer usage data. Log the version on every request, aggregate by API key, and contact the remaining callers directly. Removing a version you have not measured is how an unannounced outage happens.
+
+- [ ] A version identifier is present from the first public release
+- [ ] The major version is in the URL path, or a documented pinned-per-account scheme
+- [ ] The API surface is versioned as a whole, not per endpoint
+- [ ] The list of breaking changes is written down and agreed by the team
+- [ ] Clients are documented as required to ignore unknown fields and enum values
+- [ ] Additive changes are preferred over new major versions
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

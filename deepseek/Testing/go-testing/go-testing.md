@@ -14,8 +14,15 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -53,13 +60,13 @@ func TestDiscount(t *testing.T) {
 }
 ```
 
-- One table, one `t.Run` per case, named so `go test -run TestDiscount/at_threshold`
+1. One table, one `t.Run` per case, named so `go test -run TestDiscount/at_threshold`
   isolates it.
-- `t.Errorf` reports and continues; `t.Fatalf` stops the subtest. Use `Fatal`
+2. `t.Errorf` reports and continues; `t.Fatalf` stops the subtest. Use `Fatal`
   only when continuing is meaningless (setup failed).
-- The failure message states input, got, want. `"wrong result"` tells the reader
+3. The failure message states input, got, want. `"wrong result"` tells the reader
   nothing at 3am.
-- `t.Parallel()` inside subtests runs cases concurrently and is the cheapest way
+4. `t.Parallel()` inside subtests runs cases concurrently and is the cheapest way
   to make `-race` see something. From 1.22 the loop variable is per-iteration;
   before that, `tc := tc`.
 
@@ -76,12 +83,12 @@ func newStore(t *testing.T) *Store {
 }
 ```
 
-- `t.Helper()` as the first line of every helper that can fail. Without it, the
+1. `t.Helper()` as the first line of every helper that can fail. Without it, the
   reported line is inside the helper, not the test.
-- `t.Cleanup` instead of `defer` in helpers: `defer` runs when the helper
+2. `t.Cleanup` instead of `defer` in helpers: `defer` runs when the helper
   returns, which is before the test uses the thing.
-- `t.TempDir()` for files — created per test, removed automatically.
-- `t.Setenv` sets an environment variable for the test's duration and is
+3. `t.TempDir()` for files — created per test, removed automatically.
+4. `t.Setenv` sets an environment variable for the test's duration and is
   incompatible with `t.Parallel()` by design; if you need both, inject config
   instead of reading the environment.
 
@@ -103,11 +110,11 @@ func TestGetOrder(t *testing.T) {
 }
 ```
 
-- `httptest.NewRequest` + `httptest.NewRecorder` test a handler with no port and
+1. `httptest.NewRequest` + `httptest.NewRecorder` test a handler with no port and
   no network. Use this for every handler test.
-- `httptest.NewServer` is for testing an HTTP *client* against a real listener.
+2. `httptest.NewServer` is for testing an HTTP *client* against a real listener.
   Do not use it to test your own handlers.
-- Assert the denial cases — unauthenticated, wrong tenant, malformed body —
+3. Assert the denial cases — unauthenticated, wrong tenant, malformed body —
   before the happy path. They are the tests that catch a missing check.
 
 ---
@@ -125,11 +132,11 @@ func (f fakeStore) Get(_ context.Context, id string) (Order, error) {
 }
 ```
 
-- Small consumer-side interfaces make hand-written fakes trivial. A generated
+1. Small consumer-side interfaces make hand-written fakes trivial. A generated
   mock with call-count assertions couples the test to the implementation.
-- Fake the boundary you own (`Store`), not the library underneath (`*sql.DB`).
+2. Fake the boundary you own (`Store`), not the library underneath (`*sql.DB`).
   For the database itself, run a real one in Docker: `Testing/integration`.
-- `testing/fstest.MapFS` fakes a filesystem; `io.Reader` from `strings.NewReader`
+3. `testing/fstest.MapFS` fakes a filesystem; `io.Reader` from `strings.NewReader`
   fakes input. Design for interfaces and most mocking needs disappear.
 
 ---
@@ -152,9 +159,9 @@ func TestRender(t *testing.T) {
 }
 ```
 
-- Large expected outputs (rendered templates, generated code, JSON) live in
+1. Large expected outputs (rendered templates, generated code, JSON) live in
   `testdata/`, which `go build` ignores by convention.
-- `go test -update` regenerates them; the diff in the PR is the review.
+2. `go test -update` regenerates them; the diff in the PR is the review.
 
 ---
 
@@ -175,10 +182,10 @@ func FuzzParse(f *testing.F) {
 }
 ```
 
-- `go test -bench . -benchmem` reports ns/op and allocs/op. Run
+1. `go test -bench . -benchmem` reports ns/op and allocs/op. Run
   `benchstat` on before/after output; a single run is noise.
-- `go test -race ./...` in CI, always. → `Backend/go-concurrency`
-- Fuzz anything that parses untrusted bytes. `go test -fuzz FuzzParse` for
+2. `go test -race ./...` in CI, always. → `Backend/go-concurrency`
+3. Fuzz anything that parses untrusted bytes. `go test -fuzz FuzzParse` for
   ten minutes finds panics a table never would; keep found crashers in
   `testdata/fuzz/` as regression cases.
 

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -126,14 +133,14 @@ applies **from** that breakpoint up.
 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" />
 ```
 
-- Use state variants rather than JavaScript: `hover:`, `focus-visible:`,
+1. Use state variants rather than JavaScript: `hover:`, `focus-visible:`,
   `disabled:`, `aria-expanded:`, `data-[state=open]:`, `group-hover:`, `peer-checked:`.
-- `focus-visible:` rather than `focus:` for focus rings, and **never** remove the
+2. `focus-visible:` rather than `focus:` for focus rings, and **never** remove the
   ring without replacing it — keyboard users need it. → `Testing/accessibility`
-- Dark mode: define both palettes as tokens and let `dark:` switch them. Driving
+3. Dark mode: define both palettes as tokens and let `dark:` switch them. Driving
   it from a `data-theme` attribute set before hydration avoids a flash and a
   hydration mismatch. → `Frontend/hydration`
-- Honour `motion-reduce:` for anything animated.
+4. Honour `motion-reduce:` for anything animated.
 
 ---
 
@@ -141,11 +148,11 @@ applies **from** that breakpoint up.
 
 A 30-class element is a real cost. Reduce it by:
 
-- Extracting a component as soon as the same string appears twice.
-- Grouping classes in a consistent order — enforce with
+1. Extracting a component as soon as the same string appears twice.
+2. Grouping classes in a consistent order — enforce with
   `prettier-plugin-tailwindcss` so ordering never appears in a diff.
-- Using logical properties (`ps-4`, `me-2`) where the application supports RTL.
-- Letting the parent own layout (`flex`, `gap`) and children own themselves; a
+3. Using logical properties (`ps-4`, `me-2`) where the application supports RTL.
+4. Letting the parent own layout (`flex`, `gap`) and children own themselves; a
   child setting its own margin for a specific parent is not reusable.
 
 Tailwind's output is already minimal — it emits only the classes it found. The

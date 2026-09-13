@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never return `INTERNAL` for a client mistake — it is unretryable, alerts your on-call, and tells the caller nothing actionable.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for RPC-style APIs — gRPC, Connect, tRPC, Twirp. RPC models **procedures**,
 not resources: the unit is an operation with a typed request and response.
 
@@ -26,11 +37,13 @@ want a schema-enforced contract, low overhead and streaming. Use REST for public
 APIs consumed by clients you do not control. → `API/rest`
 
 ---
+
 </purpose>
 
 # Schema evolution is the whole contract
 
 <rules>
+
 Protobuf's wire format is positional: **field numbers are the contract**, names
 are not.
 
@@ -71,11 +84,13 @@ Every enum reserves `0` as `*_UNSPECIFIED`. Proto3 cannot distinguish an unset
 scalar from its zero value, so `0` must never be a meaningful state.
 
 ---
+
 </rules>
 
 # Deadlines and cancellation
 
 <rules>
+
 **Every RPC call sets a deadline.** This is not optional and it is the single most
 common gRPC production failure: a call with no deadline waits forever, holds a
 connection and a goroutine, and cascades into a fleet-wide hang.
@@ -99,11 +114,13 @@ budget (`retryThrottling`) so a struggling service is not retried into collapse.
 → `System Design/resilience`
 
 ---
+
 </rules>
 
 # Errors
 
 <rules>
+
 Use the standard status codes; they carry retry semantics that generated clients
 and service meshes act on.
 
@@ -127,11 +144,13 @@ rather than encoding structure into the message string.
 on-call, and tells the caller nothing actionable.
 
 ---
+
 </rules>
 
 # Streaming
 
 <rules>
+
 | Pattern | Use for |
 | --- | --- |
 | Unary | Default. Use it unless you have a reason not to |
@@ -149,11 +168,13 @@ long-lived stream pins a client to one pod across a rollout.
   page. → `API/pagination`
 
 ---
+
 </rules>
 
 # Operational rules
 
 <rules>
+
 - **Connection-level load balancing fails with HTTP/2.** gRPC multiplexes over one
   long-lived connection, so an L4 balancer pins all traffic to one backend. Use an
   L7 proxy (Envoy, Linkerd) or client-side load balancing with resolver updates.
@@ -167,11 +188,13 @@ long-lived stream pins a client to one pod across a rollout.
   protocols and is usually the better choice there.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Reusing a retired field number | Old clients corrupt new data | `reserved` number and name |
@@ -191,11 +214,13 @@ long-lived stream pins a client to one pod across a rollout.
 | Reflection enabled in production | Full surface disclosed | Development only |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Field numbers are never reused; removals use `reserved` for number and name
 - [ ] Every enum reserves `0` as `UNSPECIFIED`
 - [ ] `buf lint` and `buf breaking` run in CI against the merge base
@@ -212,4 +237,5 @@ long-lived stream pins a client to one pod across a rollout.
 - [ ] The standard health-checking service is implemented and wired to probes
 - [ ] Reflection is disabled in production; TLS/mTLS is enforced
 - [ ] Interceptors provide request ids, structured logs, metrics and traces
+
 </checklist>

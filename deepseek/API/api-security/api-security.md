@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -43,13 +50,13 @@ const order = await db.order.findFirst({
 if (!order) return res.sendStatus(404);
 ```
 
-- Scope **inside the query**. A fetch-then-compare is one forgotten `if` away from
+1. Scope **inside the query**. A fetch-then-compare is one forgotten `if` away from
   a leak, and it has already loaded the data.
-- Return `404`, not `403`, for objects the caller may not see — `403` confirms
+2. Return `404`, not `403`, for objects the caller may not see — `403` confirms
   existence.
-- Opaque identifiers reduce enumeration but are **not** authorization. Guessing is
+3. Opaque identifiers reduce enumeration but are **not** authorization. Guessing is
   harder; the missing check is still the bug.
-- **Property-level too**: a caller allowed to read an order is not necessarily
+4. **Property-level too**: a caller allowed to read an order is not necessarily
   allowed to read its `costBasisCents`. Project explicit fields.
 
 **Never** accept an identity field from the request body. `{"userId": …}` or a
@@ -92,15 +99,15 @@ const CreateOrder = z.object({
 }).strict();          // .strict() rejects unknown keys — this is the mass-assignment guard
 ```
 
-- **Allowlist**, never denylist. Enumerate what is permitted.
-- **Reject unknown fields.** Silently ignoring them is how mass assignment
+1. **Allowlist**, never denylist. Enumerate what is permitted.
+2. **Reject unknown fields.** Silently ignoring them is how mass assignment
   (`isAdmin: true`) reaches an ORM `update`.
-- Bound every array, string and number. An unbounded array is a memory
+3. Bound every array, string and number. An unbounded array is a memory
   exhaustion vector.
-- Enforce a **body size limit** (`express.json({ limit: "100kb" })`) and reject
+4. Enforce a **body size limit** (`express.json({ limit: "100kb" })`) and reject
   compressed bodies that expand beyond a ratio.
-- Validate `Content-Type` and reject anything unexpected.
-- Never pass a client-supplied string into SQL, a shell, a file path, a URL fetch,
+5. Validate `Content-Type` and reject anything unexpected.
+6. Never pass a client-supplied string into SQL, a shell, a file path, a URL fetch,
   or a template. → `Security/sql-injection`, `Security/command-injection`,
   `Security/path-traversal`
 
@@ -118,10 +125,10 @@ Cache-Control: no-store
 X-Content-Type-Options: nosniff
 ```
 
-- HTTPS only, TLS 1.2+, HTTP redirected or refused.
-- `Cache-Control: no-store` on any authenticated response — shared caches
+1. HTTPS only, TLS 1.2+, HTTP redirected or refused.
+2. `Cache-Control: no-store` on any authenticated response — shared caches
   otherwise serve one user's data to another.
-- CORS: an explicit origin allowlist. **Never** reflect the `Origin` header while
+3. CORS: an explicit origin allowlist. **Never** reflect the `Origin` header while
   `Access-Control-Allow-Credentials: true` — that is equivalent to allowing every
   origin with cookies. → `Security/cors`, `Security/headers`
 
@@ -140,15 +147,15 @@ rows is an outage regardless of the rate limit.
 
 # Errors, logging and exposure
 
-- One error shape, stable machine codes, no stack traces, no SQL, no internal
+1. One error shape, stable machine codes, no stack traces, no SQL, no internal
   hostnames, no framework version.
-- Log the **event**, not the payload. Never log tokens, passwords, card numbers,
+2. Log the **event**, not the payload. Never log tokens, passwords, card numbers,
   or full request bodies. Redact by allowlist.
-- Log authentication failures, authorization denials, rate-limit breaches and
+3. Log authentication failures, authorization denials, rate-limit breaches and
   privilege changes with actor, target and source IP. → `Security/audit-log`
-- Do not ship an interactive API explorer, GraphQL introspection, or a debug
+4. Do not ship an interactive API explorer, GraphQL introspection, or a debug
   endpoint to production.
-- Inventory your endpoints. Undocumented, forgotten and deprecated-but-live
+5. Inventory your endpoints. Undocumented, forgotten and deprecated-but-live
   endpoints are the ones without current authorization checks.
 
 ---

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never hand-maintain a spec beside hand-written route handlers. It will drift within one sprint, and nobody will notice until an integrator does.
+- Never hand-edit a generated SDK. The next regeneration discards it; fix the spec or the generator template.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for OpenAPI (3.1). The value of a specification is entirely in whether it
 matches the running service. A hand-written document that drifts is worse than no
 document — it makes integrators confident and wrong.
@@ -25,11 +37,13 @@ document — it makes integrators confident and wrong.
 Everything here serves one goal: **make drift impossible, mechanically.**
 
 ---
+
 </purpose>
 
 # One source of truth
 
 <rules>
+
 Pick a direction and enforce it. Both work; maintaining the spec and the code
 independently does not.
 
@@ -57,11 +71,13 @@ Tooling worth naming: `zod-to-openapi`, `@asteasolutions/zod-to-openapi`,
 within one sprint, and nobody will notice until an integrator does.
 
 ---
+
 </rules>
 
 # Write it so it is usable
 
 <rules>
+
 ```yaml
 paths:
   /v1/orders/{id}:
@@ -96,11 +112,13 @@ paths:
 Group with `tags`, and order them for a reader who has never seen the API.
 
 ---
+
 </rules>
 
 # Gate it in CI
 
 <rules>
+
 Four checks, all cheap:
 
 ```yaml
@@ -123,11 +141,13 @@ Contract tests between services close the loop: the consumer's recorded
 expectations run against the provider's build. → `Testing/integration`
 
 ---
+
 </rules>
 
 # Downstream artefacts
 
 <rules>
+
 One spec should produce everything, so nothing is written twice:
 
 - **Reference docs** — Redoc, Scalar, Stoplight Elements. Never a hand-written
@@ -145,11 +165,13 @@ code generators and their AI tooling all read it directly.
 spec or the generator template.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Spec maintained separately from code | Drifts within a sprint | Generate one from the other |
@@ -166,11 +188,13 @@ spec or the generator template.
 | Unpublished spec | Integrators cannot generate clients | Serve at a stable versioned URL |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] One direction — code-first or spec-first — is chosen and enforced
 - [ ] Request validation and the spec derive from the same schema definitions
 - [ ] Every operation has a stable `operationId`, summary and description
@@ -185,4 +209,5 @@ spec or the generator template.
 - [ ] A generated spec is committed and checked for freshness in CI
 - [ ] Docs, SDKs and mocks are all generated from the spec
 - [ ] The spec is published at a stable, versioned URL
+
 </checklist>

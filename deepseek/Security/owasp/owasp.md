@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -148,10 +155,10 @@ against private ranges — including `169.254.169.254`, `127.0.0.0/8`, `10/8`,
 
 # Using this list
 
-- Treat it as **coverage**, not a ranking of your specific risk. Your threat model
+1. Treat it as **coverage**, not a ranking of your specific risk. Your threat model
   decides priority.
-- The Top 10 is a **floor**. Passing it is not a security programme.
-- Map each category to a **test**, not a document. `A01` becomes a test that user
+2. The Top 10 is a **floor**. Passing it is not a security programme.
+3. Map each category to a **test**, not a document. `A01` becomes a test that user
   B cannot read user A's invoice.
 
 ---

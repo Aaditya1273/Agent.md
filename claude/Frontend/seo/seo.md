@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never mark up data the page does not display. It is a policy violation and attracts a manual penalty. Validate with the Rich Results Test before shipping.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for making a web application discoverable. Scope is **technical** SEO — what
 engineering controls. Content strategy and keyword research are not covered.
 
@@ -29,11 +40,13 @@ The order of impact, which is not the order teams usually work in:
 4. Is it marked up so results can be rich?
 
 ---
+
 </purpose>
 
 # Rendering: content must exist without JavaScript
 
 <rules>
+
 A client-rendered page ships an empty `<div id="root">`. Google will usually render
 it eventually; other crawlers, social preview bots and AI crawlers often will not,
 and rendering is deferred and unreliable.
@@ -55,11 +68,13 @@ If the content is not in that output, assume it may not be indexed.
 → `Frontend/server-components`
 
 ---
+
 </rules>
 
 # One canonical URL per page
 
 <rules>
+
 Duplicate URLs split ranking signals between copies and can cause the wrong one to
 be indexed.
 
@@ -86,11 +101,13 @@ Rules:
   others including itself.
 
 ---
+
 </rules>
 
 # Metadata that actually renders
 
 <rules>
+
 ```html
 <title>Widget — Acme</title>                        <!-- ≤ 60 chars, unique per page -->
 <meta name="description" content="…" />             <!-- ≤ 155 chars, unique -->
@@ -110,11 +127,13 @@ Rules:
   incident. → `Frontend/metadata`
 
 ---
+
 </rules>
 
 # Structured data
 
 <rules>
+
 ```json
 {
   "@context": "https://schema.org",
@@ -133,17 +152,15 @@ the page renders. Types worth implementing: `Product`, `Article`, `FAQPage`,
 attracts a manual penalty. Validate with the Rich Results Test before shipping.
 
 ---
+
 </rules>
 
 # Crawlability
 
 <rules>
+
 ```
-</rules>
-
 # robots.txt
-
-<rules>
 User-agent: *
 Disallow: /api/
 Disallow: /admin/
@@ -163,11 +180,13 @@ Sitemap: https://example.com/sitemap.xml
   for moved. A "not found" page returning `200` is a soft 404 and gets indexed.
 
 ---
+
 </rules>
 
 # Speed and mobile
 
 <rules>
+
 Core Web Vitals are a ranking signal, measured from **field data at p75**, not
 from a Lighthouse run.
 
@@ -182,11 +201,13 @@ page that is fast and a mobile page that is not means the slow one counts.
 → `Frontend/performance`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Client-rendering public content | Crawlers may never see it | Server-render or generate |
@@ -207,11 +228,13 @@ page that is fast and a mobile page that is not means the slow one counts.
 | Optimising only desktop | Indexing is mobile-first | Measure mobile field data |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Public content is present in the server response, verified with `curl`
 - [ ] Every indexable page has a unique, server-rendered title and description
 - [ ] A self-referencing absolute canonical is on every indexable page
@@ -227,4 +250,5 @@ page that is fast and a mobile page that is not means the slow one counts.
 - [ ] Crawl waste from filters, calendars and parameters is controlled
 - [ ] `hreflang` is reciprocal and self-referencing for localised pages
 - [ ] Core Web Vitals meet targets at p75 on mobile field data
+
 </checklist>

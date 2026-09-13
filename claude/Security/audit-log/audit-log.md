@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never log only failures. A successful unauthorised action is invisible without the success record, and "who read this record" is the question an incident asks.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for the audit trail: the record of who did what, to which object, and when.
 
 This is distinct from application logging. Debug logs exist to fix bugs and may be
@@ -29,11 +40,13 @@ are typically discovered months late, and the reason is usually that nothing
 recorded them. → `Security/owasp`
 
 ---
+
 </purpose>
 
 # What to record
 
-<rules>
+<security_rules>
+
 Every entry answers: **who, what, which object, when, from where, and did it
 succeed.**
 
@@ -72,11 +85,13 @@ Events that must always be recorded:
 the success record, and "who read this record" is the question an incident asks.
 
 ---
-</rules>
+
+</security_rules>
 
 # What never to appear
 
-<rules>
+<security_rules>
+
 | Never log | Why |
 | --- | --- |
 | Passwords, even failed attempts | Plaintext credentials in log storage |
@@ -102,11 +117,13 @@ function auditSafe(obj) {
 A deny-list misses the field somebody adds next sprint. An allow-list fails closed.
 
 ---
-</rules>
+
+</security_rules>
 
 # Integrity
 
-<rules>
+<security_rules>
+
 An attacker's first move after gaining access is to remove the evidence.
 
 - **Ship logs off-host immediately.** A log that only exists on the compromised
@@ -145,11 +162,13 @@ REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM app_writer;
   unreconstructable; require NTP and record in UTC with an explicit offset.
 
 ---
-</rules>
+
+</security_rules>
 
 # Making it useful
 
-<rules>
+<security_rules>
+
 A log nobody reads is storage, not security.
 
 Fields worth standardising across every service, because they are the ones an
@@ -171,11 +190,13 @@ never as an interpolated string.
   during the incident when queries matter most.
 
 ---
-</rules>
+
+</security_rules>
 
 # Privacy
 
-<rules>
+<security_rules>
+
 Audit logs contain personal data and are subject to the same regulation as any
 other store.
 
@@ -186,11 +207,13 @@ other store.
   keeping security records generally differs from that for the account.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Logging failures only | Successful unauthorised actions are invisible | Log outcome on both paths |
@@ -205,11 +228,13 @@ other store.
 | Indefinite retention | Regulatory exposure grows | Automatic deletion at term |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Authentication, authorisation, privilege and account-lifecycle events are recorded
 - [ ] Both successful and denied outcomes are logged
 - [ ] Entries carry actor, action, resource, tenant, outcome, time and source IP
@@ -222,4 +247,5 @@ other store.
 - [ ] Alerts exist for denial bursts, privilege grants and export spikes
 - [ ] At least one alert has been triggered deliberately and observed to fire
 - [ ] Retention is defined, enforced automatically, and privacy-reviewed
+
 </checklist>

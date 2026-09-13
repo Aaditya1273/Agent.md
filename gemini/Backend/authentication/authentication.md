@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -187,3 +186,27 @@ impersonated one, be time-limited, and be audit-logged on every request.
 - [ ] Verify: Impersonation records the real actor and is time-limited and audited
 - [ ] Verify: `401` and `403` are used correctly; failures are indistinguishable
 - [ ] Verify: Login is rate limited on both account and IP, with temporary backoff
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never put a session or access token in `localStorage`. Any XSS then becomes full account takeover. → `Security/xss`
+- Never accept `tenantId` from a header, body or query parameter. A client-supplied tenant is horizontal privilege escalation in one line.
+
+- [ ] The mechanism is chosen per client type and written down
+- [ ] Browser sessions use `HttpOnly; Secure; SameSite` cookies
+- [ ] No token is stored in `localStorage` or `sessionStorage`
+- [ ] Access tokens, where used, are short-lived and paired with refresh tokens
+- [ ] Authentication middleware runs before all routes and only establishes identity
+- [ ] Routes are default-deny with explicitly marked public exceptions
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for the frontend side of a Next.js App Router application: file
 conventions, where each route renders, and the built-in components that exist
 because the naive version is slow.
@@ -26,11 +36,13 @@ Server-side concerns — route handlers, Server Actions, caching semantics — a
 `Backend/nextjs`.
 
 ---
+
 </purpose>
 
 # File conventions do real work
 
 <rules>
+
 ```
 app/
   layout.tsx            # root shell — <html>, <body>, providers. Never re-renders on navigation
@@ -58,11 +70,13 @@ Route groups `(marketing)` organise without affecting the URL; private folders
 `_components` are excluded from routing entirely.
 
 ---
+
 </rules>
 
 # Decide rendering per route
 
 <rules>
+
 Next.js infers static or dynamic from what a route uses. Reading `cookies()`,
 `headers()`, `searchParams` or an uncached `fetch` makes it dynamic.
 
@@ -86,11 +100,13 @@ with `revalidate` for a large catalogue rather than generating every page on eve
 build. → `Backend/nextjs`
 
 ---
+
 </rules>
 
 # Push the client boundary down
 
 <rules>
+
 `"use client"` marks an entry point: everything it imports, transitively, ships to
 the browser.
 
@@ -109,11 +125,13 @@ export default async function ProductPage({ params }) {
   fields, never a whole database row. → `Frontend/server-components`
 
 ---
+
 </rules>
 
 # Use the built-in components
 
 <rules>
+
 ```tsx
 import Image from "next/image";
 import Link from "next/link";
@@ -144,11 +162,13 @@ Rules that are easy to get wrong:
   `<script>` in the head blocks rendering. → `Frontend/performance`
 
 ---
+
 </rules>
 
 # Stream instead of blocking
 
 <rules>
+
 ```tsx
 export default async function Page() {
   return (
@@ -169,11 +189,13 @@ Start independent fetches together (`Promise.all`) — sequential `await`s in a
 server component create a server-side waterfall that streaming does not fix.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `"use client"` on a layout or page | The whole subtree ships to the browser | Mark interactive leaves |
@@ -193,11 +215,13 @@ server component create a server-side waterfall that streaming does not fix.
 | Mis-sized skeletons | Layout shift on resolve | Match content dimensions |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Shared shell, navigation and providers live in layouts, not pages
 - [ ] Every segment has `loading.tsx`, `error.tsx` and a `not-found` path
 - [ ] `error.tsx` offers a working retry
@@ -213,4 +237,5 @@ server component create a server-side waterfall that streaming does not fix.
 - [ ] Third-party scripts use `next/script` with an explicit strategy
 - [ ] Slow sections are wrapped in `<Suspense>` with correctly sized fallbacks
 - [ ] Independent data fetches run in parallel
+
 </checklist>

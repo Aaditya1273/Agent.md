@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -185,3 +184,24 @@ Other rules:
 - [ ] Verify: Slow sections are wrapped in `<Suspense>` with correctly sized fallbacks
 - [ ] Verify: Server content is passed to interactive shells as `children`
 - [ ] Verify: No hooks, state or browser APIs appear in server components
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Components are server components by default
+- [ ] `"use client"` appears at the smallest interactive leaves, not at layouts
+- [ ] Every server-only module is marked with `server-only`
+- [ ] No secret, database client or internal service is reachable from client code
+- [ ] Props crossing to client components are explicitly projected
+- [ ] Only serialisable values cross the boundary
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

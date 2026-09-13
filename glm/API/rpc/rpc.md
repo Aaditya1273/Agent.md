@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -83,13 +89,13 @@ defer cancel()
 resp, err := client.GetOrder(ctx, &pb.GetOrderRequest{Id: id})
 ```
 
-- **Propagate the deadline** through every downstream call. gRPC does this via
+1. **Propagate the deadline** through every downstream call. gRPC does this via
   context automatically — do not create a fresh `context.Background()` mid-chain,
   which severs cancellation.
-- Give each hop **less** budget than its caller, leaving room for the response.
-- **Honour cancellation** server-side: check `ctx.Err()` before expensive work and
+2. Give each hop **less** budget than its caller, leaving room for the response.
+3. **Honour cancellation** server-side: check `ctx.Err()` before expensive work and
   between loop iterations. A client that gave up should not still be costing you.
-- Set a **server-side maximum** as a backstop against clients that omit deadlines.
+4. Set a **server-side maximum** as a backstop against clients that omit deadlines.
 
 Retries must only apply to idempotent methods, with backoff and jitter, and a
 budget (`retryThrottling`) so a struggling service is not retried into collapse.
@@ -135,26 +141,26 @@ on-call, and tells the caller nothing actionable.
 Streams are stateful and complicate load balancing, retries and deployments — a
 long-lived stream pins a client to one pod across a rollout.
 
-- Bound stream lifetime and message size (`grpc.max_receive_message_length`).
-- Apply flow control; an unbounded producer will exhaust the consumer's memory.
-- Design reconnection with resume tokens, because streams **will** break.
-- Server streaming is not a substitute for pagination when the client wants a
+1. Bound stream lifetime and message size (`grpc.max_receive_message_length`).
+2. Apply flow control; an unbounded producer will exhaust the consumer's memory.
+3. Design reconnection with resume tokens, because streams **will** break.
+4. Server streaming is not a substitute for pagination when the client wants a
   page. → `API/pagination`
 
 ---
 
 # Operational rules
 
-- **Connection-level load balancing fails with HTTP/2.** gRPC multiplexes over one
+1. **Connection-level load balancing fails with HTTP/2.** gRPC multiplexes over one
   long-lived connection, so an L4 balancer pins all traffic to one backend. Use an
   L7 proxy (Envoy, Linkerd) or client-side load balancing with resolver updates.
-- Implement the standard **health checking protocol** (`grpc.health.v1.Health`)
+2. Implement the standard **health checking protocol** (`grpc.health.v1.Health`)
   and wire it to readiness probes.
-- Enable **reflection in development only**; it exposes the full service surface.
-- Use **TLS everywhere**, mTLS between internal services.
-- Instrument with interceptors: request id propagation, structured logging,
+3. Enable **reflection in development only**; it exposes the full service surface.
+4. Use **TLS everywhere**, mTLS between internal services.
+5. Instrument with interceptors: request id propagation, structured logging,
   metrics by method and status code, tracing. → `Backend/monitoring`
-- For browser clients, gRPC needs a proxy (grpc-web) — Connect speaks both
+6. For browser clients, gRPC needs a proxy (grpc-web) — Connect speaks both
   protocols and is usually the better choice there.
 
 ---

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -192,3 +191,26 @@ export const config = {
 - [ ] Verify: `next/image` `remotePatterns` are restricted to controlled domains
 - [ ] Verify: Preview deployments are protected
 - [ ] Verify: Spend limits and usage alerts are configured
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never prefix a secret with `NEXT_PUBLIC_`. It is inlined into JavaScript served to every visitor, and rotating it requires a rebuild. - `NEXT_PUBLIC_*` values are captured at build time. Changing one in the dashboard does nothing until a redeploy — a recurring source of "I changed it and nothing happened". - Scope variables per environment (Production, Preview, Development). A preview deployment holding production credentials means every pull request can write to production. - Validate all variables at startup and fail the build or boot on a missing one. → `DevOps/environments`
+
+- [ ] No secret is exposed through a `NEXT_PUBLIC_` variable
+- [ ] Build-time inlining of public variables is understood; changes trigger redeploys
+- [ ] Environment variables are scoped per environment
+- [ ] Preview deployments use non-production credentials and data
+- [ ] Environment variables are validated at startup
+- [ ] One module-scope database client behind a transaction-mode pooler
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: rollback
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for undoing a release. The relevant measure of a deployment system is not
@@ -32,11 +38,7 @@ meeting. Everything below serves that.
 You cannot roll back what you have not noticed. Automate the decision.
 
 ```yaml
-
 # Abort and revert if the new version breaches its budget during the bake window
-
-[INST] Apply every rule in this section: Abort and revert if the new version breaches its budget during the bake window. [/INST]
-
 - alert: DeployErrorBudgetBurn
   expr: |
     sum(rate(http_requests_total{status=~"5..", version="$NEW"}[5m]))

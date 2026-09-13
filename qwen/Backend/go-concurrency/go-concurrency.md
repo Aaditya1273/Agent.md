@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -45,12 +51,12 @@ if err := g.Wait(); err != nil {
 }
 ```
 
-- Every `go` statement needs an answer to: how does this goroutine stop, and
+1. Every `go` statement needs an answer to: how does this goroutine stop, and
   where does its error go? If there is no answer, do not write it.
-- `golang.org/x/sync/errgroup` is the standard answer for "run these, wait for
+2. `golang.org/x/sync/errgroup` is the standard answer for "run these, wait for
   all, first error cancels the rest". Use `g.SetLimit(n)` (1.20+) to bound
   parallelism.
-- Goroutines are not free: each one holds a stack and whatever it captured. A
+3. Goroutines are not free: each one holds a stack and whatever it captured. A
   leak is a slow memory exhaustion that shows up days later.
 
 ---
@@ -71,13 +77,13 @@ func worker(ctx context.Context, jobs <-chan Job) error {
 }
 ```
 
-- Every blocking operation selects on `ctx.Done()`. A goroutine blocked on a
+1. Every blocking operation selects on `ctx.Done()`. A goroutine blocked on a
   channel receive with no cancellation path cannot be stopped.
-- Pass `ctx` into anything that can block: database calls, HTTP, sleeps
+2. Pass `ctx` into anything that can block: database calls, HTTP, sleeps
   (`select` with `time.After`, not `time.Sleep`).
-- `context.WithTimeout` / `WithCancel` return a `cancel` you must call, usually
+3. `context.WithTimeout` / `WithCancel` return a `cancel` you must call, usually
   with `defer`. Not calling it leaks the context's resources; `go vet` flags this.
-- **Never** use `context.Background()` inside request handling. Derive from the
+4. **Never** use `context.Background()` inside request handling. Derive from the
   request's context so the work dies with the request.
 
 ---
@@ -107,12 +113,12 @@ func (c *Cache) Get(k string) (Entry, bool) {
 }
 ```
 
-- Document what a mutex guards with a comment beside it. Lock at the top of the
+1. Document what a mutex guards with a comment beside it. Lock at the top of the
   method, `defer` the unlock, keep the critical section small.
-- **Never** copy a struct containing a mutex; pass by pointer. `go vet` catches
+2. **Never** copy a struct containing a mutex; pass by pointer. `go vet` catches
   it (`copylocks`).
-- A channel used as a mutex (buffered size 1) is a mutex with worse ergonomics.
-- Maps are not safe for concurrent write. One unsynchronised write with any other
+3. A channel used as a mutex (buffered size 1) is a mutex with worse ergonomics.
+4. Maps are not safe for concurrent write. One unsynchronised write with any other
   access is a crash, not a data race warning.
 
 ---
@@ -128,14 +134,14 @@ go func() {
 for j := range jobs { … }          // range ends when closed and drained
 ```
 
-- The **sender** closes; receivers never do. Closing twice panics; sending on a
+1. The **sender** closes; receivers never do. Closing twice panics; sending on a
   closed channel panics.
-- Direction in signatures: `<-chan Job` for receivers, `chan<- Job` for senders.
+2. Direction in signatures: `<-chan Job` for receivers, `chan<- Job` for senders.
   The compiler then prevents the wrong side from closing.
-- A buffer is for smoothing bursts, not for storage. If the buffer size is
+3. A buffer is for smoothing bursts, not for storage. If the buffer size is
   "large enough that it never fills", you have an unbounded queue with a crash
   waiting at the limit.
-- `nil` channels block forever — useful to disable a `select` case, a bug
+4. `nil` channels block forever — useful to disable a `select` case, a bug
   everywhere else.
 
 ---
@@ -153,11 +159,11 @@ for _, item := range items {
 return g.Wait()
 ```
 
-- Bound concurrency explicitly. "One goroutine per item" over ten thousand items
+1. Bound concurrency explicitly. "One goroutine per item" over ten thousand items
   is ten thousand simultaneous database connections.
-- Before 1.22, capture loop variables (`item := item`). From 1.22 each iteration
+2. Before 1.22, capture loop variables (`item := item`). From 1.22 each iteration
   has its own; pin `go 1.22` in `go.mod` to get it.
-- Results from parallel work: collect via a channel or a pre-sized slice indexed
+3. Results from parallel work: collect via a channel or a pre-sized slice indexed
   by position — never append to a shared slice without a mutex.
 
 ---
@@ -169,11 +175,11 @@ go test -race ./...
 go build -race ./cmd/api     # run a canary with it in staging
 ```
 
-- `-race` finds real bugs with near-zero false positives. Run it on every test
+1. `-race` finds real bugs with near-zero false positives. Run it on every test
   run in CI; the 2–10× slowdown is worth it.
-- A race report is never "flaky". It is a bug that happened to be observed this
+2. A race report is never "flaky". It is a bug that happened to be observed this
   time.
-- Tests should exercise concurrency: run the worker with several goroutines,
+3. Tests should exercise concurrency: run the worker with several goroutines,
   not one, or the detector has nothing to see.
 
 ---

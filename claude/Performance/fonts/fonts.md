@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for web fonts. Fonts are render-blocking in effect — text either does not
 appear or appears twice — so they affect LCP and CLS directly while usually being
 a small share of total bytes.
@@ -26,11 +36,13 @@ Four decisions: **how many**, **where from**, **what happens while loading**, an
 **how much the swap shifts the layout**.
 
 ---
+
 </purpose>
 
 # Ship fewer fonts
 
 <rules>
+
 Each family, weight and style is a separate file and a separate request.
 
 | Ship | Skip |
@@ -55,11 +67,13 @@ font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 ```
 
 ---
+
 </rules>
 
 # Self-host, always
 
 <rules>
+
 ```html
 <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 ```
@@ -81,20 +95,18 @@ Serve `woff2` only. It is universally supported and ~30% smaller than `woff`;
 shipping `ttf` or `eot` fallbacks is dead weight.
 
 ---
+
 </rules>
 
 # Subset
 
 <rules>
+
 A full Latin + Cyrillic + Greek font is often 5–10× the size of the Latin subset
 you actually render.
 
 ```bash
-</rules>
-
 # pyftsubset from fonttools — keep only what the site uses
-
-<rules>
 pyftsubset inter.ttf --output-file=inter-latin.woff2 --flavor=woff2 \
   --layout-features='kern,liga' \
   --unicodes="U+0000-00FF,U+0131,U+2000-206F,U+2122"
@@ -106,11 +118,13 @@ pyftsubset inter.ttf --output-file=inter-latin.woff2 --flavor=woff2 \
   does not fail into unreadable glyph boxes. → `Performance/images`
 
 ---
+
 </rules>
 
 # `font-display` and the swap
 
 <rules>
+
 ```css
 @font-face {
   font-family: "Inter";
@@ -153,11 +167,13 @@ Preload **only** the fonts used above the fold, typically one. Preloading every
 weight competes with the resources that actually block rendering.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Third-party font host | Three round trips before the font request | Self-host |
@@ -176,11 +192,13 @@ weight competes with the resources that actually block rendering.
 | Ignoring the system font option | Bytes and requests for little gain | Consider `system-ui` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The number of families, weights and styles is minimal and justified
 - [ ] A variable font replaces multiple static weights where applicable
 - [ ] Using a system font stack was considered
@@ -196,4 +214,5 @@ weight competes with the resources that actually block rendering.
 - [ ] Fonts are not loaded via JavaScript
 - [ ] Fonts are served from a CDN with immutable, content-hashed caching
 - [ ] CLS is measured after the font swap, not only before
+
 </checklist>

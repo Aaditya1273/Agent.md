@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for SQLAlchemy 2.x. The 2.0 API is `select()`-based and typed; the 1.x
 `session.query()` style still runs but hides the loading behaviour that causes
 most production incidents.
@@ -26,11 +36,13 @@ Schema decisions are `Database/schema-design`; indexing is `Database/indexes`;
 event-loop rules are `Backend/python-async`.
 
 ---
+
 </purpose>
 
 # Models
 
 <rules>
+
 ```python
 class Base(DeclarativeBase): ...
 
@@ -57,11 +69,13 @@ class Order(Base):
   a silent `CASCADE` from a tenant deletes history.
 
 ---
+
 </rules>
 
 # Sessions and transactions
 
 <rules>
+
 ```python
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
@@ -88,11 +102,13 @@ def create_order(data: OrderIn) -> Order:
   database's connection limit divided by the number of processes.
 
 ---
+
 </rules>
 
 # Queries and loading
 
 <rules>
+
 ```python
 stmt = (
     select(Order)
@@ -122,18 +138,16 @@ orders = session.scalars(stmt).all()
   it is the only reliable N+1 detector. → `Database/query-optimization`
 
 ---
+
 </rules>
 
 # Migrations with Alembic
 
 <rules>
+
 ```bash
 alembic revision --autogenerate -m "orders: add status index"
-</rules>
-
 # then READ the generated file before committing it
-
-<rules>
 ```
 
 - Autogenerate is a draft. It misses `CHECK` constraints on some backends,
@@ -150,11 +164,13 @@ alembic revision --autogenerate -m "orders: add status index"
   model change without a migration. → `Database/migration`
 
 ---
+
 </rules>
 
 # Async engine
 
 <rules>
+
 ```python
 engine = create_async_engine(url, pool_size=10, max_overflow=5)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
@@ -175,11 +191,13 @@ async def get_open(session: AsyncSession, tenant_id: int) -> list[Order]:
   are not concurrency-safe.
 
 ---
+
 </rules>
 
 # Testing
 
 <rules>
+
 ```python
 @pytest.fixture
 def session(engine):
@@ -195,11 +213,13 @@ can `commit()` freely inside a savepoint. Test against the real database engine
 differ. → `Testing/integration`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `Column()` / `session.query()` | 1.x style, weakly typed | `Mapped`, `select()` |
@@ -220,11 +240,13 @@ differ. → `Testing/integration`
 | Tests on SQLite for a Postgres app | Different semantics | Real engine in a container |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Models use `Mapped[...]`/`mapped_column`; queries use `select()`
 - [ ] Every constraint and index has an explicit name
 - [ ] Foreign keys set `ondelete` deliberately
@@ -239,4 +261,5 @@ differ. → `Testing/integration`
 - [ ] `alembic check` runs in CI
 - [ ] Async sessions never lazy-load and are never shared across tasks
 - [ ] Tests run against the production engine inside a rolled-back transaction
+
 </checklist>

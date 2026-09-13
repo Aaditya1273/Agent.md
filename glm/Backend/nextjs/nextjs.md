@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -36,15 +42,15 @@ import "server-only";
 export const db = new PrismaClient();
 ```
 
-- `server-only` turns "this secret leaked into the browser bundle" from a
+1. `server-only` turns "this secret leaked into the browser bundle" from a
   production incident into a build error. Put it in every module that touches
   secrets, the database, or internal services.
-- Anything referenced by a `"use client"` module — including transitively — ends
+2. Anything referenced by a `"use client"` module — including transitively — ends
   up in the bundle. **Never** import a module holding secrets from a client
   component.
-- Only `NEXT_PUBLIC_*` environment variables reach the browser, and they are
+3. Only `NEXT_PUBLIC_*` environment variables reach the browser, and they are
   inlined at build time. Everything else is server-side; never prefix a secret.
-- Data returned from a server component to a client component is **serialised into
+4. Data returned from a server component to a client component is **serialised into
   the HTML**. Returning a full user row sends the password hash to the browser.
   Project explicit fields. → `Security/secret-management`
 
@@ -69,14 +75,14 @@ export async function POST(req: Request) {
 }
 ```
 
-- Authenticate and authorize **inside every handler**. Middleware is a coarse
+1. Authenticate and authorize **inside every handler**. Middleware is a coarse
   filter running on a different runtime — it is not the authorization layer.
-- Validate every body, query and route parameter against a schema.
+2. Validate every body, query and route parameter against a schema.
   → `Backend/validation`
-- Set `Cache-Control: no-store` on any authenticated response. A cached
+3. Set `Cache-Control: no-store` on any authenticated response. A cached
   authenticated response served to another user is a real and recurring bug class.
-- Return proper status codes and one consistent error shape. → `API/rest`
-- Declare `export const runtime = "nodejs"` or `"edge"` deliberately — the edge
+4. Return proper status codes and one consistent error shape. → `API/rest`
+5. Declare `export const runtime = "nodejs"` or `"edge"` deliberately — the edge
   runtime has no Node APIs and most database drivers do not work there.
 
 ---
@@ -101,14 +107,14 @@ revalidateTag("orders");     // after a mutation — precise invalidation
 const res = await fetch(url, { cache: "no-store" });
 ```
 
-- **Any request whose response depends on the user must be `no-store`.** Caching a
+1. **Any request whose response depends on the user must be `no-store`.** Caching a
   personalised response and serving it to another visitor is the highest-impact
   Next.js caching bug.
-- Reading `cookies()` or `headers()` makes a route dynamic. That is correct — do
+2. Reading `cookies()` or `headers()` makes a route dynamic. That is correct — do
   not work around it to force static rendering of authenticated content.
-- Use `revalidateTag`/`revalidatePath` after mutations. Stale data after a
+3. Use `revalidateTag`/`revalidatePath` after mutations. Stale data after a
   successful write is what users report as "it didn't save".
-- Verify with `next build` output which routes are static (`○`) and which are
+4. Verify with `next build` output which routes are static (`○`) and which are
   dynamic (`ƒ`). A route you expected to be dynamic rendering statically is a
   correctness bug, not a performance note.
 
@@ -145,17 +151,17 @@ Actions are for mutations. Fetch data in server components.
 
 # Deployment and runtime
 
-- Serverless means **no shared process state**. In-memory caches, rate limiters
+1. Serverless means **no shared process state**. In-memory caches, rate limiters
   and counters are per-instance and reset constantly. Use Redis.
   → `Database/redis`
-- Database connections: one module-scope client, a pooled connection string, and
+2. Database connections: one module-scope client, a pooled connection string, and
   a transaction-mode pooler. A client per invocation exhausts `max_connections`.
   → `Database/prisma`
-- Long work does not belong in a request — serverless functions have hard
+3. Long work does not belong in a request — serverless functions have hard
   execution limits. Enqueue it. → `Backend/background-jobs`
-- `middleware.ts` runs on every matched request including static assets; scope its
+4. `middleware.ts` runs on every matched request including static assets; scope its
   `matcher` tightly and keep it free of blocking I/O.
-- Set security headers in `next.config.js` headers or middleware, and use a
+5. Set security headers in `next.config.js` headers or middleware, and use a
   nonce-based CSP rather than `unsafe-inline`. → `Security/headers`
 
 ---

@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: passwords
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -105,16 +111,16 @@ Those regexes are the composition rules this policy deliberately rejects.
 
 # Handling in transit and at rest
 
-- **Never** log a password, even at debug level, even on failure. Scrub request
+1. **Never** log a password, even at debug level, even on failure. Scrub request
   bodies before they reach an error reporter.
-- **Never** email a password, new or existing. Send a single-use reset link.
-- **Never** store a recoverable form — if you can display it, so can an attacker.
+2. **Never** email a password, new or existing. Send a single-use reset link.
+3. **Never** store a recoverable form — if you can display it, so can an attacker.
   "Forgot password" must reset, never reveal.
-- Accept passwords only over HTTPS, and only via `POST` body — never a query
+4. Accept passwords only over HTTPS, and only via `POST` body — never a query
   string, where they reach logs and `Referer` headers.
-- Set `autocomplete="current-password"` / `"new-password"` so password managers
+5. Set `autocomplete="current-password"` / `"new-password"` so password managers
   work correctly. Fighting managers pushes users toward weaker, memorable choices.
-- **Never** disable paste on a password field. It exists to defeat password
+6. **Never** disable paste on a password field. It exists to defeat password
   managers and achieves only weaker passwords.
 
 ---
@@ -133,11 +139,11 @@ a recoverable password column.
 
 # Rate limiting and lockout
 
-- Limit attempts per account **and** per IP — see `Security/authentication`.
-- Prefer exponential backoff to a hard lock. A permanent lockout triggered by
+1. Limit attempts per account **and** per IP — see `Security/authentication`.
+2. Prefer exponential backoff to a hard lock. A permanent lockout triggered by
   failures is a denial-of-service primitive against your own users.
-- Apply the same limits to password *change* and *reset*, not only to login.
-- Notify the user by email on password change, from an address they can act on.
+3. Apply the same limits to password *change* and *reset*, not only to login.
+4. Notify the user by email on password change, from an address they can act on.
 
 ---
 

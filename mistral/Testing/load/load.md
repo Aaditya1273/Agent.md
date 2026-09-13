@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: load
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for testing how a system behaves under load: capacity, latency under
@@ -120,11 +126,7 @@ regardless of response time — which is what real traffic does. Prefer them whe
 the tail is the thing you care about.
 
 ```bash
-
 # Open-workload generator: a fixed arrival rate, immune to coordinated omission.
-
-[INST] Apply every rule in this section: Open-workload generator: a fixed arrival rate, immune to coordinated omission.. [/INST]
-
 echo "GET https://api.example.com/invoices" \
   | vegeta attack -rate=500/s -duration=5m -header "Authorization: Bearer $TOKEN" \
   | vegeta report -type='hist[0,10ms,50ms,100ms,500ms,1s,5s]'

@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -211,3 +210,24 @@ go build -race ./cmd/api     # run a canary with it in staging
 - [ ] Verify: No map is written concurrently without synchronisation
 - [ ] Verify: Results from parallel work are collected without a shared unguarded slice
 - [ ] Verify: `go test -race ./...` runs in CI and a race report blocks the merge
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Every goroutine has a defined owner, a stop signal, and an error path
+- [ ] Parallel work uses `errgroup` with `SetLimit` where the fan-out is unbounded
+- [ ] Every blocking `select` includes `ctx.Done()`
+- [ ] Every derived context's `cancel` is deferred
+- [ ] No `context.Background()` inside request or job handling
+- [ ] Channels are closed by the sender, exactly once, and typed by direction
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

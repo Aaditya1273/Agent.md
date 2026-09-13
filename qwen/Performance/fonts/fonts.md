@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: fonts
 category: Performance
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -91,9 +97,9 @@ pyftsubset inter.ttf --output-file=inter-latin.woff2 --flavor=woff2 \
   --unicodes="U+0000-00FF,U+0131,U+2000-206F,U+2122"
 ```
 
-- Use `unicode-range` in `@font-face` so the browser downloads only the subsets a
+1. Use `unicode-range` in `@font-face` so the browser downloads only the subsets a
   page needs.
-- For icon fonts: do not use icon fonts. Inline SVG is smaller, accessible, and
+2. For icon fonts: do not use icon fonts. Inline SVG is smaller, accessible, and
   does not fail into unreadable glyph boxes. → `Performance/images`
 
 ---

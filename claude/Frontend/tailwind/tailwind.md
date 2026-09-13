@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never hard-code a brand colour as a hex value in a utility class. When the brand changes, they are unfindable.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for using Tailwind. Its value is a constrained design system applied
 directly where markup lives — no naming, no dead CSS, no cascade surprises.
 
@@ -25,11 +36,13 @@ The failure mode is the opposite: arbitrary values everywhere, duplicated class
 strings, and unreadable markup. Every rule here protects the constraint.
 
 ---
+
 </purpose>
 
 # Configure tokens; stop reaching for arbitrary values
 
 <rules>
+
 ```css
 /* app.css — Tailwind v4 configures in CSS */
 @import "tailwindcss";
@@ -57,11 +70,13 @@ Prefer the scale for colours, spacing, radii, shadows and typography.
 brand changes, they are unfindable.
 
 ---
+
 </rules>
 
 # Extract components, not `@apply` soup
 
 <rules>
+
 ```tsx
 // The right abstraction is a component: typed, testable, composable
 export function Button({ variant = "primary", className, ...props }) {
@@ -96,11 +111,13 @@ override — otherwise `bg-red-500` and `bg-brand-500` both land in the class li
 and the winner depends on stylesheet order, not on intent.
 
 ---
+
 </rules>
 
 # Conditional classes
 
 <rules>
+
 ```tsx
 // Broken: the scanner never sees the full class name, so the CSS is not generated
 <div className={`text-${color}-500 p-${size}`} />
@@ -121,11 +138,13 @@ Use `clsx`/`cn` for conditionals, and `twMerge` to resolve conflicts:
 ```
 
 ---
+
 </rules>
 
 # Responsive, state and dark mode
 
 <rules>
+
 Tailwind is mobile-first: an unprefixed utility applies at all sizes, and `md:`
 applies **from** that breakpoint up.
 
@@ -143,11 +162,13 @@ applies **from** that breakpoint up.
 - Honour `motion-reduce:` for anything animated.
 
 ---
+
 </rules>
 
 # Keep markup readable
 
 <rules>
+
 A 30-class element is a real cost. Reduce it by:
 
 - Extracting a component as soon as the same string appears twice.
@@ -161,11 +182,13 @@ Tailwind's output is already minimal — it emits only the classes it found. The
 remaining size concern is your own markup, not the stylesheet.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Arbitrary values everywhere | Bypasses the design system | Define tokens in `@theme` |
@@ -184,11 +207,13 @@ remaining size concern is your own markup, not the stylesheet.
 | Ignoring `motion-reduce:` | Vestibular discomfort; accessibility failure | Respect the preference |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Design tokens are defined centrally and used instead of arbitrary values
 - [ ] Arbitrary values are rare, one-off and justified
 - [ ] No raw hex colours appear in utility classes
@@ -204,4 +229,5 @@ remaining size concern is your own markup, not the stylesheet.
 - [ ] Dark mode uses token pairs and is set before hydration
 - [ ] `motion-reduce:` is honoured for animations
 - [ ] Class ordering is enforced by the Prettier plugin
+
 </checklist>

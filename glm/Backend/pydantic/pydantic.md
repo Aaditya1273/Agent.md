@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -39,14 +45,14 @@ class OrderIn(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 ```
 
-- `extra="forbid"` on every input model. The default `ignore` turns a client typo
+1. `extra="forbid"` on every input model. The default `ignore` turns a client typo
   into silently dropped data.
-- Constrained types (`PositiveInt`, `Field(max_length=...)`, `Annotated[str,
+2. Constrained types (`PositiveInt`, `Field(max_length=...)`, `Annotated[str,
   StringConstraints(...)]`) over hand-written checks — they document themselves
   in the schema.
-- `frozen=True` for value objects; a hashable, immutable model cannot be mutated
+3. `frozen=True` for value objects; a hashable, immutable model cannot be mutated
   halfway through a service call.
-- Separate input, output and internal models. One `Order` model that is
+4. Separate input, output and internal models. One `Order` model that is
   simultaneously the request body, the response, and the ORM mirror will leak a
   field in one direction or the other.
 
@@ -73,15 +79,15 @@ class DateRange(BaseModel):
         return self
 ```
 
-- `field_validator` for one field; `model_validator(mode="after")` for
+1. `field_validator` for one field; `model_validator(mode="after")` for
   cross-field rules. In an `after` validator `self` is the built instance.
-- Validators raise `ValueError` (or `AssertionError`); Pydantic wraps it into a
+2. Validators raise `ValueError` (or `AssertionError`); Pydantic wraps it into a
   `ValidationError` with the field path. Raising `HTTPException` here couples the
   model to a framework.
-- Rules that need I/O — "customer exists", "SKU is in stock" — do **not** belong
+3. Rules that need I/O — "customer exists", "SKU is in stock" — do **not** belong
   in a validator. They belong in the service, where a database session is
   available and the failure is a domain error, not a `422`.
-- `mode="before"` validators receive raw input; use them to coerce legacy shapes
+4. `mode="before"` validators receive raw input; use them to coerce legacy shapes
   (`"1,2,3"` → `[1, 2, 3]`), nothing else.
 
 ---
@@ -117,14 +123,14 @@ class OrderOut(BaseModel):
     created_at: datetime = Field(serialization_alias="createdAt")
 ```
 
-- `mode="json"` when the dict will be JSON-encoded by something else; plain
+1. `mode="json"` when the dict will be JSON-encoded by something else; plain
   `model_dump()` keeps `datetime` and `Decimal` as objects and `json.dumps` will
   fail on them.
-- `serialization_alias`/`alias_generator=to_camel` for wire-format naming; keep
+2. `serialization_alias`/`alias_generator=to_camel` for wire-format naming; keep
   Python attributes snake_case.
-- `exclude`/`include` at dump time for projections, `Field(exclude=True)` for
+3. `exclude`/`include` at dump time for projections, `Field(exclude=True)` for
   fields that must never serialize (`password_hash`).
-- `from_attributes=True` is how you build an output model from an ORM instance
+4. `from_attributes=True` is how you build an output model from an ORM instance
   without a hand-written mapping.
 
 ---
@@ -148,16 +154,16 @@ internal and typed JSON contracts; lax at the edges that genuinely receive strin
 
 # Performance
 
-- Validation runs in Rust and is fast; **constructing models in a hot loop is
+1. Validation runs in Rust and is fast; **constructing models in a hot loop is
   not free.** Validate at the boundary once; pass the instance around, do not
   re-validate the same data three layers deep.
-- `TypeAdapter(list[Item])` for validating collections without a wrapper model;
+2. `TypeAdapter(list[Item])` for validating collections without a wrapper model;
   build it once at module level, not per call.
-- `model_construct()` skips validation — only for data you already validated
+3. `model_construct()` skips validation — only for data you already validated
   (e.g. rows from your own database), never for input.
-- `defer_build=True` on models with huge unions if import time matters; measure
+4. `defer_build=True` on models with huge unions if import time matters; measure
   before using it.
-- Discriminated unions (`Field(discriminator="type")`) validate in one pass
+5. Discriminated unions (`Field(discriminator="type")`) validate in one pass
   instead of trying each member; always tag polymorphic payloads.
 
 ---

@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for a Flask service that is testable and does not collapse into one
 `app.py`. Flask is a microframework: it decides nothing for you, so every
 structural decision below is one it left open.
@@ -26,17 +36,15 @@ Python conventions are `Backend/python-conventions`; if the service is mostly
 JSON with typed models, read the last section before choosing Flask.
 
 ---
+
 </purpose>
 
 # The app factory
 
 <rules>
+
 ```python
-</rules>
-
 # app/__init__.py
-
-<rules>
 def create_app(config: type[Config] = ProdConfig) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config)
@@ -44,11 +52,8 @@ def create_app(config: type[Config] = ProdConfig) -> Flask:
     app.register_blueprint(orders_bp, url_prefix="/v1/orders")
     register_error_handlers(app)
     return app
-</rules>
 
 # wsgi.py — the only place an app is instantiated for serving
-
-<rules>
 app = create_app()
 ```
 
@@ -60,11 +65,13 @@ app = create_app()
 - Tests call `create_app(TestConfig)`.
 
 ---
+
 </rules>
 
 # Blueprints by feature
 
 <rules>
+
 ```
 app/
   orders/
@@ -87,11 +94,13 @@ The rule: **`request` and `g` do not leave `routes.py`.** A service that reads
 `request.json` cannot run from a CLI command or a worker. Pass values in.
 
 ---
+
 </rules>
 
 # Config
 
 <rules>
+
 ```python
 class Config:
     SECRET_KEY = os.environ["SECRET_KEY"]                   # fail fast if missing
@@ -114,11 +123,13 @@ class TestConfig(Config):
   the Werkzeug debugger is remote code execution.
 
 ---
+
 </rules>
 
 # Request lifecycle
 
 <rules>
+
 ```python
 @app.before_request
 def attach_request_id():
@@ -138,11 +149,13 @@ def shutdown_session(exc):
   key on one address for everyone. → `API/rate-limiting`
 
 ---
+
 </rules>
 
 # Error handlers
 
 <rules>
+
 ```python
 def register_error_handlers(app: Flask) -> None:
     @app.errorhandler(ValidationError)
@@ -167,11 +180,13 @@ def register_error_handlers(app: Flask) -> None:
   → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Testing
 
 <rules>
+
 ```python
 @pytest.fixture
 def client():
@@ -191,11 +206,13 @@ def test_create_order_requires_items(client):
 Assert the error envelope, not just the status. → `Testing/pytest`
 
 ---
+
 </rules>
 
 # Flask or FastAPI
 
 <rules>
+
 | Choose Flask when | Choose FastAPI when |
 | --- | --- |
 | Server-rendered HTML with Jinja and sessions | The service is JSON-first |
@@ -208,11 +225,13 @@ Flask 2.x can `async def` a view, but it runs each one in a thread via
 picked the wrong one. → `Backend/fastapi`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Module-level `app = Flask(__name__)` | Untestable, single config | App factory |
@@ -230,11 +249,13 @@ picked the wrong one. → `Backend/fastapi`
 | `async def` views everywhere | Thread-per-view, not async | FastAPI |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `create_app(config)` factory; no module-level app
 - [ ] Extensions created bare and bound with `init_app`
 - [ ] One blueprint per feature with `routes.py`/`services.py` split
@@ -248,4 +269,5 @@ picked the wrong one. → `Backend/fastapi`
 - [ ] Handlers registered for `ValidationError`, `HTTPException`, `Exception`
 - [ ] Tests use `create_app(TestConfig)` and `test_client()`
 - [ ] Framework choice justified against the Flask/FastAPI table
+
 </checklist>

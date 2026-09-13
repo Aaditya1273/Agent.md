@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: background-jobs
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for work that happens outside an HTTP request: emails, exports, imports,
@@ -170,11 +176,7 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 ```
 
 ```yaml
-
 # Alert on a scheduled job that never ran — failure alerts cannot catch absence.
-
-[INST] Apply every rule in this section: Alert on a scheduled job that never ran — failure alerts cannot catch absence.. [/INST]
-
 - alert: NightlyReconciliationMissing
   expr: |
     time() - max(job_last_success_timestamp_seconds{job_type="reconcile"}) > 93600

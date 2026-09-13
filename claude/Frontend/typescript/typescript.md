@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for using TypeScript effectively. Types are only worth their cost if they
 are **true**. A codebase full of `any`, `as` and `!` compiles cleanly and tells you
 nothing.
@@ -26,11 +36,13 @@ The highest-value rule: **type the boundary where untrusted data enters**, and l
 inference do the rest.
 
 ---
+
 </purpose>
 
 # Configure strictly, from the start
 
 <rules>
+
 ```json
 {
   "compilerOptions": {
@@ -61,11 +73,13 @@ Run `tsc --noEmit` in CI. A bundler that strips types without checking them
 (esbuild, SWC) will happily ship type errors.
 
 ---
+
 </rules>
 
 # `any` defeats the point
 
 <rules>
+
 `any` disables checking for that value **and everything it flows into**. One `any`
 in a data model silently untypes the components downstream.
 
@@ -94,11 +108,13 @@ whatever `data` is. Reserve them for cases where you genuinely know more than th
 compiler, and write down why.
 
 ---
+
 </rules>
 
 # Validate what crosses the boundary
 
 <rules>
+
 TypeScript disappears at runtime. An API response typed as `User` is a promise you
 made, not one the server kept.
 
@@ -120,11 +136,13 @@ type cannot drift. Two hand-maintained definitions always diverge.
 → `Backend/validation`
 
 ---
+
 </rules>
 
 # Model with unions, not optional flags
 
 <rules>
+
 ```ts
 // Permits { status: "success", error: Error } — a state that cannot happen
 type State = { status: string; data?: Data; error?: Error };
@@ -156,11 +174,13 @@ Other modelling rules:
   explicit contract is valuable.
 
 ---
+
 </rules>
 
 # Typing React
 
 <rules>
+
 ```tsx
 // Props: an explicit interface; children typed only if accepted
 interface ButtonProps extends React.ComponentPropsWithoutRef<"button"> {
@@ -179,11 +199,13 @@ const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.v
 - Avoid `React.FC`: it adds nothing now and historically implied `children`.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `any` anywhere | Disables checking downstream too | `unknown` and narrow |
@@ -202,11 +224,13 @@ const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.v
 | Enums for string sets | Extra runtime code; awkward interop | Union of string literals |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `strict` is enabled, with `noUncheckedIndexedAccess`
 - [ ] `tsc --noEmit` runs in CI and blocks merges
 - [ ] `no-explicit-any` is a lint error
@@ -222,4 +246,5 @@ const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.v
 - [ ] Event handlers use the correct DOM event types
 - [ ] `useState` and `useRef` are explicitly typed where inference is insufficient
 - [ ] Public API surfaces have explicit return types
+
 </checklist>

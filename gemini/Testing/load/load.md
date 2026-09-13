@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -203,3 +202,26 @@ client-side numbers tells you *that* it slowed down, never *where*.
 - [ ] Verify: The environment is production-shaped and load arrives over the real path
 - [ ] Verify: Thresholds are asserted so a regression fails the run
 - [ ] Verify: Production tests, if any, are agreed, bounded and reversible
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never report only the numbers from the ramp phase. Measure during the sustained plateau, after caches and pools have warmed.
+
+- [ ] The question is chosen first — load, stress, soak, spike or breakpoint
+- [ ] Endpoint mix and pacing are derived from production traffic
+- [ ] Test data volume matches production scale
+- [ ] Authentication is part of the tested flow
+- [ ] Results report `p50`, `p95`, `p99` and `max`, never the mean alone
+- [ ] Measurements come from the sustained plateau, not the ramp
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

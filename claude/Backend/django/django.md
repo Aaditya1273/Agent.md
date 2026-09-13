@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for a Django codebase that stays coherent past the third app. Django's
 batteries are good; the failure mode is fighting them — hand-rolled auth, raw
 SQL where the ORM would do, business logic in views.
@@ -26,11 +36,13 @@ Python-level conventions are `Backend/python-conventions`; REST specifics are
 `API/rest`.
 
 ---
+
 </purpose>
 
 # Layout
 
 <rules>
+
 ```
 config/
   settings/base.py  dev.py  prod.py     # split, not one file with `if DEBUG`
@@ -49,11 +61,13 @@ apps/
   `*` from `base.py` and overrides.
 
 ---
+
 </rules>
 
 # Models and migrations
 
 <rules>
+
 ```python
 class Order(models.Model):
     tenant = models.ForeignKey("tenants.Tenant", on_delete=models.PROTECT)
@@ -80,24 +94,19 @@ class Order(models.Model):
   model may have fields the migration's schema does not.
 
 ---
+
 </rules>
 
 # Querysets — the N+1 rule
 
 <rules>
+
 ```python
-</rules>
-
 # N+1: one query for orders, one per order for its customer
-
-<rules>
 for order in Order.objects.filter(tenant=t):
     print(order.customer.email)
-</rules>
 
 # Fixed
-
-<rules>
 orders = (Order.objects.filter(tenant=t)
           .select_related("customer")                 # FK / one-to-one → JOIN
           .prefetch_related("items__product")         # reverse / many → 2nd query
@@ -117,11 +126,13 @@ orders = (Order.objects.filter(tenant=t)
   that is a hidden N+1.
 
 ---
+
 </rules>
 
 # Views, forms, serializers
 
 <rules>
+
 ```python
 @require_POST
 @login_required
@@ -143,11 +154,13 @@ def create_order(request: HttpRequest) -> HttpResponse:
   an IDOR. → `Security/authorization`
 
 ---
+
 </rules>
 
 # Security middleware and settings
 
 <rules>
+
 Django ships these on. Keep them on, and set the ones that are off:
 
 | Setting | Production value |
@@ -164,11 +177,13 @@ Run `python manage.py check --deploy` in CI; it fails on most of the above.
 → `Security/headers`
 
 ---
+
 </rules>
 
 # Admin
 
 <rules>
+
 ```python
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
@@ -188,11 +203,13 @@ class OrderAdmin(admin.ModelAdmin):
   behind SSO or an allowlist in production.
 
 ---
+
 </rules>
 
 # Testing
 
 <rules>
+
 ```python
 class CreateOrderTests(TestCase):
     def test_rejects_other_tenants_customer(self):
@@ -207,11 +224,13 @@ Use `TransactionTestCase` only when testing transaction behaviour itself. Build
 data with factories, not fixtures files. → `Testing/pytest`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | One `settings.py` with `if DEBUG:` | Prod and dev drift silently | Split settings modules |
@@ -231,11 +250,13 @@ data with factories, not fixtures files. → `Testing/pytest`
 | `TransactionTestCase` everywhere | 10× slower suite | `TestCase` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Settings split into `base`/`dev`/`prod` modules
 - [ ] Each app owns one concept; no circular model imports
 - [ ] Writes go through `services.py`; views hold no business rules
@@ -251,4 +272,5 @@ data with factories, not fixtures files. → `Testing/pytest`
 - [ ] `manage.py check --deploy` passes in CI
 - [ ] Admin changelists set `list_select_related` and `raw_id_fields`
 - [ ] Tests use `TestCase` and factories
+
 </checklist>

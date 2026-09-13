@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,23 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never run a queue or session store on `allkeys-lru`. Redis will evict a job or a live session under memory pressure and report nothing.
+- Never run `KEYS *` against production. It is O(N) and blocks the single command thread for the duration. Use `SCAN` with a cursor.
+- Never release a lock with a bare `DEL`. If your work outran the TTL, the lock is now held by someone else and you have just released theirs.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for Redis. Redis is fast because it is in memory and single-threaded for
 command execution. Both facts drive every rule here: memory is finite and must be
 bounded, and one slow command blocks every other client.
@@ -27,11 +40,13 @@ Decide first what role Redis plays. A **cache** may lose data. A **queue** or
 one instance.
 
 ---
+
 </purpose>
 
 # Keys and memory
 
 <rules>
+
 Every key needs a TTL unless you can state why it must live forever.
 
 ```
@@ -61,11 +76,13 @@ a live session under memory pressure and report nothing.
 command thread for the duration. Use `SCAN` with a cursor.
 
 ---
+
 </rules>
 
 # Atomicity
 
 <rules>
+
 Redis executes each command atomically, but a read-then-write in application code
 is not atomic.
 
@@ -94,11 +111,13 @@ return 0
 for optimistic concurrency, or Lua when you need branching.
 
 ---
+
 </rules>
 
 # Distributed locks
 
 <rules>
+
 ```js
 // Acquire: atomic set-if-absent with an expiry and a unique owner token
 const token = crypto.randomUUID();
@@ -121,11 +140,13 @@ Redis. Redis locks are appropriate for reducing duplicate work, not for
 preventing double-spend.
 
 ---
+
 </rules>
 
 # Caching patterns
 
 <rules>
+
 Cache-aside is the default: read cache, miss → read source → write cache with TTL.
 
 ```js
@@ -148,11 +169,13 @@ Every cache needs a stated invalidation mechanism before it is added.
 → `Performance/caching`
 
 ---
+
 </rules>
 
 # Persistence
 
 <rules>
+
 | Mode | Guarantee |
 | --- | --- |
 | None | Everything lost on restart |
@@ -165,11 +188,13 @@ is genuinely unacceptable, it belongs in a durable broker or a database table,
 not in Redis. Be explicit about which you have chosen.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `KEYS *` in production | O(N), blocks the single thread | `SCAN` |
@@ -185,11 +210,13 @@ not in Redis. Be explicit about which you have chosen.
 | Big `MGET`/pipeline of 100k keys | One slow command stalls all clients | Chunk the batch |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The role of each instance (cache / queue / session) is explicit
 - [ ] `maxmemory` and an appropriate `maxmemory-policy` are set for that role
 - [ ] Durable roles run `noeviction`, never `allkeys-lru`
@@ -202,4 +229,5 @@ not in Redis. Be explicit about which you have chosen.
 - [ ] Correctness-critical exclusion uses the database, not Redis
 - [ ] Persistence mode matches the durability the role requires
 - [ ] Cache invalidation on write is implemented, not just TTL expiry
+
 </checklist>

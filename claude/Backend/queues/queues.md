@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never assume that publishing A then B means A is processed first. With multiple consumers, it usually is not.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for producing and consuming messages. A queue decouples a slow or unreliable
 operation from a request, and in exchange hands you a distributed-systems problem:
 at-least-once delivery, no ordering guarantees across partitions, and failures
@@ -29,11 +40,13 @@ Design for the two facts that are always true:
 - **Every message may arrive out of order.**
 
 ---
+
 </purpose>
 
 # Acknowledge after the work, not before
 
 <rules>
+
 ```ts
 // Wrong — a crash after ack loses the job silently
 await ack(msg);
@@ -53,11 +66,13 @@ rather than setting a very large default — a large default means a crashed
 consumer's message is invisible for that long.
 
 ---
+
 </rules>
 
 # Consumers must be idempotent
 
 <rules>
+
 Deduplicate on a **business** key, not a delivery id.
 
 ```sql
@@ -78,11 +93,13 @@ Otherwise the two can diverge — the row commits and the publish fails, or the
 reverse. → `Database/transactions`
 
 ---
+
 </rules>
 
 # Retries and dead letters
 
 <rules>
+
 | Aspect | Rule |
 | --- | --- |
 | Backoff | Exponential with **jitter** — fixed intervals synchronise a herd |
@@ -100,11 +117,13 @@ Distinguish the failure classes: retrying a message that will never parse burns
 your retry budget and delays healthy work behind it.
 
 ---
+
 </rules>
 
 # Ordering
 
 <rules>
+
 Most queues guarantee ordering only within a partition or group key, and only when
 a single consumer processes that key at a time.
 
@@ -120,11 +139,13 @@ a single consumer processes that key at a time.
 multiple consumers, it usually is not.
 
 ---
+
 </rules>
 
 # Payloads
 
 <rules>
+
 - **Small.** Send an id and a version, not a 2 MB document. Large payloads hit
   broker limits and become stale between publish and consume.
 - Where the body is genuinely large, use the **claim-check pattern**: store the
@@ -138,11 +159,13 @@ multiple consumers, it usually is not.
   → `Backend/monitoring`
 
 ---
+
 </rules>
 
 # Operations
 
 <rules>
+
 Monitor these four; the first two are the ones that matter:
 
 | Metric | Meaning |
@@ -187,11 +210,13 @@ await queue.add("send-receipt", { orderId }, {
   speed will exceed a partner's rate limit instantly.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Acknowledging before processing | Crash loses the job silently | Ack after success |
@@ -211,11 +236,13 @@ await queue.add("send-receipt", { orderId }, {
 | One queue for every job type | Slow jobs block fast ones | Separate by priority and shape |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Messages are acknowledged only after successful processing
 - [ ] Acknowledgement deadlines exceed p99 processing time, extended for long jobs
 - [ ] Every consumer is idempotent, keyed on a business identifier
@@ -231,4 +258,5 @@ await queue.add("send-receipt", { orderId }, {
 - [ ] Oldest-message age is monitored and alerted on
 - [ ] Consumers shut down gracefully, draining in-flight work
 - [ ] Queues are separated by priority and workload shape
+
 </checklist>

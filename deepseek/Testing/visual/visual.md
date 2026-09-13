@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -89,15 +96,15 @@ test("invoice card renders", async ({ page }) => {
 });
 ```
 
-- **Screenshot the component, not the page**, where possible. A page-level
+1. **Screenshot the component, not the page**, where possible. A page-level
   baseline fails for every unrelated change and tells you nothing about which.
-- Set a **small but non-zero** diff tolerance. Zero is brittle; anything above a
+2. Set a **small but non-zero** diff tolerance. Zero is brittle; anything above a
   percent or two hides real regressions.
-- **Mask** genuinely dynamic regions rather than trying to freeze them.
-- Cover the states that break in production: `empty`, `loading`, `error`,
+3. **Mask** genuinely dynamic regions rather than trying to freeze them.
+4. Cover the states that break in production: `empty`, `loading`, `error`,
   `overflow` and `long-text`. A component tested only with a two-word label
   passes forever and breaks on the first real customer name.
-- Test the **breakpoints that matter** — typically 375px, 768px and 1280px — plus
+5. Test the **breakpoints that matter** — typically 375px, 768px and 1280px — plus
   dark mode if you support it. Every extra viewport is another baseline to review.
 
 ---
@@ -122,18 +129,18 @@ jobs:
 
 This is where the practice succeeds or fails.
 
-- **Every baseline update is a code review.** The diff image goes in the pull
+1. **Every baseline update is a code review.** The diff image goes in the pull
   request and someone looks at it.
-- **Never** run the update command to make CI green. Doing so commits the
+2. **Never** run the update command to make CI green. Doing so commits the
   regression as the new expected appearance — the exact failure mode this suite
   exists to prevent.
-- Approvals belong to the person who **owns the visual change**, not whoever is
+3. Approvals belong to the person who **owns the visual change**, not whoever is
   unblocking the build.
 Commands worth knowing: `--update-snapshots` regenerates (dangerous — see above),
 `--grep @visual` runs only this tier, and `--reporter=html` produces the side-by-side
 `expected` / `actual` / `diff` view that makes review possible at all.
 
-- Store baselines in the repository (Git LFS if they grow) or in the tool's
+4. Store baselines in the repository (Git LFS if they grow) or in the tool's
   managed store — but they must be **versioned with the code**, so checking out an
   old commit gives its correct baselines.
 

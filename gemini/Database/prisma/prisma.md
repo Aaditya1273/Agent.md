@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -186,3 +185,29 @@ out of both. → `Database/transactions`
 - [ ] Verify: All list queries paginate; deep pagination uses `cursor`
 - [ ] Verify: Responses are projected with `select`, never the raw model
 - [ ] Verify: Transactions contain no network calls
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never construct a `PrismaClient` inside a request handler or a serverless function body. Each instance opens its own pool.
+- Never create an index manually in the database without also declaring it in `schema.prisma`. `prisma migrate dev` diffs against the schema and will generate a `DROP INDEX`.
+- Never run `prisma migrate dev` against a shared or production database. It can drop and recreate the schema when it detects drift.
+- Never use `prisma db push` on anything with data you care about. It has no history and no rollback path.
+
+- [ ] A single module-scope `PrismaClient`, cached on `globalThis` in development
+- [ ] Serverless deployments use a pooled URL with `pgbouncer=true` and `directUrl`
+- [ ] `@db.Timestamptz` on every `DateTime`; `BigInt` minor units for money
+- [ ] `onDelete` declared on every relation
+- [ ] Every index is declared in `schema.prisma`
+- [ ] Concurrent index creation is hand-edited into migrations for large tables
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

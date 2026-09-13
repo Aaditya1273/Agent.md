@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: images
 category: Performance
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -47,13 +53,13 @@ Four levers, in order of impact: **format**, **dimensions**, **loading priority*
 </picture>
 ```
 
-- **Never ship GIF for animation.** An animated WebP or a muted, looping,
+1. **Never ship GIF for animation.** An animated WebP or a muted, looping,
   `playsinline` MP4 is a fraction of the size.
-- Quality 75–85 is visually indistinguishable from 100 for most photographs at
+2. Quality 75–85 is visually indistinguishable from 100 for most photographs at
   roughly half the bytes.
-- Strip metadata (EXIF) — it adds kilobytes and can leak GPS coordinates from
+3. Strip metadata (EXIF) — it adds kilobytes and can leak GPS coordinates from
   user uploads. That is a privacy issue, not only a size one.
-- SVGs are XML and can contain scripts: sanitise any user-supplied SVG before
+4. SVGs are XML and can contain scripts: sanitise any user-supplied SVG before
   serving it inline. → `Security/xss`
 
 ---
@@ -94,14 +100,14 @@ difference above 2× is imperceptible and doubles the bytes again.
 <img src="card.avif" width="400" height="300" alt="…" loading="lazy" />
 ```
 
-- `loading="lazy"` on the LCP image **delays the metric it defines**. This is the
+1. `loading="lazy"` on the LCP image **delays the metric it defines**. This is the
   most common self-inflicted LCP regression, and it usually arrives via a blanket
   "lazy-load all images" change.
-- `fetchpriority="high"` on the LCP image so it is not queued behind other
+2. `fetchpriority="high"` on the LCP image so it is not queued behind other
   requests.
-- A hero image inside a JavaScript carousel is not discoverable by the preload
+3. A hero image inside a JavaScript carousel is not discoverable by the preload
   scanner — either render the first slide in HTML or `preload` it explicitly.
-- Background images in CSS are discovered late, after the stylesheet parses. Do
+4. Background images in CSS are discovered late, after the stylesheet parses. Do
   not use one for the LCP element.
 
 ---
@@ -131,16 +137,16 @@ does not shift when replaced.
 
 # Delivery
 
-- Serve from a CDN with long-lived, immutable caching on content-hashed URLs.
+1. Serve from a CDN with long-lived, immutable caching on content-hashed URLs.
   → `Performance/caching`
-- Use an image service that negotiates format on `Accept` so a browser supporting
+2. Use an image service that negotiates format on `Accept` so a browser supporting
   AVIF gets AVIF without duplicated markup.
-- **Restrict which origins your optimiser will fetch** — an open image proxy is
+3. **Restrict which origins your optimiser will fetch** — an open image proxy is
   free compute for anyone who finds it, and a common source of surprise bills.
   → `DevOps/vercel`
-- Cap upload size and validate type by **magic bytes**, not by extension or
+4. Cap upload size and validate type by **magic bytes**, not by extension or
   `Content-Type`. → `Backend/validation`
-- Process user uploads out of band, in a job, with bounded memory — decoding a
+5. Process user uploads out of band, in a job, with bounded memory — decoding a
   hostile image can allocate far more than its file size.
   → `Backend/background-jobs`
 

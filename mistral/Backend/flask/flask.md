@@ -14,7 +14,13 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for a Flask service that is testable and does not collapse into one
@@ -31,11 +37,7 @@ JSON with typed models, read the last section before choosing Flask.
 [INST] Apply every rule in this section: The app factory. [/INST]
 
 ```python
-
 # app/__init__.py
-
-[INST] Apply every rule in this section: app/__init__.py. [/INST]
-
 def create_app(config: type[Config] = ProdConfig) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config)
@@ -45,9 +47,6 @@ def create_app(config: type[Config] = ProdConfig) -> Flask:
     return app
 
 # wsgi.py — the only place an app is instantiated for serving
-
-[INST] Apply every rule in this section: wsgi.py — the only place an app is instantiated for serving. [/INST]
-
 app = create_app()
 ```
 

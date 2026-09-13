@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: unit
 category: Testing
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -42,13 +48,13 @@ test("applies the bulk discount at ten units", () => {
 });
 ```
 
-- **Name the behaviour, not the method.** `"returns 404 when the invoice belongs
+1. **Name the behaviour, not the method.** `"returns 404 when the invoice belongs
   to another tenant"` beats `"test findInvoice"`. The name is what you read when
   it fails at 3am.
-- **One logical assertion per test.** Several `expect` calls checking one outcome
+2. **One logical assertion per test.** Several `expect` calls checking one outcome
   are fine; testing two unrelated behaviours in one test is not — the first
   failure hides the second.
-- **No branching.** An `if` or a loop in a test means it is testing more than one
+3. **No branching.** An `if` or a loop in a test means it is testing more than one
   thing, or it is reimplementing the logic under test.
 
 ---
@@ -155,13 +161,13 @@ it cannot be forgotten.
 Coverage measures which lines ran, not whether they were checked. 100% coverage is
 achievable by a suite with no assertions at all.
 
-- Use it to **find untested code**, never as a target to hit.
-- A useful floor is around **80% on changed lines**; chasing the last few percent
+1. Use it to **find untested code**, never as a target to hit.
+2. A useful floor is around **80% on changed lines**; chasing the last few percent
   drives tests of trivial getters.
-- **Mutation testing** (`stryker`, `mutmut`) measures assertion quality directly:
+3. **Mutation testing** (`stryker`, `mutmut`) measures assertion quality directly:
   it changes the code and checks whether a test notices. A surviving mutant is a
   line that is covered but unverified.
-- **Never** write a test purely to raise coverage. A test with no meaningful
+4. **Never** write a test purely to raise coverage. A test with no meaningful
   assertion is a maintenance cost pretending to be a safety net.
 
 ---

@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -191,3 +190,24 @@ trust assumptions, and whether the feature should exist in this shape at all.
 - [ ] Verify: Dependency, secret and SAST scans run and gate on high or critical
 - [ ] Verify: Any suppression has an owner and an expiry
 - [ ] Verify: The review states what was verified, with severity graded honestly
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] The diff was triaged for trust-boundary changes before line-by-line reading
+- [ ] Every new data access is scoped by owner or tenant
+- [ ] No input is interpolated into SQL, a shell command, HTML or a template
+- [ ] Error paths fail closed and leak no schema or stack trace
+- [ ] No credential, token or personal data was added to a log line
+- [ ] New or expensive endpoints have an explicit rate-limiting answer
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

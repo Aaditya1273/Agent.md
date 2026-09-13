@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never generate baselines on a developer laptop and compare them in CI. Font hinting and GPU rasterisation differ, so every screenshot differs. Generate and compare in the same container image, pinned by digest.
+- Never treat a visual test as an accessibility check. Identical pixels can hide a missing label or an unreachable control → `Testing/accessibility`.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for catching unintended visual change by comparing rendered output against
 approved baselines.
 
@@ -28,11 +40,13 @@ always slightly red and therefore approved without looking**, which is worse tha
 having none.
 
 ---
+
 </purpose>
 
 # Determinism is the whole problem
 
 <rules>
+
 Every source of variation must be removed or masked before the first baseline.
 
 | Source | Fix |
@@ -74,11 +88,13 @@ workflows and cross-browser rendering at a cost.
 Pin the runner explicitly — `mcr.microsoft.com/playwright:v1.49.0-jammy` by
 digest, not `:latest`. A browser or font-package update inside the image
 invalidates every baseline at once.
+
 </rules>
 
 # Capture
 
 <rules>
+
 ```js
 test("invoice card renders", async ({ page }) => {
   await page.goto("/components/invoice-card");
@@ -106,13 +122,8 @@ test("invoice card renders", async ({ page }) => {
 ---
 
 ```yaml
-</rules>
-
 # Pin the image by digest. A font or browser update inside :latest silently
-
 # invalidates every baseline in the repository.
-
-<rules>
 jobs:
   visual:
     container:
@@ -125,11 +136,13 @@ jobs:
           name: visual-diffs
           path: test-results/**/*-diff.png    # reviewers need the diff image
 ```
+
 </rules>
 
 # Reviewing diffs
 
 <rules>
+
 This is where the practice succeeds or fails.
 
 - **Every baseline update is a code review.** The diff image goes in the pull
@@ -148,11 +161,13 @@ Commands worth knowing: `--update-snapshots` regenerates (dangerous — see abov
   old commit gives its correct baselines.
 
 ---
+
 </rules>
 
 # Scope
 
 <rules>
+
 | Worth a visual test | Not worth it |
 | --- | --- |
 | Design-system components in each state | Every page of a content site |
@@ -168,11 +183,13 @@ are stable, fast, and the failure points directly at the component.
 a missing label or an unreachable control → `Testing/accessibility`.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Baselines from a laptop, compared in CI | Font and GPU differences | Same pinned container |
@@ -187,11 +204,13 @@ a missing label or an unreachable control → `Testing/accessibility`.
 | Ignoring a persistently red test | Real regressions become invisible | Fix determinism or delete it |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Baselines are generated and compared in the same pinned container image
 - [ ] Animations, transitions and carets are disabled during capture
 - [ ] Clocks are frozen and random data seeded
@@ -203,4 +222,5 @@ a missing label or an unreachable control → `Testing/accessibility`.
 - [ ] Every baseline update is reviewed as a diff image by the change owner
 - [ ] Baselines are versioned with the code
 - [ ] Accessibility is tested separately, never inferred from pixels
+
 </checklist>

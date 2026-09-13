@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for the processes that consume queues and run background work. Job design
 is `Backend/background-jobs`; queue semantics are `Backend/queues`. This package
 covers the runtime: how many workers, how much concurrency, and how they start and
@@ -28,11 +38,13 @@ pulls its own load.** An overloaded API server sheds requests; an overloaded
 worker pool keeps pulling until something downstream breaks.
 
 ---
+
 </purpose>
 
 # Concurrency is bounded by the narrowest downstream resource
 
 <rules>
+
 ```
 worker replicas × per-worker concurrency  ≤  available capacity of the slowest dependency
 ```
@@ -60,11 +72,13 @@ For CPU-bound work in a single-threaded runtime, concurrency does nothing. Use
 worker threads or more replicas, and keep the event loop free.
 
 ---
+
 </rules>
 
 # Graceful shutdown is not optional
 
 <rules>
+
 Every deploy, autoscale-down and node rotation sends `SIGTERM`. Without a handler,
 the process dies mid-job and relies on redelivery — which means duplicate work
 several times a day.
@@ -89,11 +103,13 @@ process.on("SIGTERM", async () => {
   — at-least-once redelivery plus idempotent handlers.
 
 ---
+
 </rules>
 
 # Isolate workloads
 
 <rules>
+
 One pool for everything means the slowest job type sets the latency for all of
 them.
 
@@ -111,11 +127,13 @@ Run **untrusted or customer-supplied code** in a separate, network-restricted,
 resource-capped pool. → `Security/command-injection`
 
 ---
+
 </rules>
 
 # Autoscale on the right signal
 
 <rules>
+
 CPU is the wrong metric for a worker. A worker waiting on I/O has low CPU and a
 growing backlog — CPU-based autoscaling scales **down** exactly when it should
 scale up.
@@ -127,11 +145,7 @@ scale up.
 | CPU | Only for genuinely CPU-bound pools |
 
 ```yaml
-</rules>
-
 # KEDA: scale on backlog, with a floor that keeps latency low for a quiet queue
-
-<rules>
 triggers:
   - type: aws-sqs-queue
     metadata: { queueURL: …, queueLength: "20" }
@@ -144,11 +158,13 @@ otherwise autoscaling turns a backlog into a downstream outage. Scale down slowl
 so a bursty queue does not thrash.
 
 ---
+
 </rules>
 
 # Health, restarts and failure
 
 <rules>
+
 - **Readiness**: can it reach the broker and the database?
 - **Liveness**: is the process wedged? Track a `last_progress_timestamp` updated
   by the handler loop and fail liveness if it stalls beyond a threshold — an
@@ -161,11 +177,13 @@ so a bursty queue does not thrash.
   and dead-letter it. → `Backend/queues`
 
 ---
+
 </rules>
 
 # Configuration and observability
 
 <rules>
+
 - Concurrency, pool size, timeouts and rate limits from environment variables, so
   they can be tuned without a code change.
 - Validate configuration at startup and refuse to boot on a bad value.
@@ -190,11 +208,7 @@ OTEL_SERVICE_NAME=orders-worker
 ```
 
 ```yaml
-</rules>
-
 # The grace period must exceed the longest job, or the drain is cut off.
-
-<rules>
 spec:
   terminationGracePeriodSeconds: 180
   containers:
@@ -207,11 +221,13 @@ spec:
 ```
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Concurrency set independently of the pool | Connection exhaustion; every query slows | Size against the narrowest dependency |
@@ -229,11 +245,13 @@ spec:
 | No per-queue backlog metric | Backlogs discovered by customers | Alert on oldest-message age |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Total concurrency is sized against the narrowest downstream resource
 - [ ] Database pool capacity accounts for both API and worker usage
 - [ ] CPU-bound work uses threads or replicas rather than async concurrency
@@ -250,4 +268,5 @@ spec:
 - [ ] Memory limits are set and repeated OOMs are investigated
 - [ ] Concurrency and timeouts are environment-configurable and validated at boot
 - [ ] Throughput, duration, in-flight count and backlog age are all emitted
+
 </checklist>

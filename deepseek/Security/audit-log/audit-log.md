@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -104,13 +111,13 @@ A deny-list misses the field somebody adds next sprint. An allow-list fails clos
 
 An attacker's first move after gaining access is to remove the evidence.
 
-- **Ship logs off-host immediately.** A log that only exists on the compromised
+1. **Ship logs off-host immediately.** A log that only exists on the compromised
   machine is not evidence.
-- Write to **append-only** storage — an S3 bucket with object lock, a
+2. Write to **append-only** storage — an S3 bucket with object lock, a
   write-once-read-many store, or a managed log service with retention locks.
-- The application's own database credentials should be able to **insert** audit
+3. The application's own database credentials should be able to **insert** audit
   rows and not to `UPDATE` or `DELETE` them.
-- For high-value trails, **chain the entries** so any edit is detectable:
+4. For high-value trails, **chain the entries** so any edit is detectable:
 
 ```js
 // Each entry commits to its predecessor — removing or altering one breaks
@@ -136,7 +143,7 @@ GRANT INSERT ON audit_log TO app_writer;
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM app_writer;
 ```
 
-- Use a **trusted clock**. Timestamps from an unsynchronised host make a timeline
+5. Use a **trusted clock**. Timestamps from an unsynchronised host make a timeline
   unreconstructable; require NTP and record in UTC with an explicit offset.
 
 ---
@@ -151,16 +158,16 @@ incident query filters on: `timestamp`, `actor.id`, `actor.ip`, `action`,
 `schemaVersion`. Emit them as structured JSON — `pino`, `zerolog`, `structlog` —
 never as an interpolated string.
 
-- Assign a **request id** at the edge and propagate it through every service so a
+1. Assign a **request id** at the edge and propagate it through every service so a
   single action can be reconstructed across a distributed call path.
-- **Alert on patterns**, not on individual lines: a burst of authorisation
+2. **Alert on patterns**, not on individual lines: a burst of authorisation
   denials, a first login from a new country, a privilege grant outside change
   hours, a spike in export volume.
-- **Test detection.** Perform an unauthorised action in staging and confirm the
+3. **Test detection.** Perform an unauthorised action in staging and confirm the
   alert fires. Detection that has never been exercised does not work.
-- Set retention deliberately — often 1 year, longer where regulation requires it —
+4. Set retention deliberately — often 1 year, longer where regulation requires it —
   and ensure deletion is automatic once the period lapses.
-- Give the log a **schema and a version**. Ad-hoc string messages cannot be queried
+5. Give the log a **schema and a version**. Ad-hoc string messages cannot be queried
   during the incident when queries matter most.
 
 ---
@@ -170,9 +177,9 @@ never as an interpolated string.
 Audit logs contain personal data and are subject to the same regulation as any
 other store.
 
-- Restrict read access; log the reads of the audit log itself.
-- Store a **user reference**, not a copy of the user's personal details.
-- Have an answer for erasure requests before one arrives — usually pseudonymising
+1. Restrict read access; log the reads of the audit log itself.
+2. Store a **user reference**, not a copy of the user's personal details.
+3. Have an answer for erasure requests before one arrives — usually pseudonymising
   the actor reference while retaining the event record, since the legal basis for
   keeping security records generally differs from that for the account.
 

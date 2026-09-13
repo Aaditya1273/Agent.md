@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: rate-limiting
 category: API
@@ -14,15 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
 Rules for limiting request rates. Two distinct goals, often conflated:
 
-- **Protection** — keep one caller from exhausting capacity for everyone.
-- **Fairness / monetisation** — enforce plan quotas.
+1. **Protection** — keep one caller from exhausting capacity for everyone.
+2. **Fairness / monetisation** — enforce plan quotas.
 
 They need different keys, different windows, and different responses. Decide
 which one each limiter serves before configuring it.
@@ -98,12 +104,12 @@ RateLimit-Remaining: 0
 RateLimit-Reset: 30
 ```
 
-- **`429`**, never `403` — clients and SDKs retry on `429` and give up on `403`.
-- **`Retry-After` is mandatory.** Without it, well-behaved clients retry
+1. **`429`**, never `403` — clients and SDKs retry on `429` and give up on `403`.
+2. **`Retry-After` is mandatory.** Without it, well-behaved clients retry
   immediately and make the overload worse.
-- Send `RateLimit-*` headers on **successful** responses too, so clients can slow
+3. Send `RateLimit-*` headers on **successful** responses too, so clients can slow
   down before they are blocked.
-- Use `503` with `Retry-After` for whole-service overload, distinct from a
+4. Use `503` with `Retry-After` for whole-service overload, distinct from a
   per-caller `429`.
 
 Publish the limits in your documentation. An undocumented limit is discovered
@@ -116,15 +122,15 @@ during an integration's launch.
 Per-instance counters mean the effective limit is `limit × instances`, and it
 changes when you autoscale.
 
-- Use a shared store (Redis) with an **atomic** check-and-decrement — the Lua
+1. Use a shared store (Redis) with an **atomic** check-and-decrement — the Lua
   script above, not `GET` then `SET`.
-- Decide the failure mode explicitly: if the limiter's store is unavailable, do
+2. Decide the failure mode explicitly: if the limiter's store is unavailable, do
   you **fail open** (serve traffic, unprotected) or **fail closed** (reject
   everything)? Fail open is usually right for an API, fail closed for a login
   endpoint. Write the decision down.
-- Prefer enforcement at the edge (CDN/WAF/API gateway) for volumetric abuse —
+3. Prefer enforcement at the edge (CDN/WAF/API gateway) for volumetric abuse —
   a request rejected at the edge costs you nothing.
-- Local in-process limiting is a reasonable second layer, never the only one.
+4. Local in-process limiting is a reasonable second layer, never the only one.
 
 ```nginx
 # Edge layer: reject volumetric abuse before it reaches an application process
@@ -155,14 +161,14 @@ if (!allowed) return res.status(429)
 
 # Do not punish legitimate clients
 
-- **Warn before enforcing.** Ship a new limit in log-only mode, measure who would
+1. **Warn before enforcing.** Ship a new limit in log-only mode, measure who would
   have been blocked, then enforce.
-- Give a higher burst allowance than the sustained rate; real clients are bursty.
-- Exempt health checks, and internal service-to-service traffic that has its own
+2. Give a higher burst allowance than the sustained rate; real clients are bursty.
+3. Exempt health checks, and internal service-to-service traffic that has its own
   backpressure.
-- Never permanently lock an account on rate-limit breach — that is a
+4. Never permanently lock an account on rate-limit breach — that is a
   denial-of-service primitive against your own users. Use temporary backoff.
-- Provide a documented path to a raised limit.
+5. Provide a documented path to a raised limit.
 
 ---
 

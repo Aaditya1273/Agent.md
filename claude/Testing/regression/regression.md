@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for regression testing: ensuring a fixed bug stays fixed and existing
 behaviour survives change.
 
@@ -26,11 +36,13 @@ test written afterwards proves the code does what it currently does. A test
 written first proves it catches the bug — because you watched it fail.
 
 ---
+
 </purpose>
 
 # The workflow
 
 <rules>
+
 ```
 1. Reproduce      — a test that fails for the reported reason
 2. Confirm        — run it; watch it fail with the right error
@@ -60,11 +72,13 @@ Reference the issue in a **comment**, not the test name. The name must describe
 the behaviour so a failure is legible without opening the tracker.
 
 ---
+
 </rules>
 
 # What to keep as a regression test
 
 <rules>
+
 Not every bug needs a permanent test. Keep it when:
 
 - The bug reached **production**
@@ -98,11 +112,13 @@ test("concurrent claims cannot double-spend a credit", async () => {
   expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
 });
 ```
+
 </rules>
 
 # Choosing the level
 
 <rules>
+
 Put the regression test at the **lowest level that reproduces it**:
 
 Concretely: a rounding bug is `expect(total).toBe(4000)` in a unit test; a
@@ -123,11 +139,13 @@ it must be tested at the level where those components meet — that is exactly t
 seam a unit test cannot see.
 
 ---
+
 </rules>
 
 # Snapshot tests
 
 <rules>
+
 Snapshots are regression tests that are cheap to create and easy to misuse.
 
 ```js
@@ -147,11 +165,13 @@ expect(screen.getByTestId("total")).toHaveTextContent("£40.00");
   for shapes with no better expression.
 
 ---
+
 </rules>
 
 # Guarding against silent regressions
 
 <rules>
+
 Some regressions are better prevented structurally than tested:
 
 | Guard | Prevents |
@@ -176,11 +196,13 @@ function label(status: Status): string {
   }
 }
 ```
+
 </rules>
 
 # Keeping the suite honest
 
 <rules>
+
 A regression suite accumulates. Without maintenance it becomes archaeology — tests
 nobody understands, guarding behaviour nobody wants.
 
@@ -197,11 +219,13 @@ nobody understands, guarding behaviour nobody wants.
   block the new one for no benefit.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Test written after the fix | Never proven to catch the bug | Watch it fail first |
@@ -216,11 +240,13 @@ nobody understands, guarding behaviour nobody wants.
 | Fixing without reproducing | Often fixes a different thing | Reproduce first |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every bug fix ships with a test in the same change
 - [ ] The test was observed failing before the fix was applied
 - [ ] Test names describe behaviour; issue references live in comments
@@ -231,4 +257,5 @@ nobody understands, guarding behaviour nobody wants.
 - [ ] Flaky tests are fixed or quarantined with an owner, never skipped silently
 - [ ] Tests for removed features are deleted
 - [ ] Structural fixes — types, constraints — are preferred over tests where possible
+
 </checklist>

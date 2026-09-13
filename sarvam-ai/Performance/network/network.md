@@ -13,8 +13,12 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Sarvam per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Sarvam: scripts/model-profiles.json -->
 
+## Locale
+Examples use Indian conventions: ₹ amounts, IST, dd/mm/yyyy, Aadhaar and DPDP Act where a standard mentions identity or privacy law. Keep them when you copy an example.
+
+---
 
 # Purpose
 

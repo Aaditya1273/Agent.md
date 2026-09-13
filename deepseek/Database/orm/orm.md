@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -116,12 +123,12 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-- **Never** make an HTTP call, send an email, or await user input inside a
+1. **Never** make an HTTP call, send an email, or await user input inside a
   transaction. It holds locks and a connection for the duration of someone else's
   latency.
-- Use `{ decrement: n }`-style atomic operators rather than read-then-write in
+2. Use `{ decrement: n }`-style atomic operators rather than read-then-write in
   application code — the read-modify-write loses updates under concurrency.
-- Handle serialization failures and deadlocks with a bounded retry.
+3. Handle serialization failures and deadlocks with a bounded retry.
   → `Database/transactions`
 
 ---
@@ -132,10 +139,10 @@ Use the ORM's migration tool, but read the generated SQL before applying it.
 Generators routinely produce a table rewrite or a blocking index build where a
 safe equivalent exists.
 
-- Review every generated migration as code, in the pull request.
-- Add `CREATE INDEX CONCURRENTLY` by hand — most generators do not emit it.
-- Never edit an applied migration; write a new one.
-- Verify the migration is reversible, or state explicitly that it is not.
+1. Review every generated migration as code, in the pull request.
+2. Add `CREATE INDEX CONCURRENTLY` by hand — most generators do not emit it.
+3. Never edit an applied migration; write a new one.
+4. Verify the migration is reversible, or state explicitly that it is not.
   → `Database/migration`
 
 ---

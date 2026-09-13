@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -38,10 +44,10 @@ an asset.
 
 Two failure modes:
 
-- **Ice-cream cone** — mostly E2E. Slow, flaky, expensive to maintain; failures
+1. **Ice-cream cone** — mostly E2E. Slow, flaky, expensive to maintain; failures
   point at a page rather than a line. Usually appears when unit tests were hard to
   write, which is itself a design signal.
-- **Hourglass** — many unit and E2E, no integration. Wiring bugs reach production
+2. **Hourglass** — many unit and E2E, no integration. Wiring bugs reach production
   because nothing tests the seam.
 
 Match the shape to the risk, not to a rule. A payments service justifies more
@@ -85,13 +91,13 @@ the runtime for the same information.
 
 Every test has a maintenance cost. Skip:
 
-- **Framework and library behaviour.** Trust that `Array.map`, `JSON.parse` and
+1. **Framework and library behaviour.** Trust that `Array.map`, `JSON.parse` and
   `express.Router` work. Testing `zod` validates, or that `prisma.findMany`
   returns rows, tests someone else's suite.
-- **Trivial getters and setters** with no logic.
-- **Generated code**, unless you wrote the generator.
-- **Exact log strings**, private methods, internal call counts.
-- **Third-party internals** — test your adapter, not their SDK.
+2. **Trivial getters and setters** with no logic.
+3. **Generated code**, unless you wrote the generator.
+4. **Exact log strings**, private methods, internal call counts.
+5. **Third-party internals** — test your adapter, not their SDK.
 
 The question to ask: *if this test fails, will it be because of a real bug, or
 because someone renamed something?*
@@ -160,15 +166,15 @@ response; extracting the dependency is the right one.
 
 # Practical rules
 
-- **Every bug fix ships with a failing-then-passing test.** No exceptions — this
+1. **Every bug fix ships with a failing-then-passing test.** No exceptions — this
   is the single highest-value rule in the document.
-- Keep the unit suite under **a minute** so it runs on save — `vitest --watch`
+2. Keep the unit suite under **a minute** so it runs on save — `vitest --watch`
   or `jest --watch` should be usable while writing code, not a CI-only step.
-- Run unit and integration on **every pull request**; E2E critical-path on every
+3. Run unit and integration on **every pull request**; E2E critical-path on every
   merge; the full E2E suite less often.
-- Make failures **legible**: a good name and a clear assertion diff mean a
+4. Make failures **legible**: a good name and a clear assertion diff mean a
   reviewer does not need to read the test to know what broke.
-- Delete tests that no longer earn their keep. A deleted redundant test is a net
+5. Delete tests that no longer earn their keep. A deleted redundant test is a net
   gain.
 
 ---

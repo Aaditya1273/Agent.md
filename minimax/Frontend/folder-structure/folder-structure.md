@@ -13,8 +13,12 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for MiniMax per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for MiniMax: scripts/model-profiles.json -->
 
+## Scope contract
+FILE_ISOLATION: Modify only files inside the scope the task names; report any out-of-scope change instead of making it.
+
+---
 
 # Purpose
 

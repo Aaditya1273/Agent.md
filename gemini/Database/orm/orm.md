@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -211,3 +210,28 @@ interpolated string does not. → `Security/sql-injection`
 - [ ] Verify: Generated migrations are reviewed as SQL before merge
 - [ ] Verify: Index creation on large tables is concurrent
 - [ ] Verify: Raw SQL is parameterised; no string concatenation anywhere
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never access a relation inside a loop. → `Database/query-optimization`
+- Never make an HTTP call, send an email, or await user input inside a transaction. It holds locks and a connection for the duration of someone else's latency. - Use `{ decrement: n }`-style atomic operators rather than read-then-write in application code — the read-modify-write loses updates under concurrency. - Handle serialization failures and deadlocks with a bounded retry. → `Database/transactions`
+- Never build SQL by string concatenation, even inside an ORM's raw escape hatch. `$queryRaw` with a tagged template parameterises; `$queryRawUnsafe` with an interpolated string does not. → `Security/sql-injection`
+
+- [ ] Query logging with durations is enabled in development
+- [ ] Relations are eager-loaded; no relation access inside a loop
+- [ ] Query counts are asserted in integration tests for key endpoints
+- [ ] Queries project explicit columns rather than whole entities
+- [ ] API responses are built from explicit shapes, not ORM entities
+- [ ] Transactions contain no network calls and no user interaction
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

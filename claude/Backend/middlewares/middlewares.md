@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never register a route before the authentication middleware and assume the route guards itself. That is one refactor away from a public endpoint.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for middleware — the functions that run before, around and after a request
 handler. Middleware is where cross-cutting concerns belong: correlation ids,
 authentication, rate limiting, body parsing, error translation.
@@ -27,11 +38,13 @@ a security control, and **module-scoped request state**, which leaks one user's
 data into another's response.
 
 ---
+
 </purpose>
 
 # Order is a security control
 
 <rules>
+
 Middleware runs in registration order. Registering authentication after a route
 means the route is public.
 
@@ -64,11 +77,13 @@ The reasoning behind each position:
 route guards itself. That is one refactor away from a public endpoint.
 
 ---
+
 </rules>
 
 # Scope it correctly
 
 <rules>
+
 Global middleware runs for every request, including health checks and static
 assets.
 
@@ -86,11 +101,13 @@ router.post("/orders", validate(CreateOrder), createOrder);   // route-scoped
 - Exempt health and metrics endpoints deliberately, and only those.
 
 ---
+
 </rules>
 
 # Request-scoped state must not be module-scoped
 
 <rules>
+
 ```ts
 // Catastrophic — one shared object across all concurrent requests.
 // Under load, user A's request reads user B's identity.
@@ -111,11 +128,13 @@ handle — to the context, never to a module variable. A module-scope DataLoader
 caches across users and leaks data between them. → `API/graphql`
 
 ---
+
 </rules>
 
 # Errors must reach the handler
 
 <rules>
+
 ```ts
 // Express 4: a rejected promise in an async middleware is unhandled —
 // the request hangs until the client times out.
@@ -135,11 +154,13 @@ app.use(async (req, res, next) => {
   response, not assume it runs before the handler.
 
 ---
+
 </rules>
 
 # Keep it fast
 
 <rules>
+
 Every global middleware runs on every request, so its cost is multiplied by
 traffic.
 
@@ -165,11 +186,13 @@ request and the response — that is what makes timing and response rewriting
 straightforward there and awkward in Express.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Auth registered after routes | Routes are silently public | Order deliberately; test it |
@@ -187,11 +210,13 @@ straightforward there and awkward in Express.
 | Order changed without a test | Silent security regression | Assert on unauthenticated access |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Middleware order is explicit and documented in one place
 - [ ] Request id is established first and reaches every log line
 - [ ] Security headers apply to error responses as well as successes
@@ -208,4 +233,5 @@ straightforward there and awkward in Express.
 - [ ] One error handler is registered last
 - [ ] Global middleware performs no blocking I/O; stable data is cached per process
 - [ ] Middleware latency is measured and reviewed
+
 </checklist>

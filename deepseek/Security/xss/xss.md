@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -151,13 +158,13 @@ Content-Security-Policy:
   require-trusted-types-for 'script'
 ```
 
-- **`'nonce-…'` with `'strict-dynamic'`** is the modern strict policy. The nonce
+1. **`'nonce-…'` with `'strict-dynamic'`** is the modern strict policy. The nonce
   must be CSPRNG-generated **per response** and never reused.
-- **`object-src 'none'`** kills plugin-based execution.
-- **`base-uri 'none'`** stops `<base>` injection redirecting relative script URLs.
-- **`frame-ancestors 'none'`** prevents clickjacking; it supersedes
+2. **`object-src 'none'`** kills plugin-based execution.
+3. **`base-uri 'none'`** stops `<base>` injection redirecting relative script URLs.
+4. **`frame-ancestors 'none'`** prevents clickjacking; it supersedes
   `X-Frame-Options`.
-- **`require-trusted-types-for 'script'`** makes DOM-XSS sinks throw unless the
+5. **`require-trusted-types-for 'script'`** makes DOM-XSS sinks throw unless the
   value passed a Trusted Types policy — the strongest available control against
   DOM-based XSS.
 
@@ -172,13 +179,13 @@ first, fix the violations, then enforce.
 
 # Cookies and related headers
 
-- Session cookies carry `HttpOnly` so that XSS cannot read them. This does not
+1. Session cookies carry `HttpOnly` so that XSS cannot read them. This does not
   prevent XSS; it limits the payoff.
-- `X-Content-Type-Options: nosniff` stops the browser reinterpreting a response
+2. `X-Content-Type-Options: nosniff` stops the browser reinterpreting a response
   as HTML. A user-uploaded file served without it can become a stored XSS.
-- Serve user uploads from a **separate origin**, so injected content cannot reach
+3. Serve user uploads from a **separate origin**, so injected content cannot reach
   your cookies or DOM.
-- Set an explicit `Content-Type` with `charset=utf-8`. Charset confusion has
+4. Set an explicit `Content-Type` with `charset=utf-8`. Charset confusion has
   historically enabled encoding bypasses.
 
 ---

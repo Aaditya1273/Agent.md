@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -88,15 +95,15 @@ refetch, and focus moving during a form fill.
 
 # Test data and isolation
 
-- **Create the data the test needs, in the test**, through an API or a factory
+1. **Create the data the test needs, in the test**, through an API or a factory
   endpoint — not through the UI. Signing up via the interface to test checkout
   makes checkout failures indistinguishable from signup failures, and triples the
   runtime.
-- **Never** depend on a shared staging database. Another test, or a colleague,
+2. **Never** depend on a shared staging database. Another test, or a colleague,
   will change the row you assert on.
-- Use a **unique identifier per run** (`user-${runId}@example.com`) so parallel
+3. Use a **unique identifier per run** (`user-${runId}@example.com`) so parallel
   runs cannot collide.
-- **Seed authentication via storage state** rather than logging in through the
+4. **Seed authentication via storage state** rather than logging in through the
   form in every test:
 
 ```js
@@ -119,27 +126,27 @@ authenticated.
 | Third-party redirect flows (OAuth, payment) | Business calculations → `Testing/unit` |
 | Anything that has broken in production before | Every permutation of a form |
 
-- **One journey per test.** A test asserting six unrelated things fails opaquely
+1. **One journey per test.** A test asserting six unrelated things fails opaquely
   and hides the later failures.
-- Do not chain tests. Each starts from a known state and can run alone.
-- Tag by criticality (`@smoke`, `@critical`) so a fast subset gates deployment and
+2. Do not chain tests. Each starts from a known state and can run alone.
+3. Tag by criticality (`@smoke`, `@critical`) so a fast subset gates deployment and
   the full suite runs less often.
 
 ---
 
 # Running in CI
 
-- Run **headless** in CI, headed locally for debugging.
-- Capture **trace, video and screenshot on failure**. A failed E2E test with no
+1. Run **headless** in CI, headed locally for debugging.
+2. Capture **trace, video and screenshot on failure**. A failed E2E test with no
   artifact costs an hour of local reproduction.
-- **Never** paper over flakiness with blanket retries. One retry to absorb genuine
+3. **Never** paper over flakiness with blanket retries. One retry to absorb genuine
   infrastructure noise is defensible; three retries hide a real race, and the bug
   reaches production.
-- **Quarantine, do not skip.** A flaky test moved to a quarantined suite still
+4. **Quarantine, do not skip.** A flaky test moved to a quarantined suite still
   runs and still reports; a skipped test is deleted coverage nobody notices.
-- Track flake rate per test. A test failing 5% of the time is not passing — it is
+5. Track flake rate per test. A test failing 5% of the time is not passing — it is
   costing every engineer who sees it red.
-- Pin the browser version so an upstream update does not turn into a mystery
+6. Pin the browser version so an upstream update does not turn into a mystery
   failure.
 
 ---

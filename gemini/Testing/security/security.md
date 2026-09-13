@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -178,3 +177,24 @@ a stack trace; an unauthenticated request to a protected route returns `401`.
 - [ ] Verify: Rate limiting on authentication routes is asserted
 - [ ] Verify: Error responses are asserted to contain no stack trace
 - [ ] Verify: No real credential appears in any fixture
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Dependency, SAST, secret and container scans run on every pull request
+- [ ] Each gates the build on high and critical severity
+- [ ] Suppressions carry an owner and an expiry
+- [ ] Abuse tests cover IDOR, mass assignment and cross-tenant access per resource
+- [ ] Unauthorised object access asserts `404`, not `403`
+- [ ] Missing, expired and wrong-audience tokens are all tested
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

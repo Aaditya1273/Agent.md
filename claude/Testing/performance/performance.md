@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never optimise from a guess. The bottleneck is routinely somewhere nobody predicted, and the time spent on the wrong thing is unrecoverable.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for catching performance regressions before users do. Capacity under
 concurrency is `Testing/load`; this package is about the speed of a single
 experience and keeping it from decaying.
@@ -26,11 +37,13 @@ Performance degrades one pull request at a time. **A budget enforced in CI is th
 only mechanism that stops it**, because nobody notices 40ms.
 
 ---
+
 </purpose>
 
 # Measure what users feel
 
 <rules>
+
 For web interfaces, the Core Web Vitals plus one:
 
 | Metric | Good | Measures |
@@ -47,11 +60,13 @@ For APIs, latency percentiles at the boundary: `p50`, `p95`, `p99`. Never the me
 — see `Testing/load`.
 
 ---
+
 </rules>
 
 # Lab and field are both required
 
 <rules>
+
 | | Lab (synthetic) | Field (RUM) |
 | --- | --- | --- |
 | Source | Lighthouse, WebPageTest, CI | Real users, `web-vitals` |
@@ -79,11 +94,13 @@ onLCP(send); onINP(send); onCLS(send); onTTFB(send);
 frequently does not.
 
 ---
+
 </rules>
 
 # Budgets in CI
 
 <rules>
+
 A budget only works if crossing it **fails the build**.
 
 ```js
@@ -112,11 +129,13 @@ module.exports = {
   budget that fails on day one gets disabled on day two.
 
 ---
+
 </rules>
 
 # Comparing fairly
 
 <rules>
+
 Performance numbers are noisy; most reported "regressions" are measurement error.
 
 - Compare against the **base commit**, not against an absolute from last quarter.
@@ -129,11 +148,13 @@ Performance numbers are noisy; most reported "regressions" are measurement error
   around a loop measures the JIT warming up.
 
 ---
+
 </rules>
 
 # Profile before optimising
 
 <rules>
+
 A regression test tells you *that* it slowed down. Finding *where* needs a profile.
 
 | Symptom | Tool |
@@ -145,11 +166,7 @@ A regression test tells you *that* it slowed down. Finding *where* needs a profi
 | Slow query | `EXPLAIN ANALYZE`, `pg_stat_statements` |
 
 ```bash
-</rules>
-
 # Node: capture a CPU profile of the real workload, then read the flame graph
-
-<rules>
 node --cpu-prof --cpu-prof-dir=./profiles server.js
 npx speedscope ./profiles/*.cpuprofile
 ```
@@ -158,11 +175,13 @@ npx speedscope ./profiles/*.cpuprofile
 predicted, and the time spent on the wrong thing is unrecoverable.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Lab data only | Idealised device and network | Collect field RUM |
@@ -177,11 +196,13 @@ predicted, and the time spent on the wrong thing is unrecoverable.
 | Measuring only the homepage | Regressions hide on other routes | Budget key routes |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] LCP, INP, CLS and TTFB are measured, not just a Lighthouse score
 - [ ] Field data is collected from real users via `web-vitals` and `sendBeacon`
 - [ ] Lab budgets run in CI and fail the build when exceeded
@@ -193,4 +214,5 @@ predicted, and the time spent on the wrong thing is unrecoverable.
 - [ ] API latency is reported as percentiles
 - [ ] Microbenchmarks use a harness that handles warmup
 - [ ] Optimisation follows a profile, never a guess
+
 </checklist>

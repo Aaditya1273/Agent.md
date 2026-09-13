@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for database performance above the level of a single query. Individual query
 tuning is `Performance/queries` and `Database/query-optimization`; this covers the
 system: connections, contention, capacity, and diagnosing which of them is
@@ -27,11 +37,13 @@ The most common diagnosis error: **"the database is slow" when the database is
 idle and the application is queueing for a connection.**
 
 ---
+
 </purpose>
 
 # Diagnose before tuning
 
 <rules>
+
 | Symptom | Likely cause | Check |
 | --- | --- | --- |
 | High latency, low database CPU | Pool exhaustion or lock waits | `pg_stat_activity`, pool metrics |
@@ -54,11 +66,13 @@ they hold locks, pin the vacuum horizon, and consume a pool slot while doing
 nothing. → `Database/postgres`
 
 ---
+
 </rules>
 
 # Connections are the usual bottleneck
 
 <rules>
+
 A Postgres connection is an OS process. A few hundred is a crisis, not a
 comfortable number.
 
@@ -79,11 +93,13 @@ pool size ≈ (cores × 2) + effective_spindle_count
   → `Backend/workers`
 
 ---
+
 </rules>
 
 # Contention
 
 <rules>
+
 Locks serialise work that looked concurrent.
 
 ```sql
@@ -107,11 +123,13 @@ Rules that remove most contention:
   before DDL. → `Database/migration`
 
 ---
+
 </rules>
 
 # Capacity and maintenance
 
 <rules>
+
 - **Working set versus RAM.** Once the frequently-read data no longer fits in
   `shared_buffers` plus the OS cache, latency changes character — reads become
   disk-bound and the graph steps rather than sloping. Track the buffer cache hit
@@ -131,11 +149,13 @@ Rules that remove most contention:
   preemptively.
 
 ---
+
 </rules>
 
 # Guard it in CI and in production
 
 <rules>
+
 ```sql
 -- Always set these. An unbounded query is an unbounded outage.
 statement_timeout = '30s';
@@ -153,11 +173,13 @@ idle_in_transaction_session_timeout = '60s';
   an outage on 10 million. → `Testing/load`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Blaming the query before checking pool wait | The database may be idle | Check saturation first |
@@ -177,11 +199,13 @@ idle_in_transaction_session_timeout = '60s';
 | Partitioning preemptively | Complexity without benefit | Partition when genuinely large |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Pool wait time is measured and ruled out before query tuning
 - [ ] A transaction-mode pooler sits in front of the database
 - [ ] Combined pool capacity across all consumers is below `max_connections`
@@ -198,4 +222,5 @@ idle_in_transaction_session_timeout = '60s';
 - [ ] Latency spikes are correlated against checkpoint and autovacuum logs
 - [ ] Migrations are linted for full-table rewrites and blocking index builds
 - [ ] Load tests run against production-shaped data volume
+
 </checklist>

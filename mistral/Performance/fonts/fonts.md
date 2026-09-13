@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: fonts
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for web fonts. Fonts are render-blocking in effect — text either does not
@@ -89,11 +95,7 @@ A full Latin + Cyrillic + Greek font is often 5–10× the size of the Latin sub
 you actually render.
 
 ```bash
-
 # pyftsubset from fonttools — keep only what the site uses
-
-[INST] Apply every rule in this section: pyftsubset from fonttools — keep only what the site uses. [/INST]
-
 pyftsubset inter.ttf --output-file=inter-latin.woff2 --flavor=woff2 \
   --layout-features='kern,liga' \
   --unicodes="U+0000-00FF,U+0131,U+2000-206F,U+2122"

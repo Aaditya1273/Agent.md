@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,20 +14,33 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never expose the sort key as a raw cursor value (`?after=2026-08-23`). Clients will construct their own, and you can never change the ordering again.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for paginating list endpoints. Every collection endpoint paginates, from
 the first release — retrofitting pagination onto an endpoint that returned
 everything is a breaking change, and the endpoint will fall over first.
 
 ---
+
 </purpose>
 
 # Choose the strategy deliberately
 
 <rules>
+
 | Strategy | Deep-page cost | Stable under writes | Jump to page N | Total count |
 | --- | --- | --- | --- | --- |
 | Cursor (keyset) | Constant | Yes | No | Not free |
@@ -45,11 +58,13 @@ Two failures make offset unsuitable for large or active collections:
    see it. This is silent — clients report "missing data" months later.
 
 ---
+
 </rules>
 
 # Cursor pagination
 
 <rules>
+
 ```
 GET /v1/orders?limit=20&cursor=eyJjIjoiMjAyNi0wOC0yM1QxNDozMjo1OVoiLCJpIjoib3JkXzhmZDIifQ
 ```
@@ -93,11 +108,13 @@ sign it (HMAC) or store it server-side. An unsigned base64 cursor is decodable a
 editable by anyone. → `Security/authorization`
 
 ---
+
 </rules>
 
 # Limits
 
 <rules>
+
 - Always a **default** (`20`) and a **maximum** (`100`). An unbounded `limit` is a
   denial-of-service primitive against your own database.
 - Clamp rather than error on an over-large limit, and say so in the docs.
@@ -108,11 +125,13 @@ const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
 ```
 
 ---
+
 </rules>
 
 # Totals
 
 <rules>
+
 `hasMore` is cheap: fetch `limit + 1` rows and report whether the extra one
 existed. Do that by default.
 
@@ -124,11 +143,13 @@ set. On a large filtered collection it costs more than the page itself.
   unfiltered counts, or a capped count (`LIMIT 1000` then "1000+").
 
 ---
+
 </rules>
 
 # Ordering and filtering
 
 <rules>
+
 Ordering must be **explicit and stable**. Without `ORDER BY`, the database may
 return rows in any order, and the order may differ between pages of the same
 query — so the pagination is meaningless even when it looks correct in testing.
@@ -148,11 +169,13 @@ filter and sort it was issued with. Either encode them into the cursor and
 validate on use, or document that changing filters resets pagination.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No pagination at all | Endpoint dies as the table grows | Paginate from day one |
@@ -168,11 +191,13 @@ validate on use, or document that changing filters resets pagination.
 | Cursor reused across a filter change | Meaningless position | Bind filters to the cursor |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every collection endpoint paginates
 - [ ] Cursor pagination is used unless numbered pages are a stated requirement
 - [ ] The sort order is total — a unique tiebreaker is always appended
@@ -185,4 +210,5 @@ validate on use, or document that changing filters resets pagination.
 - [ ] `ORDER BY` is always explicit
 - [ ] Sortable and filterable fields come from an allowlist
 - [ ] Cursor validity across filter changes is defined and documented
+
 </checklist>

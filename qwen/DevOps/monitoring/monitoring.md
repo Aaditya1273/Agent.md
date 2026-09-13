@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: monitoring
 category: DevOps
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -45,10 +51,10 @@ second, use the first to diagnose.
 
 Two that are quietly fatal and routinely uncollected:
 
-- **Disk and inode exhaustion.** A full disk stops writes, breaks logging, and can
+1. **Disk and inode exhaustion.** A full disk stops writes, breaks logging, and can
   corrupt state. Inodes exhaust separately — a directory full of tiny files fills
   them while `df` still shows free space.
-- **Certificate expiry.** An expired certificate is a total outage with a known
+2. **Certificate expiry.** An expired certificate is a total outage with a known
   date. Alert 30 and 7 days out.
 
 Also monitor from outside: a synthetic check on the real user path, from another
@@ -141,28 +147,28 @@ them.
 Observability spend grows superlinearly with traffic, and metric cardinality is
 the usual cause.
 
-- **Cardinality kills.** A label with a pod name, request id or user id multiplies
+1. **Cardinality kills.** A label with a pod name, request id or user id multiplies
   series by that value's range. Audit label sets; keep high-cardinality data in
   logs and traces where it belongs. → `Backend/logging`
-- Retention by tier: high resolution for days, downsampled for months, aggregates
+2. Retention by tier: high resolution for days, downsampled for months, aggregates
   for years. Nobody queries second-resolution data from March.
-- Sample high-volume success paths; never sample errors.
-- Alert on the observability bill itself — a cardinality explosion shipped on a
+3. Sample high-volume success paths; never sample errors.
+4. Alert on the observability bill itself — a cardinality explosion shipped on a
   Friday is discovered on the invoice otherwise.
 
 ---
 
 # Operational hygiene
 
-- Monitoring must not share a failure domain with what it monitors. An alerting
+1. Monitoring must not share a failure domain with what it monitors. An alerting
   system hosted in the cluster it watches goes down with it.
-- Have a **dead-man's switch**: a heartbeat alert that fires when monitoring stops
+2. Have a **dead-man's switch**: a heartbeat alert that fires when monitoring stops
   reporting. Silence is indistinguishable from health otherwise.
-- Test alerts when you write them — trigger the condition and confirm the page
+3. Test alerts when you write them — trigger the condition and confirm the page
   arrives at the right person.
-- Review alerts monthly: delete those nobody acted on, and add one for anything an
+4. Review alerts monthly: delete those nobody acted on, and add one for anything an
   incident revealed you were blind to.
-- Define escalation: who is paged, after how long unacknowledged, and to whom it
+5. Define escalation: who is paged, after how long unacknowledged, and to whom it
   escalates. → `DevOps/disaster-recovery`
 
 | Component | Exporter / source |

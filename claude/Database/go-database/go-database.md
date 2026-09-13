@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for talking to a relational database from Go. The standard library gives
 you a pool and a driver interface; the mistakes come from treating the pool
 like a connection, forgetting that a transaction must end, and reaching for an
@@ -27,11 +37,13 @@ Schema and index design are `Database/schema-design` and `Database/indexes`;
 Postgres specifics are `Database/postgres`.
 
 ---
+
 </purpose>
 
 # The pool is the connection
 
 <rules>
+
 ```go
 db, err := sql.Open("pgx", cfg.DatabaseURL)     // does NOT connect
 if err != nil { return err }
@@ -55,11 +67,13 @@ if err := db.PingContext(ctx); err != nil {     // this connects; fail fast at s
   "connection reset" on a stale socket.
 
 ---
+
 </rules>
 
 # Every query takes a context
 
 <rules>
+
 ```go
 ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 defer cancel()
@@ -87,11 +101,13 @@ case err != nil:
   mid-iteration is otherwise silent.
 
 ---
+
 </rules>
 
 # Transactions must always resolve
 
 <rules>
+
 ```go
 func (s *Store) Place(ctx context.Context, o Order) (err error) {
     tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -117,11 +133,13 @@ func (s *Store) Place(ctx context.Context, o Order) (err error) {
   then write.
 
 ---
+
 </rules>
 
 # sqlc, pgx, or an ORM
 
 <rules>
+
 | Need | Use |
 | --- | --- |
 | Type-safe queries from SQL you write | `sqlc` — generates Go from `.sql` files |
@@ -138,11 +156,13 @@ func (s *Store) Place(ctx context.Context, o Order) (err error) {
   generate is the query you must read anyway.
 
 ---
+
 </rules>
 
 # Scanning and nulls
 
 <rules>
+
 ```go
 type Order struct {
     ID        string
@@ -159,11 +179,13 @@ type Order struct {
   session time zone to UTC.
 
 ---
+
 </rules>
 
 # Migrations
 
 <rules>
+
 ```
 migrations/
   0001_orders.up.sql
@@ -182,11 +204,13 @@ migrations/
   that migration as non-transactional in your tool.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `sql.Open` per request | Pool churn, connection exhaustion | One `*sql.DB` in `main` |
@@ -203,11 +227,13 @@ migrations/
 | ORM on the hot path without reading its SQL | N+1, missing locks | `sqlc` or explicit SQL |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Exactly one `*sql.DB` (or `pgxpool.Pool`) is created in `main` and injected
 - [ ] `PingContext` runs at startup and a failure exits
 - [ ] Pool limits are set relative to the server's connection cap and replica count
@@ -220,4 +246,5 @@ migrations/
 - [ ] Nullable columns scan into `sql.Null*` or pointers
 - [ ] Queries list columns explicitly; no `SELECT *`
 - [ ] Migrations are versioned files run by a tool in the deploy step, not by the app
+
 </checklist>

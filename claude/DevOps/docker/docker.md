@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for writing Dockerfiles and building images. Three goals, in order:
 
 1. **Correct** — the image runs the same everywhere and handles signals properly.
@@ -27,17 +37,15 @@ Rules for writing Dockerfiles and building images. Three goals, in order:
 Most Dockerfiles fail the first two while optimising the third.
 
 ---
+
 </purpose>
 
 # Multi-stage builds
 
 <rules>
+
 ```dockerfile
-</rules>
-
 # syntax=docker/dockerfile:1
-
-<rules>
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -69,17 +77,15 @@ the whole context first means every source edit invalidates the dependency
 install, and the build never uses its cache.
 
 ---
+
 </rules>
 
 # Never put secrets in an image
 
 <rules>
+
 ```dockerfile
-</rules>
-
 # Every one of these persists in the image history, retrievable with `docker history`
-
-<rules>
 ARG NPM_TOKEN                       # ❌
 ENV API_KEY=sk-live-…               # ❌
 COPY .env .                         # ❌
@@ -109,11 +115,13 @@ Dockerfile*
 ```
 
 ---
+
 </rules>
 
 # Run as a non-root user
 
 <rules>
+
 The default is root. A container escape or a compromised process then has root on
 the host namespace.
 
@@ -140,18 +148,16 @@ patch; a distroless image has no shell, which also removes the most common
 post-exploitation foothold.
 
 ---
+
 </rules>
 
 # Signals and process model
 
 <rules>
+
 ```dockerfile
 CMD ["node", "dist/server.js"]        # exec form: node is PID 1 and receives SIGTERM
-</rules>
-
 # CMD npm start                       # shell form: sh is PID 1, npm swallows the signal
-
-<rules>
 ```
 
 The shell form wraps the command in `/bin/sh -c`, so your process is not PID 1 and
@@ -168,11 +174,13 @@ One process per container. Supervisors running several services in one container
 defeat orchestration, scaling and health checking.
 
 ---
+
 </rules>
 
 # Build, scan and ship
 
 <rules>
+
 - Build once, promote the **same digest** through environments. Rebuilding per
   environment means staging and production are different images.
 - Tag with the commit SHA, not only `latest`, so a deployed image is traceable.
@@ -185,11 +193,13 @@ defeat orchestration, scaling and health checking.
   heap sized from host memory will be OOM-killed in a limited container.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `FROM node:latest` | Irreproducible; changes under you | Pin a version or digest |
@@ -209,11 +219,13 @@ defeat orchestration, scaling and health checking.
 | Runtime heap sized from host memory | OOM-killed under limits | Configure against the limit |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Base images are pinned to a version or digest, never `latest`
 - [ ] Multi-stage builds keep toolchains and dev dependencies out of the runtime
 - [ ] Layers are ordered so dependency installs stay cached
@@ -231,4 +243,5 @@ defeat orchestration, scaling and health checking.
 - [ ] CI scans images and fails on high-severity findings
 - [ ] Health checks or probes are configured
 - [ ] Runtime memory settings respect the container limit
+
 </checklist>

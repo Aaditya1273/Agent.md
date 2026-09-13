@@ -14,8 +14,14 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for ChatGPT per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for ChatGPT: scripts/model-profiles.json -->
 
+## Scope contract
+FILE_ISOLATION: Modify only files inside the scope the task names. Reading elsewhere is allowed; writing outside it is not, and a needed out-of-scope change is reported, not made.
+SIGNATURE_PINNING: Before implementing, write the exact signatures you will add or change (name, parameters, return type). Implement to those signatures; if one must change, say so before changing it.
+TYPE_CONTRACTS: Every public function carries explicit parameter and return types. No `any`, untyped `dict`, or `interface{}` at a module boundary.
+
+---
 
 # Purpose
 

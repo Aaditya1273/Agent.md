@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: metadata
 category: Frontend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -128,23 +134,23 @@ the meta tag.
 <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
 ```
 
-- `<html lang="en">` on every page, matching the actual content language.
+1. `<html lang="en">` on every page, matching the actual content language.
   Screen readers choose pronunciation from it. → `Testing/accessibility`
-- `<meta name="viewport" content="width=device-width, initial-scale=1">` — required
+2. `<meta name="viewport" content="width=device-width, initial-scale=1">` — required
   for mobile rendering, and its absence is a mobile-usability failure.
-- `dir="rtl"` where the content requires it.
+3. `dir="rtl"` where the content requires it.
 
 ---
 
 # Do not leak through metadata
 
-- Metadata is public. Never put an internal identifier, an email address, a draft
+1. Metadata is public. Never put an internal identifier, an email address, a draft
   title, or anything user-specific into a tag on a public page.
-- Pages behind authentication should be `noindex` and should not generate social
+2. Pages behind authentication should be `noindex` and should not generate social
   cards containing the user's data.
-- A `404` must return a real `404` status **and** `noindex` — a soft 404 returning
+3. A `404` must return a real `404` status **and** `noindex` — a soft 404 returning
   `200` with generic metadata gets indexed as a real page. → `Frontend/routing`
-- Do not include version numbers, framework fingerprints or build paths in
+4. Do not include version numbers, framework fingerprints or build paths in
   `<meta>` tags.
 
 ---

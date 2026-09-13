@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: cloudflare
 category: DevOps
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -33,16 +39,16 @@ its edge. Three jobs, in descending order of value:
 A proxied (orange-cloud) record hides the origin IP. A grey-cloud record publishes
 it, and an attacker who knows it bypasses every protection you configured.
 
-- Proxy every public hostname. Audit for grey-cloud records — a legacy `direct.`
+1. Proxy every public hostname. Audit for grey-cloud records — a legacy `direct.`
   or `origin.` record is the standard way the origin IP leaks.
-- **Lock the origin down** so it only accepts Cloudflare traffic. Otherwise the WAF
+2. **Lock the origin down** so it only accepts Cloudflare traffic. Otherwise the WAF
   and rate limits are optional from an attacker's point of view:
   - Allow only Cloudflare IP ranges at the firewall, **or**
   - Use Cloudflare Tunnel (`cloudflared`) so the origin has no inbound ports at
     all — the stronger option, and it removes IP-range maintenance.
-- Authenticated Origin Pulls (mTLS) so the origin can verify the request came from
+3. Authenticated Origin Pulls (mTLS) so the origin can verify the request came from
   your Cloudflare account, not just from Cloudflare.
-- SSL mode **Full (strict)**. `Flexible` means Cloudflare talks plaintext HTTP to
+4. SSL mode **Full (strict)**. `Flexible` means Cloudflare talks plaintext HTTP to
   your origin while showing users a padlock — it is unencrypted transport with a
   misleading indicator.
 
@@ -71,16 +77,16 @@ Cache-Control: private, no-store                        # authenticated response
 
 Rules that matter:
 
-- `s-maxage` controls the CDN; `max-age` controls the browser. HTML usually wants
+1. `s-maxage` controls the CDN; `max-age` controls the browser. HTML usually wants
   a short shared TTL and no browser cache, so a deploy is visible immediately.
-- **Never cache an authenticated response.** One user's page served to another is
+2. **Never cache an authenticated response.** One user's page served to another is
   the highest-impact CDN bug there is, and it is entirely a `Cache-Control`
   mistake. → `API/api-security`
-- `Vary` on any header that changes the response, but avoid `Vary: Cookie` — it
+3. `Vary` on any header that changes the response, but avoid `Vary: Cookie` — it
   fragments the cache per user and effectively disables it.
-- **Purge by tag or URL on deploy**, never purge everything: a full purge sends
+4. **Purge by tag or URL on deploy**, never purge everything: a full purge sends
   every request to the origin at once.
-- Tiered Cache reduces origin load; Cache Reserve helps for large, rarely-changing
+5. Tiered Cache reduces origin load; Cache Reserve helps for large, rarely-changing
   objects.
 
 Measure the hit ratio. Below ~80% on static assets means the rules are wrong, not
@@ -90,20 +96,20 @@ that caching does not apply.
 
 # WAF, bots and rate limiting
 
-- Enable the managed WAF rulesets, then **watch the logs before enforcing**.
+1. Enable the managed WAF rulesets, then **watch the logs before enforcing**.
   Shipping a ruleset straight to block will break a legitimate integration whose
   payload looks like an attack.
-- Rate limit at the edge for volumetric abuse — a request blocked here costs you
+2. Rate limit at the edge for volumetric abuse — a request blocked here costs you
   nothing. Keep application-level limits too, for per-account quotas the edge
   cannot see. → `API/rate-limiting`
-- Bot Fight Mode and challenges interact badly with API clients and webhooks:
+3. Bot Fight Mode and challenges interact badly with API clients and webhooks:
   exempt `/api/*` and known partner paths, or expect a support ticket.
-- **Never** rely on a Cloudflare-added header for authorization decisions unless
+4. **Never** rely on a Cloudflare-added header for authorization decisions unless
   the origin is locked to Cloudflare — otherwise a direct request forges it. This
   applies to `CF-Connecting-IP`, `CF-IPCountry` and Access JWTs.
-- Take the client IP from `CF-Connecting-IP`, not the leftmost `X-Forwarded-For`,
+5. Take the client IP from `CF-Connecting-IP`, not the leftmost `X-Forwarded-For`,
   which is client-controlled.
-- Cloudflare Access for internal tools: identity-aware proxy in front of the
+6. Cloudflare Access for internal tools: identity-aware proxy in front of the
   origin, so there is no public admin panel at all.
 
 ---
@@ -118,14 +124,14 @@ that caching does not apply.
 | Subrequests | Bounded per request | Fan-out is limited |
 | KV consistency | Eventually consistent, ~60s | Not for read-after-write |
 
-- Workers suit routing, header rewriting, auth checks, A/B assignment, and
+1. Workers suit routing, header rewriting, auth checks, A/B assignment, and
   personalisation at the edge. They do not suit image processing or anything
   CPU-heavy.
-- Storage: **KV** for read-heavy, eventually-consistent data; **Durable Objects**
+2. Storage: **KV** for read-heavy, eventually-consistent data; **Durable Objects**
   for strongly-consistent coordination; **D1** for relational; **R2** for objects,
   with no egress fees.
-- Secrets via `wrangler secret put`, never in `wrangler.toml` — which is committed.
-- Version and roll back deployments (`wrangler versions`), and use gradual
+3. Secrets via `wrangler secret put`, never in `wrangler.toml` — which is committed.
+4. Version and roll back deployments (`wrangler versions`), and use gradual
   deployments for risky changes. → `DevOps/rollback`
 ```toml
 # wrangler.toml — bindings, not secrets. Secrets go in `wrangler secret put`.
@@ -146,7 +152,7 @@ class_name = "RateLimiter"
 enabled = true
 ```
 
-- No global mutable state across requests: isolates are recycled unpredictably, so
+5. No global mutable state across requests: isolates are recycled unpredictably, so
   a module-scope cache is neither reliable nor per-user-safe.
 
 ---

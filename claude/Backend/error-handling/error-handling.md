@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for handling errors in a backend service. Two categories, handled
 completely differently:
 
@@ -31,11 +41,13 @@ Conflating the two produces alert fatigue on one side and silent data loss on th
 other.
 
 ---
+
 </purpose>
 
 # One boundary converts errors to responses
 
 <rules>
+
 Handlers throw. **One** place converts.
 
 ```ts
@@ -70,11 +82,13 @@ app.use((err, req, res, _next) => {
   failure and makes the real trace unfindable.
 
 ---
+
 </rules>
 
 # Never leak internals
 
 <rules>
+
 ```
 ❌ "ER_DUP_ENTRY: Duplicate entry 'a@b.com' for key 'users.email_unique'"
 ❌ TypeError: Cannot read properties of undefined (reading 'tenantId')
@@ -92,11 +106,13 @@ Be careful that framework defaults do not do this for you — many development e
 pages ship enabled if `NODE_ENV` is not set correctly in the container.
 
 ---
+
 </rules>
 
 # Fail fast, and fail at the boundary
 
 <rules>
+
 - **Validate input at the edge**, before any business logic. A parse that fails
   should fail immediately with a `422` and a field list, not three layers deep.
   → `Backend/validation`
@@ -112,11 +128,13 @@ pages ship enabled if `NODE_ENV` is not set correctly in the container.
   than either.
 
 ---
+
 </rules>
 
 # Process-level safety
 
 <rules>
+
 ```ts
 process.on("unhandledRejection", (reason) => { log.fatal({ reason }); shutdown(1); });
 process.on("uncaughtException",  (err)    => { log.fatal({ err });    shutdown(1); });
@@ -131,11 +149,13 @@ requests with a bounded timeout, close the database pool, then exit.
 → `DevOps/deployment`
 
 ---
+
 </rules>
 
 # Transient failures and retries
 
 <rules>
+
 | Failure | Retry |
 | --- | --- |
 | Connection reset, DNS failure, timeout | Yes, with backoff |
@@ -154,11 +174,13 @@ Any operation that is retried must be idempotent, or carry an idempotency key.
 → `API/webhooks`
 
 ---
+
 </rules>
 
 # Errors are a product surface
 
 <rules>
+
 The message a user sees is part of the product. Say what happened, and what to do
 next.
 
@@ -172,11 +194,13 @@ Keep the machine `code` stable across releases — clients branch on it — whil
 human `message` stays free to improve.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `catch {}` | Turns a failure into wrong data | Handle or rethrow |
@@ -194,11 +218,13 @@ human `message` stays free to improve.
 | Machine codes changed between releases | Silently breaks client branching | Codes are contract |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Expected failures are modelled as typed domain errors
 - [ ] One boundary converts errors to responses
 - [ ] Every response carries a `requestId`
@@ -213,4 +239,5 @@ human `message` stays free to improve.
 - [ ] Retries are limited to transient failures, with backoff and jitter
 - [ ] Retried operations are idempotent or carry an idempotency key
 - [ ] A circuit breaker protects persistently failing dependencies
+
 </checklist>

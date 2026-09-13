@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -71,9 +78,9 @@ ALTER TABLE orders ADD CONSTRAINT fk_user FOREIGN KEY …;        -- scans both 
 
 Two rules that prevent most incidents:
 
-- **`CREATE INDEX CONCURRENTLY`** on any table large enough to matter. It cannot
+1. **`CREATE INDEX CONCURRENTLY`** on any table large enough to matter. It cannot
   run inside a transaction, so the migration tool must be told not to wrap it.
-- **Add constraints `NOT VALID`, then `VALIDATE` separately.** The first takes a
+2. **Add constraints `NOT VALID`, then `VALIDATE` separately.** The first takes a
   brief lock; the second scans without blocking writes.
 
 ```sql
@@ -105,42 +112,42 @@ WHERE id IN (
 );
 ```
 
-- Batch size in the low thousands; tune from observed replication lag.
-- Make it **resumable** — the `WHERE … IS NULL` above restarts safely after a
+1. Batch size in the low thousands; tune from observed replication lag.
+2. Make it **resumable** — the `WHERE … IS NULL` above restarts safely after a
   failure.
-- Make it **idempotent**, so re-running cannot double-apply.
-- Run it **outside the deploy**, as a job. A backfill inside a migration blocks
+3. Make it **idempotent**, so re-running cannot double-apply.
+4. Run it **outside the deploy**, as a job. A backfill inside a migration blocks
   the release for its full duration.
-- Watch replication lag while it runs and pause when it grows.
+5. Watch replication lag while it runs and pause when it grows.
 
 ---
 
 # Reversibility
 
-- Every migration needs a **tested** `down`. An untested rollback is a rollback
+1. Every migration needs a **tested** `down`. An untested rollback is a rollback
   that fails during an incident.
-- **Destructive steps are irreversible in practice.** `DROP COLUMN` loses the data;
+2. **Destructive steps are irreversible in practice.** `DROP COLUMN` loses the data;
   the `down` recreates an empty column. Contract only after the new path has run
   in production long enough to trust.
-- Prefer **forward fixes** for data problems. Rolling a schema back under live
+3. Prefer **forward fixes** for data problems. Rolling a schema back under live
   traffic is usually more dangerous than fixing forward.
-- Take a backup before any destructive migration and **verify it restores** — an
+4. Take a backup before any destructive migration and **verify it restores** — an
   unverified backup is a hope.
 
 ---
 
 # Practice
 
-- Migrations live **in version control** beside the code and run in CI on a
+1. Migrations live **in version control** beside the code and run in CI on a
   restored copy of production-shaped data. That is how you learn migration 47
   fails on a table with real rows. → `Testing/integration`
-- **Never edit a migration that has run** anywhere. Add a new one; editing leaves
+2. **Never edit a migration that has run** anywhere. Add a new one; editing leaves
   environments permanently divergent.
-- One logical change per migration. A file doing four things cannot be partially
+3. One logical change per migration. A file doing four things cannot be partially
   rolled back.
-- Separate **schema** changes from **data** changes, so each can be timed
+4. Separate **schema** changes from **data** changes, so each can be timed
   independently.
-- Guard against two instances migrating at once — most tools take an advisory
+5. Guard against two instances migrating at once — most tools take an advisory
   lock; confirm yours does.
 
 ---

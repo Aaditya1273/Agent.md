@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -221,3 +220,27 @@ structure than a message string.
 - [ ] Verify: Errors carry a stable `extensions.code` and a `requestId`
 - [ ] Verify: Internal errors are masked in production
 - [ ] Verify: Deprecation uses `@deprecated` with a removal date, not a new endpoint
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never expose introspection on a public production endpoint. It hands an attacker the complete schema, including fields you forgot were reachable.
+- Never version a GraphQL schema with `/v2`. Deprecate fields in place:
+
+- [ ] Query depth, complexity, breadth and timeout limits are all enforced
+- [ ] Complexity weights reflect real cost, including pagination multipliers
+- [ ] First-party clients use persisted/allowlisted queries
+- [ ] Introspection and the playground are disabled in production
+- [ ] Every relation field resolves through a per-request DataLoader
+- [ ] Loaders return one result per key, in input order
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -156,17 +163,17 @@ or `%I` (identifier) — never `%s` — and prefer `USING` for values.
 
 These do not replace parameterisation. They limit the damage when it fails.
 
-- **Least privilege.** The application role should not hold `DROP`, `CREATE`, or
+1. **Least privilege.** The application role should not hold `DROP`, `CREATE`, or
   `GRANT`. A read path should use a read-only role. Injection into a connection
   that cannot write is a disclosure bug, not a destruction bug.
-- **Disable multi-statement execution** where the driver allows it. `mysql2`'s
+2. **Disable multi-statement execution** where the driver allows it. `mysql2`'s
   `multipleStatements` defaults to `false`; keep it there. It converts
   `'; DROP TABLE users; --` from catastrophic to a syntax error.
-- **Validate shape, then bind.** Rejecting a non-numeric `id` early is good
+3. **Validate shape, then bind.** Rejecting a non-numeric `id` early is good
   hygiene. It is not the control that stops injection — the bind is.
-- **Never expose raw database errors.** `ERROR: column "x" does not exist` is a
+4. **Never expose raw database errors.** `ERROR: column "x" does not exist` is a
   schema oracle. Log the detail server-side, return a generic message.
-- **Set statement timeouts** so a pathological injected query cannot hold
+5. **Set statement timeouts** so a pathological injected query cannot hold
   resources indefinitely.
 
 ---

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -112,15 +119,15 @@ are the reason revocation becomes an unsolvable problem.
 
 # Keys
 
-- Store signing keys in a secret manager or KMS, never in the repository, never
+1. Store signing keys in a secret manager or KMS, never in the repository, never
   in a client bundle. See `Security/secret-management`.
-- HMAC secrets must be **≥ 256 bits of CSPRNG output**. A guessable secret makes
+2. HMAC secrets must be **≥ 256 bits of CSPRNG output**. A guessable secret makes
   the signature decorative; `HS256` with a dictionary word is brute-forced offline.
-- Publish public keys via **JWKS** (`/.well-known/jwks.json`) and select the key
+3. Publish public keys via **JWKS** (`/.well-known/jwks.json`) and select the key
   by the token's `kid`.
-- **Rotate** on a schedule. Publish the new key before signing with it, and keep
+4. **Rotate** on a schedule. Publish the new key before signing with it, and keep
   the old key verifiable until every issued token has expired.
-- Cache JWKS, but **bound the cache** and re-fetch on unknown `kid`. Never fetch
+5. Cache JWKS, but **bound the cache** and re-fetch on unknown `kid`. Never fetch
   a key from a URL inside the token — that is a server-side request forgery and
   key-injection vector in one.
 
@@ -164,13 +171,13 @@ must revoke the whole family — that is the signal a token was stolen.
 
 # Transport and storage
 
-- Send as `Authorization: Bearer <token>` over HTTPS only.
-- In browsers, prefer an `HttpOnly; Secure; SameSite` cookie over `localStorage`.
+1. Send as `Authorization: Bearer <token>` over HTTPS only.
+2. In browsers, prefer an `HttpOnly; Secure; SameSite` cookie over `localStorage`.
   A token in `localStorage` is readable by any script, so any XSS becomes account
   takeover. If you use cookies, you must handle CSRF — see `Security/csrf`.
-- **Never** put a JWT in a URL. It lands in access logs, `Referer` headers and
+3. **Never** put a JWT in a URL. It lands in access logs, `Referer` headers and
   browser history.
-- The payload is **base64url, not encrypted**. Anyone holding the token can read
+4. The payload is **base64url, not encrypted**. Anyone holding the token can read
   every claim. Put no secrets, PII, or internal identifiers in it. If confidentiality
   is required, use JWE — or better, an opaque token.
 

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -150,14 +157,14 @@ trust assumptions, and whether the feature should exist in this shape at all.
 
 # Reviewing the review
 
-- **Say what you checked**, not only what you found. "Verified the new query is
+1. **Say what you checked**, not only what you found. "Verified the new query is
   tenant-scoped and the upload path is resolved before use" is far more useful to
   the next reviewer than a silent approval.
-- **Be specific about severity.** Distinguish "this is exploitable today" from
+2. **Be specific about severity.** Distinguish "this is exploitable today" from
   "this weakens a defence in depth". Treating both as blockers trains people to
   ignore you.
-- **Suggest the fix**, not just the flaw. `Security/*` packages exist to be linked.
-- **Never approve a security-relevant change you did not understand.** Ask. An
+3. **Suggest the fix**, not just the flaw. `Security/*` packages exist to be linked.
+4. **Never approve a security-relevant change you did not understand.** Ask. An
   approval is an assertion.
 
 ---

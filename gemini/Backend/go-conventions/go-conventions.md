@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -212,3 +211,24 @@ logger.Error("payment failed", "err", err, "order_id", o.ID)
 - [ ] Verify: Required config fails fast at startup with the variable name
 - [ ] Verify: Logging uses `log/slog` with structured attributes
 - [ ] Verify: `gofmt`, `go vet`, `staticcheck`, and `go test -race` run in CI
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] One `go.mod` at the repository root with a pinned `go` version
+- [ ] Binaries live under `cmd/<name>/main.go` and contain wiring only
+- [ ] Application code lives under `internal/`
+- [ ] No `utils`, `common`, `helpers`, or `models` packages exist
+- [ ] Package names are short, lowercase, and do not stutter with their types
+- [ ] Interfaces are declared in the consuming package and are small
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

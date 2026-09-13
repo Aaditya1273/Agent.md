@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -96,11 +103,11 @@ Cron in a distributed system has three failure modes that a single server does n
 
 Other rules:
 
-- Schedule in **UTC**. A cron in local time runs twice or zero times on
+1. Schedule in **UTC**. A cron in local time runs twice or zero times on
   daylight-saving transitions.
-- **Jitter** schedules across tenants and instances. Every job at `0 0 * * *`
+2. **Jitter** schedules across tenants and instances. Every job at `0 0 * * *`
   creates a thundering herd at midnight.
-- Prefer event-driven work to polling. Where you must poll, poll a marker
+3. Prefer event-driven work to polling. Where you must poll, poll a marker
   (`WHERE processed_at IS NULL`), not the whole table.
 
 | Scheduler | Single-execution guarantee | Notes |
@@ -120,15 +127,15 @@ production on three.
 
 # Timeouts, resources and failure
 
-- Set a timeout per job type, and make it shorter than the acknowledgement
+1. Set a timeout per job type, and make it shorter than the acknowledgement
   deadline so a hung job is reclaimed rather than run twice concurrently.
-- Bound worker concurrency against the **narrowest** downstream resource — usually
+2. Bound worker concurrency against the **narrowest** downstream resource — usually
   the database connection pool, sometimes a partner's rate limit.
-- Cap memory: a job that loads a whole table into memory works in staging and OOMs
+3. Cap memory: a job that loads a whole table into memory works in staging and OOMs
   in production. Stream and paginate.
-- Isolate workloads. Long exports and quick emails on the same worker pool means
+4. Isolate workloads. Long exports and quick emails on the same worker pool means
   the export starves the email.
-- On repeated failure, dead-letter with the full context needed to diagnose it,
+5. On repeated failure, dead-letter with the full context needed to diagnose it,
   and alert. → `Backend/queues`
 
 ---
@@ -177,14 +184,14 @@ const oldestPending = new Gauge({ name: "job_oldest_pending_seconds", labelNames
 
 # Operating
 
-- **Deploys** must drain: stop accepting new jobs, finish in-flight work with a
+1. **Deploys** must drain: stop accepting new jobs, finish in-flight work with a
   bounded timeout, then exit. Workers being `SIGKILL`ed mid-job relies on
   redelivery every single deploy.
-- **Version compatibility**: workers and producers deploy at different times, so a
+2. **Version compatibility**: workers and producers deploy at different times, so a
   worker must tolerate both the old and new payload shape during the rollout.
-- Keep a **manual replay and cancel** path. Every system eventually needs to
+3. Keep a **manual replay and cancel** path. Every system eventually needs to
   re-run yesterday's failed batch or stop a runaway job.
-- Retain job history long enough to answer "did this customer's export run?" —
+4. Retain job history long enough to answer "did this customer's export run?" —
   usually 7–30 days. In BullMQ that is `removeOnComplete: { age }`; in Sidekiq it
   is the `dead_max_jobs` and `dead_timeout_in_seconds` settings. Unbounded history
   is a slow memory leak in the broker.

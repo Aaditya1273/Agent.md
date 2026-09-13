@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never `SELECT *` when you need three columns — it defeats index-only scans and moves bytes nobody reads.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for diagnosing and fixing slow queries. Index selection is
 `Database/indexes`; this package is about finding the problem and rewriting it.
 
@@ -26,11 +37,13 @@ Guessing at query performance is unreliable even for people who do it daily,
 because the planner's choice depends on data distribution you cannot see.
 
 ---
+
 </purpose>
 
 # Find the real problem first
 
 <rules>
+
 ```sql
 -- Rank by total time, not by the slowest single call. A 20ms query run
 -- 100,000 times costs far more than a 3s report run once.
@@ -66,11 +79,13 @@ What to look for, in order:
 outside a transaction you roll back.
 
 ---
+
 </rules>
 
 # N+1: the most common cause
 
 <rules>
+
 One query for the list, then one per row. Invisible at 10 rows, fatal at 1,000.
 
 ```js
@@ -98,11 +113,13 @@ Detect it by counting queries per request in tests, not by reading code. A
 somebody adds a lazy relation.
 
 ---
+
 </rules>
 
 # Rewrites that change complexity
 
 <rules>
+
 Shaving constants rarely matters. These change the shape of the work:
 
 ```sql
@@ -132,11 +149,13 @@ pagination is the single highest-value rewrite for any large list.
 moves bytes nobody reads.
 
 ---
+
 </rules>
 
 # Where the time actually goes
 
 <rules>
+
 | Symptom | Cause |
 | --- | --- |
 | Fast in `psql`, slow in the app | Round trips (N+1), or connection pool wait |
@@ -150,11 +169,13 @@ concluding a query is slow. Frequently it is not the query — it is waiting for
 connection. → `Database/transactions`
 
 ---
+
 </rules>
 
 # Caching is the last resort
 
 <rules>
+
 Cache after the query is correct and indexed, never instead.
 
 - A cache in front of an unindexed query hides the problem until the cache misses,
@@ -165,11 +186,13 @@ Cache after the query is correct and indexed, never instead.
   → `Performance/caching`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Optimising without a plan | Time spent on the wrong query | `pg_stat_statements`, then `EXPLAIN ANALYZE` |
@@ -184,11 +207,13 @@ Cache after the query is correct and indexed, never instead.
 | Adding an index per slow query | Write cost accretes | Composite indexes; drop unused |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Slow queries are identified by total time from `pg_stat_statements`
 - [ ] Every fix is preceded by `EXPLAIN (ANALYZE, BUFFERS)`
 - [ ] `ANALYZE` has been run so estimates are trustworthy
@@ -200,4 +225,5 @@ Cache after the query is correct and indexed, never instead.
 - [ ] Pool waits and lock waits are ruled out before blaming the query
 - [ ] Caching is added only after the query is correct and indexed
 - [ ] Performance is verified against production-scale data
+
 </checklist>

@@ -14,10 +14,20 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for using Pydantic v2 (2.x) as the boundary layer of a Python service:
 parse untrusted input once, hand typed objects inward, serialize deliberately on
 the way out.
@@ -26,11 +36,13 @@ v1 APIs (`@validator`, `.dict()`, `class Config`) still import with deprecation
 warnings. Do not write new code against them.
 
 ---
+
 </purpose>
 
 # Model design
 
 <rules>
+
 ```python
 class OrderIn(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
@@ -52,11 +64,13 @@ class OrderIn(BaseModel):
   field in one direction or the other.
 
 ---
+
 </rules>
 
 # Validators — where rules live
 
 <rules>
+
 ```python
 class DateRange(BaseModel):
     start: date
@@ -88,11 +102,13 @@ class DateRange(BaseModel):
   (`"1,2,3"` → `[1, 2, 3]`), nothing else.
 
 ---
+
 </rules>
 
 # Settings
 
 <rules>
+
 ```python
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="APP_", env_file=".env", extra="ignore")
@@ -107,11 +123,13 @@ a `Settings()` per request re-reads `.env` every time. Invalid or missing values
 fail at boot with a field-level message — that is the point.
 
 ---
+
 </rules>
 
 # Serialization
 
 <rules>
+
 ```python
 order.model_dump()                          # dict, Python types
 order.model_dump(mode="json")               # dict, JSON-safe (datetime → str)
@@ -135,11 +153,13 @@ class OrderOut(BaseModel):
   without a hand-written mapping.
 
 ---
+
 </rules>
 
 # Strict versus lax
 
 <rules>
+
 ```python
 Model(age="3")                              # lax: "3" → 3
 Model.model_validate({"age": "3"}, strict=True)   # ValidationError
@@ -154,11 +174,13 @@ where `"3"` where `3` was expected is a bug worth surfacing. Use strict for
 internal and typed JSON contracts; lax at the edges that genuinely receive strings.
 
 ---
+
 </rules>
 
 # Performance
 
 <rules>
+
 - Validation runs in Rust and is fast; **constructing models in a hot loop is
   not free.** Validate at the boundary once; pass the instance around, do not
   re-validate the same data three layers deep.
@@ -172,11 +194,13 @@ internal and typed JSON contracts; lax at the edges that genuinely receive strin
   instead of trying each member; always tag polymorphic payloads.
 
 ---
+
 </rules>
 
 # Testing
 
 <rules>
+
 ```python
 def test_rejects_unknown_field():
     with pytest.raises(ValidationError) as e:
@@ -192,11 +216,13 @@ changes between minor versions. Snapshot `model_json_schema()` for models that
 form a public contract. → `Testing/pytest`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Default `extra="ignore"` on input | Typos silently dropped | `extra="forbid"` |
@@ -213,11 +239,13 @@ form a public contract. → `Testing/pytest`
 | Asserting on error message text | Breaks on minor upgrades | Assert `type` and `loc` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every input model sets `extra="forbid"`
 - [ ] Constraints expressed with `Field`/constrained types, not manual checks
 - [ ] Input, output and internal models are distinct
@@ -232,4 +260,5 @@ form a public contract. → `Testing/pytest`
 - [ ] `TypeAdapter`s are module-level
 - [ ] Polymorphic payloads use a discriminator
 - [ ] Tests assert error `type`/`loc`; public schemas are snapshotted
+
 </checklist>

@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -47,9 +53,9 @@ where the time goes; a tall thin spike is deep but cheap.
 
 Two distinctions that change the diagnosis:
 
-- **Self time versus total time.** A function with high total but low self time is
+1. **Self time versus total time.** A function with high total but low self time is
   not the problem; its callee is.
-- **On-CPU versus off-CPU.** A standard profiler samples running threads only.
+2. **On-CPU versus off-CPU.** A standard profiler samples running threads only.
   Time spent blocked on a lock or I/O does not appear at all — which is why a
   flat-looking profile with high latency means you are looking at the wrong tool.
   Use tracing for wall-clock time. → `Backend/monitoring`
@@ -122,15 +128,15 @@ Adding async concurrency to a blocked event loop does nothing.
 
 # Parallelism, and its limits
 
-- Independent work runs concurrently: `Promise.all`, goroutines, a thread pool.
+1. Independent work runs concurrently: `Promise.all`, goroutines, a thread pool.
   Bound the fan-out — unbounded parallelism exhausts pools and adds context
   switching. → `Backend/workers`
-- **Amdahl's law**: the serial fraction bounds the speedup. Work that is 10%
+2. **Amdahl's law**: the serial fraction bounds the speedup. Work that is 10%
   serial cannot exceed 10× no matter how many cores. Find and shrink the serial
   part before adding cores.
-- Adding cores to a lock-contended workload makes it **slower** — more threads,
+3. Adding cores to a lock-contended workload makes it **slower** — more threads,
   more contention.
-- In containers, a CPU limit throttles the process even when the node is idle,
+4. In containers, a CPU limit throttles the process even when the node is idle,
   which appears as unexplained p99 latency. Prefer requests without limits for
   latency-sensitive services. → `DevOps/kubernetes`
 

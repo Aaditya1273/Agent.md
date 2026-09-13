@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: authentication
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -81,16 +87,16 @@ update the row. This is the only moment the plaintext is available.
 
 # Password policy
 
-- **Minimum 8 characters. Maximum at least 64.** A low maximum is a strong signal
+1. **Minimum 8 characters. Maximum at least 64.** A low maximum is a strong signal
   the password is being stored in a fixed-width column, unhashed.
-- **Accept every Unicode character**, including spaces and emoji. Normalise to
+2. **Accept every Unicode character**, including spaces and emoji. Normalise to
   `NFKC` before hashing so the same typed password verifies across platforms.
-- **Check against a breach corpus** (Have I Been Pwned range API, or a local
+3. **Check against a breach corpus** (Have I Been Pwned range API, or a local
   copy). Rejecting known-breached passwords prevents more account takeover than
   any composition rule.
-- **No composition rules.** Do not require a symbol, a digit and mixed case.
+4. **No composition rules.** Do not require a symbol, a digit and mixed case.
   They push users toward `Password1!` and provide no measurable benefit.
-- **No forced rotation** on a schedule. Rotate on evidence of compromise only.
+5. **No forced rotation** on a schedule. Rotate on evidence of compromise only.
 
 ---
 
@@ -172,23 +178,23 @@ against your own users.
 Offer TOTP (`RFC 6238`) or WebAuthn. **Prefer WebAuthn** — it is phishing-resistant
 because the credential is bound to the origin.
 
-- SMS is a weak factor (SIM swap). Offer it only as a fallback, never as the only
+1. SMS is a weak factor (SIM swap). Offer it only as a fallback, never as the only
   option.
-- Verify TOTP against a **±1 step** window, no wider.
-- **Burn each TOTP code once.** Without single-use enforcement, a code is replayable
+2. Verify TOTP against a **±1 step** window, no wider.
+3. **Burn each TOTP code once.** Without single-use enforcement, a code is replayable
   for its full validity window.
-- Generate single-use recovery codes at enrolment and hash them like passwords.
+4. Generate single-use recovery codes at enrolment and hash them like passwords.
 
 ---
 
 # Password reset
 
-- Tokens must be **single-use**, **short-lived** (≤ 60 minutes), and CSPRNG-generated.
-- **Store the hash of the reset token**, not the token. A leaked database must not
+1. Tokens must be **single-use**, **short-lived** (≤ 60 minutes), and CSPRNG-generated.
+2. **Store the hash of the reset token**, not the token. A leaked database must not
   yield working reset links.
-- Invalidate all existing sessions on password change, except optionally the one
+3. Invalidate all existing sessions on password change, except optionally the one
   performing the change.
-- Never send the new or existing password by email.
+4. Never send the new or existing password by email.
 
 ---
 

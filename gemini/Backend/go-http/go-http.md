@@ -14,8 +14,7 @@ last-verified: 2026-09-13
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -223,3 +222,24 @@ func respond(w http.ResponseWriter, status int, v any) {
 - [ ] Verify: Decoding uses `DisallowUnknownFields` and validation reports all errors
 - [ ] Verify: `SIGTERM` triggers `srv.Shutdown` with a deadline
 - [ ] Verify: Readiness fails before shutdown; liveness stays green until exit
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Routes use `"METHOD /path/{param}"` patterns on `http.NewServeMux`
+- [ ] Every API route specifies a method
+- [ ] Handlers are methods on a struct that receives dependencies
+- [ ] `New` returns `http.Handler`
+- [ ] Middleware is `func(http.Handler) http.Handler`, recoverer outermost
+- [ ] Context keys are unexported struct types
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

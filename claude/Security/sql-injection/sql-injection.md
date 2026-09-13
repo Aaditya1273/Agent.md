@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,24 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never build SQL with string concatenation, template literals, `+`, `format()`, `sprintf`, or f-strings — in any language. If the query text varies with user input, the boundary is already broken.
+- Never rely on escaping functions like `mysql_real_escape_string` as your primary defence. They are dialect-specific, charset-sensitive, and historically bypassable — `GBK` multibyte sequences defeated exactly this pattern.
+- Never allow-list by regex (`/^[a-z_]+$/`) instead of an explicit map. A permissive pattern still admits valid identifiers you did not intend to expose, including columns holding password hashes.
+- Never pass user input into `LIKE` without escaping the wildcards. `%` and `_` are pattern metacharacters, and an unescaped `%` turns a lookup into a full scan — a denial-of-service vector even when injection is prevented.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for building SQL that cannot be subverted by input. Scope is injection into
 SQL specifically. Command injection is `Security/command-injection`; template and
 NoSQL injection are noted here only where the reasoning differs.
@@ -26,13 +40,15 @@ The single rule underneath everything: **data must never be parsed as code.**
 Every technique below is a way of keeping that boundary intact.
 
 ---
+
 </purpose>
 
 # Parameterised queries
 
 ## Bind values. Never concatenate them.
 
-<rules>
+<security_rules>
+
 ```js
 // WRONG — the query text changes shape with the input
 db.query(`SELECT * FROM users WHERE email = '${email}'`);
@@ -63,11 +79,13 @@ input, the boundary is already broken.
 **Never** rely on escaping functions like `mysql_real_escape_string` as your
 primary defence. They are dialect-specific, charset-sensitive, and historically
 bypassable — `GBK` multibyte sequences defeated exactly this pattern.
-</rules>
+
+</security_rules>
 
 ## Parameters bind values, not identifiers
 
-<rules>
+<security_rules>
+
 A placeholder cannot stand in for a table name, a column name, `ASC`/`DESC`, or
 `LIMIT` in most drivers:
 
@@ -96,11 +114,13 @@ permissive pattern still admits valid identifiers you did not intend to expose,
 including columns holding password hashes.
 
 ---
-</rules>
+
+</security_rules>
 
 # ORMs and query builders
 
-<rules>
+<security_rules>
+
 An ORM is not automatic protection. Every major ORM has a raw-SQL escape hatch,
 and that hatch is where injection lives.
 
@@ -136,11 +156,13 @@ db.query("SELECT * FROM docs WHERE title LIKE $1 ESCAPE '\\'", [`%${escaped}%`])
 ```
 
 ---
-</rules>
+
+</security_rules>
 
 # Stored procedures and dynamic SQL
 
-<rules>
+<security_rules>
+
 A stored procedure is only safe if it does not itself build SQL from its
 arguments.
 
@@ -158,11 +180,13 @@ you would in application code. In PostgreSQL, use `format()` with `%L` (literal)
 or `%I` (identifier) — never `%s` — and prefer `USING` for values.
 
 ---
-</rules>
+
+</security_rules>
 
 # Defence in depth
 
-<rules>
+<security_rules>
+
 These do not replace parameterisation. They limit the damage when it fails.
 
 - **Least privilege.** The application role should not hold `DROP`, `CREATE`, or
@@ -179,11 +203,13 @@ These do not replace parameterisation. They limit the damage when it fails.
   resources indefinitely.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `"... WHERE id = " + id` | Input becomes query structure | Bind with `$1` / `?` |
@@ -196,11 +222,13 @@ These do not replace parameterisation. They limit the damage when it fails.
 | Returning driver errors to the client | Leaks schema | Generic message, log server-side |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Every query sends values as bound parameters, not concatenated text
 - [ ] No template literal, `+`, `format()` or f-string builds SQL from input
 - [ ] Dynamic identifiers and sort direction come from an explicit allow-list map
@@ -211,4 +239,5 @@ These do not replace parameterisation. They limit the damage when it fails.
 - [ ] Multi-statement execution is disabled in the driver
 - [ ] Database errors are logged server-side and never returned to clients
 - [ ] Statement timeouts are configured
+
 </checklist>

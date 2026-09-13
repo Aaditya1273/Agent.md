@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: https
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for transport security. Encryption of stored data is `Security/encryption`;
@@ -133,17 +139,10 @@ const agent = new https.Agent({ ca: fs.readFileSync("/etc/ssl/internal-ca.pem") 
 [INST] Apply every rule in this section: Verifying. [/INST]
 
 ```bash
-
 # Protocol, cipher, chain and expiry from the live endpoint
-
-[INST] Apply every rule in this section: Protocol, cipher, chain and expiry from the live endpoint. [/INST]
-
 openssl s_client -connect app.example.com:443 -servername app.example.com < /dev/null
 
 # Confirm weak protocols are actually refused
-
-[INST] Apply every rule in this section: Confirm weak protocols are actually refused. [/INST]
-
 openssl s_client -tls1_1 -connect app.example.com:443 < /dev/null   # expect failure
 ```
 

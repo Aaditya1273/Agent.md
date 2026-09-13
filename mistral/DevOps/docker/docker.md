@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: docker
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 Rules for writing Dockerfiles and building images. Three goals, in order:
@@ -32,11 +38,7 @@ Most Dockerfiles fail the first two while optimising the third.
 [INST] Apply every rule in this section: Multi-stage builds. [/INST]
 
 ```dockerfile
-
 # syntax=docker/dockerfile:1
-
-[INST] Apply every rule in this section: syntax=docker/dockerfile:1. [/INST]
-
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -74,11 +76,7 @@ install, and the build never uses its cache.
 [INST] Apply every rule in this section: Never put secrets in an image. [/INST]
 
 ```dockerfile
-
 # Every one of these persists in the image history, retrievable with `docker history`
-
-[INST] Apply every rule in this section: Every one of these persists in the image history, retrievable with `docker history`. [/INST]
-
 ARG NPM_TOKEN                       # ❌
 ENV API_KEY=sk-live-…               # ❌
 COPY .env .                         # ❌
@@ -146,11 +144,7 @@ post-exploitation foothold.
 
 ```dockerfile
 CMD ["node", "dist/server.js"]        # exec form: node is PID 1 and receives SIGTERM
-
 # CMD npm start                       # shell form: sh is PID 1, npm swallows the signal
-
-[INST] Apply every rule in this section: CMD npm start                       # shell form: sh is PID 1, npm swallows the signal. [/INST]
-
 ```
 
 The shell form wraps the command in `/bin/sh -c`, so your process is not PID 1 and

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -24,9 +31,9 @@ runtime so the platform's limits and the runtime's limits agree.
 
 Distinguish two problems that look identical on a graph:
 
-- **A leak** — memory that is referenced but never used again. Grows without
+1. **A leak** — memory that is referenced but never used again. Grows without
   bound, ends in an OOM kill.
-- **Growth** — legitimately more data in memory than the container has. Fixed by
+2. **Growth** — legitimately more data in memory than the container has. Fixed by
   streaming, paginating or sizing, not by finding a bug.
 
 Confusing them wastes days. The distinguishing signal: after load stops, does
@@ -76,13 +83,13 @@ await pipeline(fs.createReadStream(path), res);
 
 The same rule applies everywhere size is caller-controlled:
 
-- **Database result sets** — cursor or paginate; `SELECT *` with no `LIMIT` on a
+1. **Database result sets** — cursor or paginate; `SELECT *` with no `LIMIT` on a
   growing table is a scheduled OOM. → `Performance/queries`
-- **HTTP request bodies** — set a size limit (`express.json({ limit: "100kb" })`),
+2. **HTTP request bodies** — set a size limit (`express.json({ limit: "100kb" })`),
   and a decompressed-size cap so a small gzip cannot expand to gigabytes.
-- **CSV and export generation** — stream rows out; do not build the whole document
+3. **CSV and export generation** — stream rows out; do not build the whole document
   in memory.
-- **JSON parsing** — `JSON.parse` on a multi-megabyte payload allocates several
+4. **JSON parsing** — `JSON.parse` on a multi-megabyte payload allocates several
   times the payload size **and** blocks the event loop. → `Backend/node`
 
 Backpressure exists for this. Ignoring `write()`'s return value lets a fast

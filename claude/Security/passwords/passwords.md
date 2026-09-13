@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never silently truncate. If you must cap input, reject with a clear message rather than hashing a prefix — the user will believe a password works that does not.
+- Never log a password, even at debug level, even on failure. Scrub request bodies before they reach an error reporter. - Never email a password, new or existing. Send a single-use reset link. - Never store a recoverable form — if you can display it, so can an attacker. "Forgot password" must reset, never reveal. - Accept passwords only over HTTPS, and only via `POST` body — never a query string, where they reach logs and `Referer` headers. - Set `autocomplete="current-password"` / `"new-password"` so password managers work correctly. Fighting managers pushes users toward weaker, memorable choices. - Never disable paste on a password field. It exists to defeat password managers and achieves only weaker passwords.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for password policy and handling. Storage mechanics — `argon2id`
 parameters, rehash-on-login — are in `Security/authentication`; this package is
 about the policy that surrounds them.
@@ -27,11 +39,13 @@ and breach screening reduce compromise. Composition rules and forced rotation do
 not, and they cause harm.**
 
 ---
+
 </purpose>
 
 # Policy
 
-<rules>
+<security_rules>
+
 | Rule | Setting | Why |
 | --- | --- | --- |
 | Minimum length | **8**, prefer **12** for privileged accounts | The only composition factor that reliably helps |
@@ -60,11 +74,13 @@ rather than hashing a prefix — the user will believe a password works that doe
 not.
 
 ---
-</rules>
+
+</security_rules>
 
 # Breach screening
 
-<rules>
+<security_rules>
+
 Check candidates against a corpus of known-compromised passwords at signup and at
 change. This prevents more takeover than every composition rule combined, because
 credential stuffing uses exactly these lists.
@@ -105,11 +121,13 @@ async function assessPassword(raw) {
 
 Note what is absent: no `/[A-Z]/` test, no `/[0-9]/` test, no `/[!@#$%]/` test.
 Those regexes are the composition rules this policy deliberately rejects.
-</rules>
+
+</security_rules>
 
 # Handling in transit and at rest
 
-<rules>
+<security_rules>
+
 - **Never** log a password, even at debug level, even on failure. Scrub request
   bodies before they reach an error reporter.
 - **Never** email a password, new or existing. Send a single-use reset link.
@@ -123,11 +141,13 @@ Those regexes are the composition rules this policy deliberately rejects.
   managers and achieves only weaker passwords.
 
 ---
-</rules>
+
+</security_rules>
 
 ## Storage recap
 
-<rules>
+<security_rules>
+
 Policy and storage are separate concerns, and both must hold. Even a strong
 policy is worthless behind a weak hash, so confirm the storage side too:
 `argon2id` with `memoryCost` at least `19456`, `timeCost` `2`, verified with the
@@ -137,11 +157,13 @@ pattern are in `Security/authentication`.
 Never store a password with `md5`, `sha1`, `sha256` or any bare digest, and never
 keep a plaintext copy "for support" — there is no support workflow that justifies
 a recoverable password column.
-</rules>
+
+</security_rules>
 
 # Rate limiting and lockout
 
-<rules>
+<security_rules>
+
 - Limit attempts per account **and** per IP — see `Security/authentication`.
 - Prefer exponential backoff to a hard lock. A permanent lockout triggered by
   failures is a denial-of-service primitive against your own users.
@@ -149,11 +171,13 @@ a recoverable password column.
 - Notify the user by email on password change, from an address they can act on.
 
 ---
-</rules>
+
+</security_rules>
 
 # Strength feedback
 
-<rules>
+<security_rules>
+
 Use an entropy estimator such as `zxcvbn` rather than a character-class meter. It
 recognises `P@ssw0rd!` as weak and `correct horse battery staple` as strong,
 which a class-counting meter inverts.
@@ -162,11 +186,13 @@ Show strength as guidance, not as a gate. The hard requirements are length and
 breach screening.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Requiring symbol + digit + mixed case | Produces `Password1!` | Length plus breach screening |
@@ -181,11 +207,13 @@ breach screening.
 | Permanent lockout on failures | Attacker locks out every user | Exponential backoff |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Minimum 8 characters; maximum at least 64
 - [ ] All Unicode accepted; input `NFKC`-normalised before hashing
 - [ ] No composition rules enforced
@@ -198,4 +226,5 @@ breach screening.
 - [ ] Rate limiting covers login, change and reset, keyed by account and IP
 - [ ] Users are emailed on password change
 - [ ] Strength feedback uses an entropy estimator, as guidance not a gate
+
 </checklist>

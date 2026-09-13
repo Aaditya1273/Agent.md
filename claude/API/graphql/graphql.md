@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never expose introspection on a public production endpoint. It hands an attacker the complete schema, including fields you forgot were reachable.
+- Never version a GraphQL schema with `/v2`. Deprecate fields in place:
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for building a GraphQL API. GraphQL moves query construction from the server
 to the client. That is the feature and the entire risk surface: the client now
 decides how expensive a request is, and how deep it goes.
@@ -27,20 +39,18 @@ varied shapes; if every consumer fetches the same thing, REST is less machinery.
 → `API/rest`
 
 ---
+
 </purpose>
 
 # Bound the cost of a query
 
 <rules>
+
 A public GraphQL endpoint without cost controls is an open denial-of-service
 target. All four controls below are needed — none is sufficient alone.
 
 ```graphql
-</rules>
-
 # Without depth limiting, this recurses until the server dies
-
-<rules>
 query { user { friends { friends { friends { friends { id } } } } } }
 ```
 
@@ -69,11 +79,13 @@ child cost`, not `1`:
 attacker the complete schema, including fields you forgot were reachable.
 
 ---
+
 </rules>
 
 # N+1 is structural, not accidental
 
 <rules>
+
 Resolvers run per field per object. A list of 100 orders each resolving `customer`
 issues 100 queries — the resolver has no idea it is in a list.
 
@@ -99,11 +111,13 @@ Assert resolver query counts in tests — this regresses every time someone adds
 field. → `Database/query-optimization`
 
 ---
+
 </rules>
 
 # Authorization is per field
 
 <rules>
+
 There is no endpoint to guard. A single query can traverse from a public field
 into a sensitive one, so authorization belongs in the resolver or the type layer.
 
@@ -124,11 +138,13 @@ Order: {
   access. → `Security/authorization`
 
 ---
+
 </rules>
 
 # Schema design
 
 <rules>
+
 ```graphql
 type Order implements Node {
   id: ID!
@@ -162,11 +178,13 @@ amount: Int! @deprecated(reason: "Use totalCents. Removed after 2026-09-01.")
 ```
 
 ---
+
 </rules>
 
 # Errors
 
 <rules>
+
 GraphQL returns `200` with a top-level `errors` array. Clients need more
 structure than a message string.
 
@@ -186,11 +204,13 @@ structure than a message string.
 - Include a `requestId` in every response.
 
 ---
+
 </rules>
 
 # Operations
 
 <rules>
+
 - **Disable introspection and the GraphiQL playground** in production.
 - Log per-operation name, complexity score and duration — not the raw query
   string, which contains user data.
@@ -200,11 +220,13 @@ structure than a message string.
   queries plus a response cache keyed on the operation hash and the viewer.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | No depth or complexity limit | Recursive query kills the server | Depth + complexity + timeout |
@@ -221,11 +243,13 @@ structure than a message string.
 | Unmasked errors in production | Stack traces leak internals | `maskedErrors` / `formatError` |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Query depth, complexity, breadth and timeout limits are all enforced
 - [ ] Complexity weights reflect real cost, including pagination multipliers
 - [ ] First-party clients use persisted/allowlisted queries
@@ -240,4 +264,5 @@ structure than a message string.
 - [ ] Errors carry a stable `extensions.code` and a `requestId`
 - [ ] Internal errors are masked in production
 - [ ] Deprecation uses `@deprecated` with a removal date, not a new endpoint
+
 </checklist>

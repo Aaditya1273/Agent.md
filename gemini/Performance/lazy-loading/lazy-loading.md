@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -180,3 +179,24 @@ a signal of intent, not on the click:
 - [ ] Verify: The first page of a list ships with the initial response
 - [ ] Verify: Third-party widgets load behind a facade on interaction
 - [ ] Verify: Tracking and cookie-setting scripts load only after consent
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- [ ] Above-the-fold content, the shell and critical CSS are never deferred
+- [ ] The LCP image is prioritised, not lazy-loaded
+- [ ] Below-the-fold images and iframes use native `loading="lazy"`
+- [ ] Every lazily loaded image sets dimensions
+- [ ] Visibility detection uses `IntersectionObserver` with a `rootMargin`
+- [ ] Lazy components are wrapped in `<Suspense>` with correctly sized fallbacks
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

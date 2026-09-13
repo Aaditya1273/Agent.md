@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -24,8 +30,8 @@ something you have restored.** Everything else is a file of unknown quality.
 
 Start by writing down two numbers, because every decision below follows from them:
 
-- **RPO** — recovery point objective: how much data may be lost, in minutes.
-- **RTO** — recovery time objective: how long a restore may take, in minutes.
+1. **RPO** — recovery point objective: how much data may be lost, in minutes.
+2. **RTO** — recovery time objective: how long a restore may take, in minutes.
 
 An RPO of five minutes rules out nightly dumps. An RTO of fifteen minutes rules
 out restoring a 2 TB dump on a fresh host. If you cannot meet the numbers, change
@@ -129,10 +135,10 @@ re-applied on restore rather than by editing backup archives.
 
 # Encryption and secrets
 
-- Encrypt at rest and in transit. Managed KMS, not a key file beside the archive.
-- Store the decryption key **outside** the backup system, and outside the
+1. Encrypt at rest and in transit. Managed KMS, not a key file beside the archive.
+2. Store the decryption key **outside** the backup system, and outside the
   database it protects.
-- The restore procedure must be executable by someone who is not the person who
+3. The restore procedure must be executable by someone who is not the person who
   set it up — including access to the key. Document where the key lives.
   → `Security/secret-management`
 

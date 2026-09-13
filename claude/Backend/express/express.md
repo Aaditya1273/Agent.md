@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for structuring an Express application. Express is unopinionated, which
 means every decision it does not make for you is one you must make deliberately —
 and the defaults it does ship are tuned for 2012.
@@ -26,11 +36,13 @@ Runtime concerns are `Backend/node`; middleware ordering is
 `Backend/middlewares`.
 
 ---
+
 </purpose>
 
 # Separate the app from the server
 
 <rules>
+
 ```js
 // app.js — builds and returns the app. No listen(), no side effects.
 export function createApp({ db, mailer, logger }) {
@@ -52,11 +64,13 @@ Pass dependencies in. A module that imports its own database client cannot be
 tested without one.
 
 ---
+
 </rules>
 
 # Structure by feature
 
 <rules>
+
 ```
 src/
   features/
@@ -78,11 +92,13 @@ Routers compose — mount feature routers on the app rather than declaring a hun
 routes in one file.
 
 ---
+
 </rules>
 
 # Async errors
 
 <rules>
+
 ```js
 // Express 4: a rejected promise is NOT caught. The request hangs until timeout.
 app.get("/orders/:id", async (req, res) => { throw new Error("boom"); });  // ← hangs
@@ -108,11 +124,13 @@ A three-argument function registered last is not an error handler and will be
 skipped silently. → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Security defaults you must set
 
 <rules>
+
 Express ships with none of these.
 
 ```js
@@ -139,11 +157,13 @@ Validate every input at the boundary with a schema, and reject unknown fields.
 → `Backend/validation`
 
 ---
+
 </rules>
 
 # Request context and lifecycle
 
 <rules>
+
 - Attach a request id first and expose a child logger as `req.log`.
 - Carry request-scoped state in `AsyncLocalStorage`, not on module variables — a
   module-scope `currentUser` leaks one request's identity into another's under
@@ -157,11 +177,13 @@ Validate every input at the boundary with a schema, and reject unknown fields.
   dependencies) before any auth middleware. → `Backend/monitoring`
 
 ---
+
 </rules>
 
 # Testing
 
 <rules>
+
 ```js
 const res = await request(createApp({ db: testDb }))
   .post("/v1/orders")
@@ -178,11 +200,13 @@ expect(res.status).toBe(201);
   somebody forgot to protect.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | `listen()` in the same file as the app | Cannot test without binding a port | Split app and server |
@@ -204,11 +228,13 @@ expect(res.status).toBe(201);
 | Only happy-path tests | Missing auth checks invisible | Assert denials |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] `createApp()` is separate from `listen()`
 - [ ] Dependencies are injected, not imported inside modules
 - [ ] Code is organised by feature, with routes, service and repository separated
@@ -228,4 +254,5 @@ expect(res.status).toBe(201);
 - [ ] `SIGTERM` drains in-flight requests before exit
 - [ ] Tests run against the app object with `supertest`
 - [ ] Denial cases and unauthenticated access are asserted per route
+
 </checklist>

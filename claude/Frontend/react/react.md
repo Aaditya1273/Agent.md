@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,21 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never memoise to fix an infinite loop. That is a dependency bug; fix the dependency.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for writing React components. Most React bugs are not rendering bugs — they
 are **state-modelling bugs**: state that should have been derived, state
 duplicated in two places, or an effect synchronising something that did not need
@@ -27,11 +38,13 @@ Hooks discipline is `Frontend/hooks`; global state is
 `Frontend/state-management`.
 
 ---
+
 </purpose>
 
 # Derive, do not store
 
 <rules>
+
 ```tsx
 // Two sources of truth — they will diverge
 const [items, setItems] = useState([]);
@@ -63,11 +76,13 @@ type State =
 ```
 
 ---
+
 </rules>
 
 # Most effects are unnecessary
 
 <rules>
+
 `useEffect` synchronises with something **outside** React: the DOM, a
 subscription, a timer, an analytics SDK. It is not a general-purpose "run this
 after render" hook.
@@ -97,11 +112,13 @@ one resolving last and overwriting fresh data. Use an `AbortController` and igno
 stale results, or use a library that already does. → `Frontend/hooks`
 
 ---
+
 </rules>
 
 # Keys are identity, not position
 
 <rules>
+
 ```tsx
 // Index keys: deleting the first item makes React reuse the wrong DOM node.
 // Input values, focus and scroll position follow the index, not the item.
@@ -119,11 +136,13 @@ state and remounts it — the correct way to reset a form when the selected reco
 changes.
 
 ---
+
 </rules>
 
 # Memoise on evidence
 
 <rules>
+
 `memo`, `useMemo` and `useCallback` are not free: they add allocation, comparison
 cost and code that must stay correct.
 
@@ -140,11 +159,13 @@ cost and code that must stay correct.
 dependency.
 
 ---
+
 </rules>
 
 # Rendering untrusted content
 
 <rules>
+
 ```tsx
 // React escapes this automatically — safe
 <div>{userComment}</div>
@@ -161,11 +182,13 @@ Also unsafe: `href={userUrl}` permits `javascript:` — validate the scheme.
 injectable. → `Security/xss`
 
 ---
+
 </rules>
 
 # Accessibility is not optional
 
 <rules>
+
 - Semantic elements first: `<button>`, `<a href>`, `<nav>`, `<main>`. A `<div
   onClick>` is not keyboard-reachable and is invisible to a screen reader.
 - Every input has a `<label>` associated by `htmlFor`.
@@ -176,11 +199,13 @@ injectable. → `Security/xss`
 - Test with a keyboard only, and run `axe` in CI. → `Testing/accessibility`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | State duplicating derived data | Two sources of truth diverge | Compute during render |
@@ -200,11 +225,13 @@ injectable. → `Security/xss`
 | Business logic inside components | Untestable without rendering | Extract to functions |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] No state stores what can be derived from other state or props
 - [ ] State lives at the lowest common owner of its consumers
 - [ ] Related state is modelled so impossible combinations cannot exist
@@ -221,4 +248,5 @@ injectable. → `Security/xss`
 - [ ] Interactive elements are semantic and keyboard-reachable
 - [ ] Every input has an associated label; focus is managed on navigation
 - [ ] Business logic lives outside components and is unit-tested
+
 </checklist>

@@ -1,8 +1,8 @@
 ---
 targetModels:
+  - "Mistral Medium 3.5"
   - "Mistral Large 3"
   - "Mistral Small 4"
-  - "Devstral"
   - "Mistral Family"
   - "Future Mistral Models"
 name: security-review
@@ -14,7 +14,13 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Mistral per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Mistral: scripts/model-profiles.json -->
+
+## How to apply this file
+Each section opens with one imperative line; apply every rule in the section it introduces. Do not summarise or skip a section.
+
+---
+
 # Purpose
 
 How to review a code change for security, and how to spend that attention where
@@ -140,13 +146,8 @@ exception with an owner for anything suppressed. A permanent suppression with no
 owner is how a known CVE ships for two years.
 
 ```yaml
-
 # Gate the build. An exception must name an owner and an expiry, so a
-
 # suppression cannot quietly become permanent.
-
-[INST] Apply every rule in this section: suppression cannot quietly become permanent.. [/INST]
-
 - name: Dependency and secret scan
   run: |
     npm audit --omit=dev --audit-level=high

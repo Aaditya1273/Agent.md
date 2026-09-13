@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: cors
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -50,15 +56,15 @@ app.use((req, res, next) => {
 });
 ```
 
-- Compare against an **exact set**. The header takes one origin, so with several
+1. Compare against an **exact set**. The header takes one origin, so with several
   allowed you must echo the matched one — and `Vary: Origin` is then mandatory.
-- **Never reflect an arbitrary `Origin`.** `res.set("Access-Control-Allow-Origin",
+2. **Never reflect an arbitrary `Origin`.** `res.set("Access-Control-Allow-Origin",
   req.get("Origin"))` with credentials enabled means every site can read every
   authenticated response. This is the single most damaging CORS misconfiguration.
-- **Never** match with `startsWith`, `endsWith` or a loose regex.
+3. **Never** match with `startsWith`, `endsWith` or a loose regex.
   `https://app.example.com.evil.tld` passes a prefix check;
   `https://evil-app.example.com` passes a naive suffix check. Compare full origins.
-- **Never** allow `null`. It is sent by sandboxed iframes and `file://` documents
+4. **Never** allow `null`. It is sent by sandboxed iframes and `file://` documents
   and is attacker-reachable.
 
 ## Credentials
@@ -84,11 +90,11 @@ Access-Control-Allow-Headers: Content-Type, Authorization
 Access-Control-Max-Age: 600
 ```
 
-- List **only** the methods and headers you actually accept. `Allow-Headers: *`
+1. List **only** the methods and headers you actually accept. `Allow-Headers: *`
   is ignored when credentials are used, and permissive otherwise.
-- `Max-Age` caches the preflight. Keep it modest so a policy change takes effect;
+2. `Max-Age` caches the preflight. Keep it modest so a policy change takes effect;
   browsers cap it regardless.
-- The preflight response must not require authentication — the browser sends it
+3. The preflight response must not require authentication — the browser sends it
   without credentials.
 
 ```js
@@ -130,11 +136,11 @@ responses that differ by requested headers.
 
 # What CORS does not do
 
-- **It does not protect non-browser clients.** `curl`, a server, or a mobile app
+1. **It does not protect non-browser clients.** `curl`, a server, or a mobile app
   ignores CORS entirely. Authorisation must be enforced server-side regardless.
-- **It does not prevent the request.** A cross-site `POST` still executes and
+2. **It does not prevent the request.** A cross-site `POST` still executes and
   still changes state; the attacker merely cannot read the reply.
-- **It is not authentication.** An origin is not an identity. Anyone can send an
+3. **It is not authentication.** An origin is not an identity. Anyone can send an
   `Origin` header of their choosing outside a browser.
 
 ---

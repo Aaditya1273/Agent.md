@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for configuring CORS deliberately.
 
 First, the correction that prevents most CORS mistakes: **CORS is a relaxation of
@@ -29,11 +39,13 @@ see `Security/csrf`.
 Loosening CORS can only ever weaken your position. Start closed.
 
 ---
+
 </purpose>
 
 # Explicit origins
 
-<rules>
+<security_rules>
+
 ```js
 const ALLOWED = new Set([
   "https://app.example.com",
@@ -61,11 +73,13 @@ app.use((req, res, next) => {
   `https://evil-app.example.com` passes a naive suffix check. Compare full origins.
 - **Never** allow `null`. It is sent by sandboxed iframes and `file://` documents
   and is attacker-reachable.
-</rules>
+
+</security_rules>
 
 ## Credentials
 
-<rules>
+<security_rules>
+
 `Access-Control-Allow-Origin: *` and `Access-Control-Allow-Credentials: true` are
 rejected together by browsers. Code that "fixes" this by reflecting the origin has
 deliberately built the vulnerability the rule exists to prevent.
@@ -74,11 +88,13 @@ If the API uses bearer tokens rather than cookies, you may not need credentials
 at all — and then `*` for genuinely public, unauthenticated endpoints is fine.
 
 ---
-</rules>
+
+</security_rules>
 
 # Preflight
 
-<rules>
+<security_rules>
+
 A preflight `OPTIONS` request is sent when the request is not "simple" — a method
 beyond `GET`/`HEAD`/`POST`, a `Content-Type` other than the three form types, or
 custom headers.
@@ -120,11 +136,13 @@ cross-site form cannot perform. That is a genuine CSRF benefit, though it comes
 from the content type rather than from CORS itself.
 
 ---
-</rules>
+
+</security_rules>
 
 # Caching and proxies
 
-<rules>
+<security_rules>
+
 `Vary: Origin` is not optional when the allowed origin varies. Without it a CDN or
 proxy may serve a response containing
 `Access-Control-Allow-Origin: https://app.example.com` to a request from another
@@ -134,11 +152,13 @@ The same applies to `Vary: Access-Control-Request-Headers` for preflight
 responses that differ by requested headers.
 
 ---
-</rules>
+
+</security_rules>
 
 # What CORS does not do
 
-<rules>
+<security_rules>
+
 - **It does not protect non-browser clients.** `curl`, a server, or a mobile app
   ignores CORS entirely. Authorisation must be enforced server-side regardless.
 - **It does not prevent the request.** A cross-site `POST` still executes and
@@ -147,11 +167,13 @@ responses that differ by requested headers.
   `Origin` header of their choosing outside a browser.
 
 ---
-</rules>
+
+</security_rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Reflecting any `Origin` with credentials | Every site reads authenticated responses | Exact allow-list |
@@ -164,11 +186,13 @@ responses that differ by requested headers.
 | Long `Max-Age` | Policy changes take days to apply | Keep it short |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] Allowed origins are an exact set, compared by full-origin equality
 - [ ] No reflection of arbitrary `Origin` values
 - [ ] `Origin: null` is never allowed
@@ -179,4 +203,5 @@ responses that differ by requested headers.
 - [ ] Preflight responses do not require authentication
 - [ ] Server-side authorisation is enforced independently of CORS
 - [ ] Development origins are not present in the production configuration
+
 </checklist>

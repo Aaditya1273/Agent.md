@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: security-review
 category: Security
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -150,14 +156,14 @@ trust assumptions, and whether the feature should exist in this shape at all.
 
 # Reviewing the review
 
-- **Say what you checked**, not only what you found. "Verified the new query is
+1. **Say what you checked**, not only what you found. "Verified the new query is
   tenant-scoped and the upload path is resolved before use" is far more useful to
   the next reviewer than a silent approval.
-- **Be specific about severity.** Distinguish "this is exploitable today" from
+2. **Be specific about severity.** Distinguish "this is exploitable today" from
   "this weakens a defence in depth". Treating both as blockers trains people to
   ignore you.
-- **Suggest the fix**, not just the flaw. `Security/*` packages exist to be linked.
-- **Never approve a security-relevant change you did not understand.** Ask. An
+3. **Suggest the fix**, not just the flaw. `Security/*` packages exist to be linked.
+4. **Never approve a security-relevant change you did not understand.** Ask. An
   approval is an assertion.
 
 ---

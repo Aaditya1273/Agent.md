@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,22 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+- Never put a session or access token in `localStorage`. Any XSS then becomes full account takeover. → `Security/xss`
+- Never accept `tenantId` from a header, body or query parameter. A client-supplied tenant is horizontal privilege escalation in one line.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules for implementing authentication in a backend service: choosing a mechanism,
 verifying credentials on each request, and managing session lifetime.
 
@@ -25,11 +37,13 @@ Credential storage, password policy and MFA are `Security/authentication`. Token
 format specifics are `Security/jwt`. This package is the server-side plumbing.
 
 ---
+
 </purpose>
 
 # Choose the mechanism from the client
 
 <rules>
+
 | Client | Mechanism | Why |
 | --- | --- | --- |
 | First-party browser app | Opaque session id in an `HttpOnly` cookie | Revocable instantly; invisible to JavaScript |
@@ -52,11 +66,13 @@ Set-Cookie: sid=<128-bit random>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Ag
 full account takeover. → `Security/xss`
 
 ---
+
 </rules>
 
 # The verification middleware
 
 <rules>
+
 Authentication runs once, early, for every request, and establishes exactly one
 thing: **who is calling.**
 
@@ -88,11 +104,13 @@ interval — a network fetch per request is a hard dependency on the identity
 provider for every single call.
 
 ---
+
 </rules>
 
 # Sessions and refresh
 
 <rules>
+
 - **Rotate the identifier** on login, on logout, and on any privilege change.
   Reusing the pre-login id is session fixation.
 - Enforce **both** an idle timeout and an absolute lifetime. Idle alone lets a
@@ -109,11 +127,13 @@ provider for every single call.
   users ask for.
 
 ---
+
 </rules>
 
 # Multi-tenant identity
 
 <rules>
+
 The tenant is part of the identity, resolved server-side, and never taken from the
 request.
 
@@ -135,11 +155,13 @@ impersonated one, be time-limited, and be audit-logged on every request.
 → `Security/audit-log`
 
 ---
+
 </rules>
 
 # Failure behaviour
 
 <rules>
+
 - `401` for missing or invalid credentials; `403` for authenticated but not
   permitted. Returning `403` to an anonymous caller confirms the resource exists.
 - **Identical responses** for unknown user and wrong password, in body, status and
@@ -153,11 +175,13 @@ impersonated one, be time-limited, and be audit-logged on every request.
   actor, source IP and user agent.
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Token in `localStorage` | XSS becomes account takeover | `HttpOnly` cookie |
@@ -177,11 +201,13 @@ impersonated one, be time-limited, and be audit-logged on every request.
 | No session inventory | Users cannot revoke a stolen session | Per-user session list |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] The mechanism is chosen per client type and written down
 - [ ] Browser sessions use `HttpOnly; Secure; SameSite` cookies
 - [ ] No token is stored in `localStorage` or `sessionStorage`
@@ -200,4 +226,5 @@ impersonated one, be time-limited, and be audit-logged on every request.
 - [ ] Impersonation records the real actor and is time-limited and audited
 - [ ] `401` and `403` are used correctly; failures are indistinguishable
 - [ ] Login is rate limited on both account and IP, with temporary backoff
+
 </checklist>

@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -49,13 +56,13 @@ different — reported by users as "the link doesn't work".
 
 Rules for the URL itself:
 
-- Lowercase, hyphenated, plural collections: `/payment-methods/{id}`.
-- Stable. A changed URL is a broken bookmark and a lost search ranking; when you
+1. Lowercase, hyphenated, plural collections: `/payment-methods/{id}`.
+2. Stable. A changed URL is a broken bookmark and a lost search ranking; when you
   must change one, `301` the old path. → `Frontend/seo`
-- Never put a secret, token or personal data in a query string — it lands in
+3. Never put a secret, token or personal data in a query string — it lands in
   server logs, browser history and `Referer` headers. → `API/api-security`
-- Omit defaults (`?page=1` adds nothing) so the canonical URL is unambiguous.
-- Validate and coerce every parameter: a route parameter is untrusted input.
+4. Omit defaults (`?page=1` adds nothing) so the canonical URL is unambiguous.
+5. Validate and coerce every parameter: a route parameter is untrusted input.
 
 ---
 
@@ -75,11 +82,11 @@ app/
 Nested layouts preserve state across navigation within a section — scroll
 position in a sidebar, an open panel — which a flat route table cannot do.
 
-- Colocate `loading` and `error` boundaries per segment, so a failure in one panel
+1. Colocate `loading` and `error` boundaries per segment, so a failure in one panel
   does not blank the page.
-- Every route needs a `not-found` path for a bad or deleted id, returning a real
+2. Every route needs a `not-found` path for a bad or deleted id, returning a real
   `404` rather than an empty page.
-- Keep dynamic segments shallow. `/users/:u/orders/:o/items/:i` exposes a
+3. Keep dynamic segments shallow. `/users/:u/orders/:o/items/:i` exposes a
   hierarchy that will change; one level of nesting is usually enough.
   → `API/rest`
 
@@ -96,13 +103,13 @@ A client-side guard is a **user-experience feature**: it avoids showing a page
 that will fail. It is not a control — the user can call the API directly, and the
 JavaScript that decides is running on their machine.
 
-- Enforce authorization on the server, on every request that returns data.
+1. Enforce authorization on the server, on every request that returns data.
   → `Backend/authorization`
-- Redirect unauthenticated users to a login page that preserves the intended
+2. Redirect unauthenticated users to a login page that preserves the intended
   destination (`?next=/orders/123`), and **validate that parameter against an
   allowlist of internal paths** — an unvalidated redirect target is an open-redirect
   vulnerability used in phishing.
-- Never render protected content and hide it with CSS. It is in the DOM.
+3. Never render protected content and hide it with CSS. It is in the DOM.
 
 ---
 
@@ -132,12 +139,12 @@ keyboard access.
 
 # Data and transitions
 
-- Fetch per route with the router's loader or a server component, so the request
+1. Fetch per route with the router's loader or a server component, so the request
   starts with the navigation rather than after the component mounts.
-- Prefetch on hover, focus or viewport entry — the code **and** the data.
-- Keep the old view visible during a pending navigation (`useTransition`,
+2. Prefetch on hover, focus or viewport entry — the code **and** the data.
+3. Keep the old view visible during a pending navigation (`useTransition`,
   `startTransition`) rather than flashing a spinner over content that was fine.
-- Handle a failed navigation: leave the user where they were with an error, not on
+4. Handle a failed navigation: leave the user where they were with an error, not on
   a blank route.
 
 ---

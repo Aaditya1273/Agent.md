@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -72,13 +79,13 @@ build. → `DevOps/environments`
 
 # Make it reproducible
 
-- Pin the toolchain: language version in `.nvmrc`/`.tool-versions`, and the same
+1. Pin the toolchain: language version in `.nvmrc`/`.tool-versions`, and the same
   version in CI as in production.
-- Install from the lockfile (`npm ci`, `pip install -r requirements.lock`,
+2. Install from the lockfile (`npm ci`, `pip install -r requirements.lock`,
   `cargo build --locked`). `npm install` can resolve differently on two runs.
-- Pin action and image versions by SHA, not by a floating tag — a mutable tag is
+3. Pin action and image versions by SHA, not by a floating tag — a mutable tag is
   arbitrary code execution in your pipeline.
-- Cache dependencies keyed on the lockfile hash, never on a branch name:
+4. Cache dependencies keyed on the lockfile hash, never on a branch name:
 
 ```yaml
 - uses: actions/cache@v4
@@ -94,19 +101,19 @@ disappear when the cache expires — the hardest kind of pipeline bug to diagnos
 
 # Secrets
 
-- Secrets come from the platform's secret store, never from the repository, never
+1. Secrets come from the platform's secret store, never from the repository, never
   from a `.env` committed "temporarily".
-- Prefer **OIDC federation** over long-lived cloud credentials: the pipeline
+2. Prefer **OIDC federation** over long-lived cloud credentials: the pipeline
   exchanges its identity for a short-lived token, and there is no static key to
   leak or rotate.
-- Scope tokens to the minimum: a deploy token cannot read source, a registry token
+3. Scope tokens to the minimum: a deploy token cannot read source, a registry token
   is push-only for one repository.
-- **Never expose secrets to workflows triggered by forks.** `pull_request_target`
+4. **Never expose secrets to workflows triggered by forks.** `pull_request_target`
   and similar triggers run with repository secrets against untrusted code — this is
   a well-known and repeatedly exploited pattern.
-- Scan for committed secrets (`gitleaks`, `trufflehog`) in CI and pre-commit.
+5. Scan for committed secrets (`gitleaks`, `trufflehog`) in CI and pre-commit.
   → `Security/secret-management`
-- Assume anything printed is public: mask secrets in logs and never `echo` a
+6. Assume anything printed is public: mask secrets in logs and never `echo` a
   variable to debug it.
 
 ---
@@ -150,14 +157,14 @@ required, and review required.
 
 # Deployment
 
-- **Automatic to staging** on merge; production either automatic or one-click,
+1. **Automatic to staging** on merge; production either automatic or one-click,
   with the same pipeline.
-- Deploy strategy that can fail safely: rolling with health checks, blue/green, or
+2. Deploy strategy that can fail safely: rolling with health checks, blue/green, or
   canary with automatic rollback on error-rate breach. → `DevOps/rollback`
-- Run migrations as a separate, ordered step that is safe to run against the
+3. Run migrations as a separate, ordered step that is safe to run against the
   currently-deployed code — expand, deploy, contract.
-- Smoke-test after deploying, before declaring success.
-- Tag the release with the commit SHA and record which SHA is in each environment.
+4. Smoke-test after deploying, before declaring success.
+5. Tag the release with the commit SHA and record which SHA is in each environment.
   During an incident the first question is what is actually running.
 
 ---

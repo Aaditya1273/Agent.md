@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -102,12 +108,12 @@ services:
       DATABASE_URL: ${DATABASE_URL:?required}   # fail fast if unset
 ```
 
-- Commit `.env.example` with every variable and a placeholder; never commit `.env`.
-- `${VAR:?message}` fails immediately with a clear error rather than starting with
+1. Commit `.env.example` with every variable and a placeholder; never commit `.env`.
+2. `${VAR:?message}` fails immediately with a clear error rather than starting with
   an empty value.
-- Compose files are frequently committed, so **no real secret belongs in one** —
+3. Compose files are frequently committed, so **no real secret belongs in one** —
   not in `environment`, not in a build `arg`. → `Security/secret-management`
-- Pin image tags (`postgres:17.2-alpine`), never `latest`. A colleague pulling
+4. Pin image tags (`postgres:17.2-alpine`), never `latest`. A colleague pulling
   `latest` next week gets a different database version and a different bug.
 
 Use `compose.override.yaml` for local-only changes; it is merged automatically and
@@ -117,14 +123,14 @@ can stay untracked, which keeps personal port choices out of the shared file.
 
 # Ports, networks and isolation
 
-- Publish only what you need on the host. `ports: ["5432:5432"]` exposes your
+1. Publish only what you need on the host. `ports: ["5432:5432"]` exposes your
   development database on every interface — on a shared or public network that is
   an open database. Bind to loopback explicitly: `"127.0.0.1:5432:5432"`.
-- Services reach each other by **service name** on the default network
+2. Services reach each other by **service name** on the default network
   (`postgres://db:5432`), with no published port required.
-- Split networks when isolation matters: a `backend` network the database joins
+3. Split networks when isolation matters: a `backend` network the database joins
   and the reverse proxy does not.
-- Give each project a distinct `name:` so two checkouts do not collide on
+4. Give each project a distinct `name:` so two checkouts do not collide on
   container and volume names.
 
 ---
@@ -144,11 +150,11 @@ otherwise appears in every pipeline. → `Testing/integration`
 
 If you do deploy Compose to a single host, add what production needs:
 
-- `restart: unless-stopped` on every service.
-- Resource limits (`deploy.resources.limits`) so one container cannot take the host.
-- Log rotation (`logging.options.max-size`), or the disk fills.
-- A reverse proxy terminating TLS in front.
-- Accept the constraint: `docker compose up -d` recreates containers, so there is
+1. `restart: unless-stopped` on every service.
+2. Resource limits (`deploy.resources.limits`) so one container cannot take the host.
+3. Log rotation (`logging.options.max-size`), or the disk fills.
+4. A reverse proxy terminating TLS in front.
+5. Accept the constraint: `docker compose up -d` recreates containers, so there is
   a gap. There is no rolling update.
 
 ---

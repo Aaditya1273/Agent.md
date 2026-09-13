@@ -1,7 +1,7 @@
 ---
 targetModels:
-  - "Gemini 3.6 Flash"
-  - "Gemini 3.5 Flash"
+  - "Gemini 3.8 Flash"
+  - "Gemini 3.7 Flash"
   - "Gemini 3.1 Pro"
   - "Gemini 3 Family"
   - "Future Gemini Models"
@@ -14,8 +14,7 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Gemini per deep-research.md. -->
-
+     Edit the canonical source, not this file. Behavioural profile for Gemini: scripts/model-profiles.json -->
 
 # Purpose
 
@@ -197,3 +196,26 @@ discovering the mutation failed, with no way back, is worse than a spinner.
 - [ ] Verify: Persisted state is versioned with a migration path
 - [ ] Verify: No tokens or personal data are persisted client-side
 - [ ] Verify: Optimistic updates roll back on failure
+
+---
+
+## Anchors (restated last, read last)
+
+The rules that must hold when you stop, repeated here because the end of the context is what you act on:
+
+- Never copy fetched data into a global store. You then own invalidation, and the store and the server diverge silently.
+
+- [ ] Every piece of state is classified before choosing where it lives
+- [ ] Server data lives in a server-cache library or framework loader
+- [ ] Query keys include every parameter that affects the result
+- [ ] Fetched data is not copied into a global store
+- [ ] Filters, sort, pagination and selection live in the URL
+- [ ] Default values are omitted from the URL; no secrets appear in it
+
+Before reporting done, prove the module still imports — run the line for this stack and paste its output:
+
+```bash
+python -c "import <package>"          # Python: the package you changed
+node -e "require('./<entry>')"       # Node CJS, or: node --input-type=module -e "import './<entry>.js'"
+go build ./...                        # Go
+```

@@ -1,6 +1,6 @@
 ---
 targetModels:
-  - "Claude Fable 5"
+  - "Claude Fable 5.1"
   - "Claude Opus 5"
   - "Claude Sonnet 5"
   - "Claude 5 Family"
@@ -14,10 +14,20 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Claude per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Claude: scripts/model-profiles.json -->
+
+<critical_constraints>
+FORBIDDEN: Truncating code or writing placeholders such as "// ... existing code ..." or "# rest unchanged". Every edit is complete and applies as written.
+FORBIDDEN: Reporting a check as passed without showing the command and its output.
+REQUIRED: Reason through the rules below before the first edit; when two rules conflict, the one stated first wins.
+</critical_constraints>
+
+---
+
 # Purpose
 
 <purpose>
+
 Rules specific to running Node.js as a backend. Node's model — one thread running
 an event loop — is the source of both its throughput and every performance
 surprise it produces.
@@ -25,11 +35,13 @@ surprise it produces.
 Framework-level concerns are `Backend/express`; this is the runtime.
 
 ---
+
 </purpose>
 
 # Never block the event loop
 
 <rules>
+
 One thread serves every request. A synchronous operation stops **all** of them.
 
 ```js
@@ -62,11 +74,13 @@ concurrency to a blocked event loop does nothing. Monitor event-loop delay
 blocking. → `Backend/monitoring`
 
 ---
+
 </rules>
 
 # Async correctness
 
 <rules>
+
 ```js
 // Sequential — 3× slower than necessary when the calls are independent
 const a = await getA(); const b = await getB(); const c = await getC();
@@ -88,11 +102,13 @@ const [a, b, c] = await Promise.all([getA(), getB(), getC()]);
   the surrounding `try`.
 
 ---
+
 </rules>
 
 # Streams and backpressure
 
 <rules>
+
 Reading a large file or response body into memory works in testing and OOMs in
 production.
 
@@ -112,18 +128,16 @@ Backpressure is the reason streams exist: if you ignore the return value of
 handles it for you.
 
 ---
+
 </rules>
 
 # Process configuration
 
 <rules>
+
 ```dockerfile
 ENV NODE_ENV=production
-</rules>
-
 # Set the heap below the container limit, or the OOM killer arrives before GC does
-
-<rules>
 ENV NODE_OPTIONS="--max-old-space-size=768"
 ```
 
@@ -143,11 +157,13 @@ live requests. → `DevOps/deployment`
 uncaught exception the process state is unknown. → `Backend/error-handling`
 
 ---
+
 </rules>
 
 # Dependencies
 
 <rules>
+
 Node's supply chain is the largest of any ecosystem, and it is a real attack path.
 
 - **Commit the lockfile** and install with `npm ci`, never `npm install`, in CI
@@ -165,11 +181,13 @@ Node's supply chain is the largest of any ecosystem, and it is a real attack pat
   read-only filesystem. → `DevOps/docker`
 
 ---
+
 </rules>
 
 # Anti-patterns
 
 <antipatterns>
+
 | Anti-pattern | Why it fails | Fix |
 | --- | --- | --- |
 | Sync I/O or crypto in a request path | Blocks every concurrent request | Async variants |
@@ -189,11 +207,13 @@ Node's supply chain is the largest of any ecosystem, and it is a real attack pat
 | A dependency for a one-liner | Supply-chain surface for nothing | Standard library |
 
 ---
+
 </antipatterns>
 
 # Checklist
 
 <checklist>
+
 - [ ] No synchronous I/O, crypto or compression in request paths
 - [ ] CPU-bound work runs in worker threads or a separate service
 - [ ] Event-loop delay is monitored and alerted on
@@ -210,4 +230,5 @@ Node's supply chain is the largest of any ecosystem, and it is a real attack pat
 - [ ] The Node version is pinned and matches between CI and production
 - [ ] Dependency audits run in CI and fail on high-severity findings
 - [ ] The container runs as a non-root user
+
 </checklist>

@@ -1,9 +1,9 @@
 ---
 targetModels:
   - "Qwen3.8-Max"
+  - "Qwen3.8-Flash-Next"
   - "Qwen3.8-27B"
   - "Qwen3.8 Family"
-  - "Qwen3 Family"
   - "Future Qwen Models"
 name: forms
 category: Frontend
@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for Qwen per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for Qwen: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -95,14 +101,14 @@ message. Never blame the user, and never clear what they typed.
 <p id="pw-error" role="alert">Password must be at least 12 characters.</p>
 ```
 
-- Associate the message with the input via `aria-describedby`, and set
+1. Associate the message with the input via `aria-describedby`, and set
   `aria-invalid`.
-- `role="alert"` on the error container so screen readers announce it.
-- **Never** convey an error by colour alone — colour-blind users see nothing.
+2. `role="alert"` on the error container so screen readers announce it.
+3. **Never** convey an error by colour alone — colour-blind users see nothing.
   Combine colour with text and an icon.
-- On a failed submit, move focus to the first invalid field and, for a long form,
+4. On a failed submit, move focus to the first invalid field and, for a long form,
   show a summary at the top with links to each field.
-- Keep labels visible. Placeholder-as-label disappears on focus, fails contrast
+5. Keep labels visible. Placeholder-as-label disappears on focus, fails contrast
   requirements, and breaks autofill. → `Testing/accessibility`
 
 ---
@@ -122,31 +128,31 @@ async function onSubmit(values) {
 }
 ```
 
-- **Disable the submit button while in flight**, and use an idempotency key so a
+1. **Disable the submit button while in flight**, and use an idempotency key so a
   double-submit cannot create two orders. The button alone is not enough — the
   user can press Enter. → `API/rest`
-- Map server-side field errors back onto the fields. A form that shows "Validation
+2. Map server-side field errors back onto the fields. A form that shows "Validation
   failed" without saying which field is unusable.
-- **Never clear the form on error.** Losing typed data is the single most
+3. **Never clear the form on error.** Losing typed data is the single most
   frustrating form bug.
-- Warn on navigating away with unsaved changes (`beforeunload`), and for long
+4. Warn on navigating away with unsaved changes (`beforeunload`), and for long
   forms save a draft to `localStorage` — but never a draft containing a password
   or a card number.
-- Show a clear success state; a form that silently resets leaves users unsure
+5. Show a clear success state; a form that silently resets leaves users unsure
   whether it worked.
 
 ---
 
 # Security
 
-- Never trust anything from the client: not hidden fields, not `disabled`
+1. Never trust anything from the client: not hidden fields, not `disabled`
   attributes, not `readonly` values. All are editable in devtools.
-- Cross-site request forgery protection on every state-changing submission.
+2. Cross-site request forgery protection on every state-changing submission.
   → `Security/csrf`
-- File uploads: validate type by content server-side, cap size, and never trust
+3. File uploads: validate type by content server-side, cap size, and never trust
   the filename. → `Backend/validation`
-- Never log form values. A debug log of a signup form is a password disclosure.
-- `autocomplete="off"` on a password field fights password managers and makes
+4. Never log form values. A debug log of a signup form is a password disclosure.
+5. `autocomplete="off"` on a password field fights password managers and makes
   users choose weaker passwords. Use `new-password` instead.
 
 ---

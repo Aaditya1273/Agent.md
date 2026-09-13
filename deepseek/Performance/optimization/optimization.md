@@ -14,8 +14,15 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for DeepSeek per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for DeepSeek: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement exactly the task as stated. Do not add abstractions, options, config, or files the task did not name.
+2. Comments, identifiers, commit messages and log strings are English only.
+3. Stop when the checklist at the end passes. Do not refactor or "improve" surrounding code.
+4. Every checklist item below is backed by an assertion in a test or by pasted command output, never by a sentence.
+
+---
 
 # Purpose
 
@@ -57,11 +64,11 @@ attribution.
 | **p95 / p99** | Little — this is what to target |
 | p99.9 | Useful for fan-out services, where one request touches many backends |
 
-- **Field data over lab data.** A local run on a fast machine with a warm cache
+1. **Field data over lab data.** A local run on a fast machine with a warm cache
   and 200 rows does not resemble production.
-- Segment by device class, connection, region and tenant. An aggregate p95 hides a
+2. Segment by device class, connection, region and tenant. An aggregate p95 hides a
   region or a large customer having a completely different experience.
-- Set a **budget**, not a vague goal: `checkout_p95 < 800ms` is testable and can
+3. Set a **budget**, not a vague goal: `checkout_p95 < 800ms` is testable and can
   be enforced in CI. "Make it faster" cannot.
 
 In fan-out systems, remember that a p99 in a dependency becomes a p50 for a
@@ -135,14 +142,14 @@ Common single-fix wins, in the order they usually appear:
 
 # Prove it, then keep it
 
-- Re-measure under the **same** conditions. A "50% improvement" measured at a
+1. Re-measure under the **same** conditions. A "50% improvement" measured at a
   different time of day is noise.
-- No measured improvement means **revert**. Complexity added for an unproven gain
+2. No measured improvement means **revert**. Complexity added for an unproven gain
   is a permanent cost.
-- Add a regression guard: a `size-limit` budget, a query-count assertion, a `k6`
+3. Add a regression guard: a `size-limit` budget, a query-count assertion, a `k6`
   threshold in CI. Performance gains erode silently otherwise.
   → `Testing/performance`
-- Record what you changed and what it bought, in the pull request. The next person
+4. Record what you changed and what it bought, in the pull request. The next person
   needs to know what has already been tried.
 
 Optimisation trades away simplicity. Keep the readable version until it is

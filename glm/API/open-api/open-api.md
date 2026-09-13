@@ -14,8 +14,14 @@ last-verified: 2026-08-23
 reviewed-by: unreviewed
 ---
 <!-- Generated from models/_canonical by scripts/build-model-variants.js.
-     Edit the canonical source, not this file. Structure adapted for GLM per deep-research.md. -->
+     Edit the canonical source, not this file. Behavioural profile for GLM: scripts/model-profiles.json -->
 
+## Task boundary
+1. Implement only what the task names; no extra abstractions or files.
+2. English-only comments and identifiers.
+3. Stop when the checklist passes.
+
+---
 
 # Purpose
 
@@ -123,13 +129,13 @@ expectations run against the provider's build. → `Testing/integration`
 
 One spec should produce everything, so nothing is written twice:
 
-- **Reference docs** — Redoc, Scalar, Stoplight Elements. Never a hand-written
+1. **Reference docs** — Redoc, Scalar, Stoplight Elements. Never a hand-written
   endpoint table.
-- **Typed clients** — `openapi-typescript` for types, `orval`/`openapi-generator`
+2. **Typed clients** — `openapi-typescript` for types, `orval`/`openapi-generator`
   for full SDKs. Publish them versioned alongside the API.
-- **Mock servers** — Prism serves the spec, so frontend work starts before the
+3. **Mock servers** — Prism serves the spec, so frontend work starts before the
   backend exists.
-- **Postman / Bruno collections** — imported from the spec, not curated by hand.
+4. **Postman / Bruno collections** — imported from the spec, not curated by hand.
 
 Publish the spec at a stable URL (`/openapi.json`), versioned. Integrators, their
 code generators and their AI tooling all read it directly.
