@@ -2,225 +2,261 @@
 
 # Agent.md
 
-**The Open Registry for AI Engineering Presets.**
+### The toolchain that stops AI coding agents from writing broken, deprecated code
 
-Configure Claude and every AI coding assistant with production-ready engineering standards in seconds.
+Your agent's training data is frozen. Your dependencies are not. Agent.md gives Claude Code, Cursor, Codex,
+Gemini CLI and Copilot the rules your project actually runs on — installed like packages, scoped like linters,
+enforced like tests.
 
-<img width="1672" height="941" alt="AGENT.md" src="https://github.com/user-attachments/assets/9eae353f-7e57-4254-a06d-033f3027f6f6" />
+[![npm version](https://img.shields.io/npm/v/agentmd-cli?color=6366f1&label=agentmd-cli)](https://www.npmjs.com/package/agentmd-cli)
+[![npm downloads](https://img.shields.io/npm/dm/agentmd-cli?color=8b5cf6)](https://www.npmjs.com/package/agentmd-cli)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[![npm](https://img.shields.io/npm/v/agentmd-cli?label=agentmd-cli&color=000)](https://www.npmjs.com/package/agentmd-cli)
-[![npm downloads](https://img.shields.io/npm/dm/agentmd-cli?color=000)](https://www.npmjs.com/package/agentmd-cli)
-[![License: MIT](https://img.shields.io/badge/license-MIT-000.svg)](LICENSE)
-![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
+```bash
+npx agentmd-cli init
+```
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**⇅ Breaking-change version pins**<br>
+Reads the majors you run — Pydantic 2, Next.js 16, Prisma 7, Tailwind 4 — and tells the agent which methods are gone (`.dict()` → `model_dump()`, sync `params` → `await params`) before it writes a line.
+
+</td>
+<td width="50%" valign="top">
+
+**🎯 File-glob context scoping**<br>
+One scoped `.mdc` rule per standard for Cursor. The Postgres standard attaches while you edit `*.sql`, not while you edit CSS. No 500-line rules file, no token bloat.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**🧬 Convention extraction**<br>
+`agentmd extract` reads your repo — structure, lint configs, commit history, a sample of source — and writes down the unwritten rules your team repeats in every code review, each with its evidence.
+
+</td>
+<td valign="top">
+
+**🛡 Zero-cost enforcement + agent test suites**<br>
+`agentmd review --fast` lints a diff against your standards offline in milliseconds. `agentmd review` and `agentmd test` use a model to catch violations and measure whether the agent actually obeys.
+
+</td>
+</tr>
+</table>
+
+**302 canonical standards, tuned for 11 model families · MIT · no account, no telemetry**
+
+**[Quick start](#-quick-start) · [What's in this repo](#-whats-in-this-repo) · [Enforce in CI](#-enforce-it-in-ci) · [The registry](#-the-registry) · [Contributing](#-contributing) · [FAQ](#-faq)**
 
 </div>
 
 ---
 
-## The Problem
+## 🚀 Quick start
 
-Every AI coding assistant is capable. Getting *consistent* output is the hard part.
+Four commands. Each one is copy-paste and does exactly what it says.
 
-Every model behaves differently. Every IDE expects different config files. Every GitHub repo suggests different prompts. Developers waste hours searching Reddit, Discord, and blog posts trying to figure out which `CLAUDE.md` actually works, which Cursor rules are up to date, or how to stop Gemini from hallucinating architecture.
+**1. Scan the stack, install matching standards, pin breaking library changes**
 
-There is no trusted, centralized place for AI engineering standards.
+```bash
+npx agentmd-cli init
+```
+```
+  ✓ Next.js                  package.json (next)
+  ✓ PostgreSQL               package.json (pg)
+  ⇅ Next.js 16               package.json (next ^16.1.0)   (version pin)
+  ⇅ Pydantic 2               pyproject.toml (pydantic>=2.6) (version pin)
 
-**Agent.md is that place.**
+Recommended packages for claude:
+  Security       authentication, owasp, sql-injection
+  Database       postgres, indexes, migration
+  ...
+Install these? [Y/n]
+```
+
+**2. Infer your team's unwritten conventions from git history and configs**
+
+```bash
+npx agentmd-cli extract          # add --dry to print without writing
+```
+```
+Gathered evidence from 14 files (96k chars, claude-opus-5)
+  ✓ 9 conventions → .agentmd/presets/local-Team-conventions.md
+  Run `agentmd link` to wire it in.
+```
+
+**3. Lint a diff against your standards — deterministic, offline, zero tokens**
+
+```bash
+npx agentmd-cli review --fast --fail-on=high
+```
+```
+Reviewing 1 changed file against 12 standards (patterns only)
+
+  HIGH   src/repo.ts:14  Security/sql-injection › sql-string-interpolation  [pattern]
+         SQL built by string interpolation — use a parameterised query.
+
+  1 finding at or above "high" — failing.
+```
+
+**4. Measure whether the agent actually obeys the rules**
+
+```bash
+npx agentmd-cli test              # needs ANTHROPIC_API_KEY
+```
+```
+Rule efficacy — 3 standards × 3 tasks  (claude-opus-5)
+
+  ✓ Security/jwt            3/3
+  ✗ API/pagination          1/3   task 2: ignored "Use cursor pagination" — offset/limit used
+
+Score: 7/9 (78%)
+```
+
+Then `npx agentmd-cli link` writes everything into `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` or `copilot-instructions.md`, and you commit `.agentmd/` so the whole team gets the same rules.
 
 ---
 
-## Install a Preset in One Command
+## 📦 What's in this repo
 
-```bash
-npx agentmd-cli install claude/Security/owasp
+This repository **is the registry** — the markdown the CLI installs. Nothing else lives here, so it stays easy to read, diff and review.
+
+```
+_canonical/<Category>/<preset>.md     the source of truth: one file per standard
+claude/<Category>/<preset>/…          that standard, in Claude's native shape
+open-ai/<Category>/<preset>/…         …and in OpenAI's, and nine more families
 ```
 
-No cloning. No searching GitHub. The preset lands directly in your project.
+| Family | Directory | Family | Directory |
+| --- | --- | --- | --- |
+| Claude | `claude/` | Kimi | `kimi/` |
+| OpenAI | `open-ai/` | GLM | `glm/` |
+| Gemini | `gemini/` | MiniMax | `minimax/` |
+| DeepSeek | `deepseek/` | Mistral | `mistral/` |
+| Grok | `grok/` | Sarvam | `sarvam-ai/` |
+| Qwen | `qwen/` | | |
+
+Every standard is written once in `_canonical/` and generated per family: XML-tagged sections for Claude, compact imperative bullets for OpenAI, and so on. The count that matters is **302**; the 3,322 files are the same standards in each family's native shape.
+
+The CLI (`agentmd-cli` on npm), the VS Code extension, the MCP server and the website are the tooling around this content. Docs for all of them: **[agent.md](https://agent.md)**.
 
 ---
 
-## CLI — 2-Layer Install System
+## 🛡 Enforce it in CI
 
-**Layer 1 — Single preset**
+Drop this into `.github/workflows/agentmd-review.yml` in your own repo. Zero token cost, no API key, nothing leaves the runner:
 
-```bash
-npx agentmd-cli install claude/<category>/<preset>
+```yaml
+name: agentmd review
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npx agentmd-cli review --base origin/${{ github.base_ref }} --fast --fail-on=high
 ```
 
-```bash
-npx agentmd-cli install claude/Design/apple
-npx agentmd-cli install claude/Security/jwt
-npx agentmd-cli install claude/Frontend/react
-npx agentmd-cli install claude/AI/agent-rules
-npx agentmd-cli install claude/Testing/unit
-```
-
-**Layer 2 — Full category (all presets at once)**
-
-```bash
-npx agentmd-cli install claude/<category>/
-```
-
-```bash
-npx agentmd-cli install claude/Security/
-npx agentmd-cli install claude/Frontend/
-npx agentmd-cli install claude/Testing/
-npx agentmd-cli install claude/Design/
-npx agentmd-cli install claude/AI/
-```
-
-**Browse and search**
-
-```bash
-npx agentmd-cli list claude                  # 20 categories, 297 presets
-npx agentmd-cli list claude/Security         # all 19 Security presets
-npx agentmd-cli search authentication        # find by keyword
-npx agentmd-cli search docker
-```
-
-> Installing `claude/` alone is intentionally blocked. Explore and pick what your project needs.
-
-**What gets installed**
-
-```
-your-project/
-└── .agentmd/
-    ├── manifest.json              ← tracks installed presets
-    └── presets/
-        ├── Security-jwt.md
-        ├── Design-apple.md
-        └── ...
-```
+Want a full model review that comments on the PR? Add `ANTHROPIC_API_KEY` to your secrets, give the job `pull-requests: write`, and drop `--fast` for `--github`. Prefer to keep diffs on your own machines? `agentmd review --local` judges with [Ollama](https://ollama.com) instead.
 
 ---
 
-## IDE Extension
+## 📚 The registry
 
-Works in **VS Code, Cursor, and Kiro**.
+**302 canonical standards** across 20 categories, tuned for 11 model families.
 
-```bash
-code --install-extension packages/vscode-extension/agentmd-1.0.0.vsix
-```
+| Category | Examples |
+| --- | --- |
+| **Security** | owasp, jwt, oauth, sql-injection, xss, csrf, cors, secret-management, passwords, headers |
+| **Backend** | express, nextjs, fastapi, django, flask, pydantic, python-async, go-http, go-errors, go-concurrency |
+| **Database** | postgres, mysql, mongodb, prisma, sqlalchemy, go-database, indexes, migration, schema-design |
+| **Frontend** | react, nextjs, typescript, tailwind, hooks, server-components, routing, forms, state-management |
+| **API** | rest, graphql, pagination, versioning, rate-limiting, webhooks, open-api, sdk |
+| **Testing** | unit, integration, e2e, pytest, go-testing, load, accessibility, test-strategy |
+| **Performance** | caching, go-performance, bundle-size, rendering, queries |
+| **DevOps** | docker, kubernetes, github-actions, cicd, deployment, environments, rollback |
+| **System Design** | architecture, caching, microservices, event-driven, distributed-systems, high-availability |
+| **Design** | 74 brand design languages — apple, stripe, linear, vercel, airbnb, spotify… |
+| + AI, Review, Documentation, Checklists, Startup, Business, Open Source, Templates, Community, Research | |
 
-Or: Extensions sidebar → `···` → **Install from VSIX...**
-
-**What you get:**
-
-- Activity bar panel — browse all 20 categories and 297 presets in a sidebar tree
-- Click any preset → opens a markdown preview webview with Install button
-- Install a single preset or an entire category with one click
-- **Installed** panel — shows your manifest, click any entry to open the file
-- **Detect Stack** — reads your `package.json` and auto-suggests preset categories (Next.js → Backend, Prisma → Database, Stripe → Design, etc.)
-- Search: `Ctrl+Shift+P` → `Agent.md: Search Presets`
-
-**Commands**
-
-```
-Agent.md: Install Preset
-Agent.md: Install All in Category
-Agent.md: Search Presets
-Agent.md: Preview Preset
-Agent.md: Detect Project Stack & Suggest Presets
-Agent.md: Refresh
-Agent.md: Open Registry Website
-```
-
----
-
-## All Categories (Claude · 297 presets)
-
-| Category | Presets | Install All |
-|---|---|---|
-| AI | 12 | `npx agentmd-cli install claude/AI/` |
-| API | 12 | `npx agentmd-cli install claude/API/` |
-| Backend | 15 | `npx agentmd-cli install claude/Backend/` |
-| Business | 10 | `npx agentmd-cli install claude/Business/` |
-| Checklists | 8 | `npx agentmd-cli install claude/Checklists/` |
-| Community | 5 | `npx agentmd-cli install claude/Community/` |
-| Database | 13 | `npx agentmd-cli install claude/Database/` |
-| Design | 74 | `npx agentmd-cli install claude/Design/` |
-| DevOps | 15 | `npx agentmd-cli install claude/DevOps/` |
-| Documentation | 6 | `npx agentmd-cli install claude/Documentation/` |
-| Frontend | 16 | `npx agentmd-cli install claude/Frontend/` |
-| Open-Source | 14 | `npx agentmd-cli install claude/Open-Source/` |
-| Performance | 13 | `npx agentmd-cli install claude/Performance/` |
-| Research | 5 | `npx agentmd-cli install claude/Research/` |
-| Review | 8 | `npx agentmd-cli install claude/Review/` |
-| Security | 19 | `npx agentmd-cli install claude/Security/` |
-| Startup | 8 | `npx agentmd-cli install claude/Startup/` |
-| System Design | 16 | `npx agentmd-cli install claude/System Design/` |
-| Templates | 7 | `npx agentmd-cli install claude/Templates/` |
-| Testing | 11 | `npx agentmd-cli install claude/Testing/` |
-
----
-
-## Design Presets — 74 Languages
-
-Get Claude to output UI in the exact visual language of any of these:
-
-`apple` · `stripe` · `vercel` · `linear.app` · `notion` · `figma` · `cursor` · `raycast` · `framer` · `shopify` · `airbnb` · `airtable` · `binance` · `bmw` · `bmw-m` · `bugatti` · `cal` · `claude` · `clay` · `clickhouse` · `cohere` · `coinbase` · `composio` · `dell-1996` · `elevenlabs` · `expo` · `ferrari` · `hashicorp` · `hp` · `ibm` · `intercom` · `kraken` · `lamborghini` · `lovable` · `mastercard` · `meta` · `minimax` · `mintlify` · `miro` · `mistral.ai` · `mongodb` · `nike` · `nintendo-2001` · `nvidia` · `ollama` · `opencode.ai` · `pinterest` · `playstation` · `posthog` · `renault` · `replicate` · `resend` · `revolut` · `runwayml` · `sanity` · `sentry` · `slack` · `spacex` · `spotify` · `starbucks` · `supabase` · `superhuman` · `tesla` · `theverge` · `together.ai` · `uber` · `vodafone` · `voltagent` · `warp` · `webflow` · `wired` · `wise` · `x.ai` · `zapier`
+Browse everything with logos and search at **[agent.md](https://agent.md)**, or from the terminal:
 
 ```bash
-npx agentmd-cli list claude/Design     # see all 74
-npx agentmd-cli install claude/Design/apple
-npx agentmd-cli install claude/Design/stripe
-npx agentmd-cli install claude/Design/   # all 74 at once
+npx agentmd-cli search "rate limiting"
+npx agentmd-cli list claude/Security
+npx agentmd-cli info Security/jwt
 ```
+
+Every install fetches the file straight from this repository over HTTPS. No mirror, no account, no telemetry.
 
 ---
 
-## How It Works
+## 🤝 Contributing
 
+Standards are plain markdown, written once in `_canonical/<Category>/<name>.md`:
+
+```markdown
+---
+name: jwt
+category: Security
+description: Issuing and validating JSON Web Tokens safely — algorithm pinning, claim validation, key rotation.
+license: MIT
+author: Agent.md maintainers
+last-verified: 2026-09-13
+reviewed-by: unreviewed
+version: 2.0.0
+---
+
+# Purpose
+…
+# Anti-patterns
+…
+# Checklist
 ```
-Choose AI model
-      ↓
-Choose category (Security, Frontend, Design...)
-      ↓
-Install via CLI or IDE extension
-      ↓
-Paste into CLAUDE.md or AI assistant context
-      ↓
-Build with consistent, production-quality output
-```
 
-Think of Agent.md as:
+The bar: imperative, specific, opinionated, short right/wrong code blocks, an anti-patterns table and a checklist, ~200 lines. Match a neighbour in the same category. Open a PR with the canonical file; maintainers generate the eleven family variants.
 
-- **npm** — for AI engineering standards
-- **shadcn/ui** — but for prompt configuration
-- **Tailwind UI** — but for AI workflows
-- **Awesome Lists** — but maintained, versioned, and production-tested
+**Most wanted right now:** Rust, Vue, Svelte, NestJS and Java. The CLI already detects those stacks and deliberately recommends nothing, because there is no content for them yet.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-## Web Registry
+## ❓ FAQ
 
-Browse and preview all presets at [agentmd.com](https://agentmd.com)
+**Is this a replacement for `CLAUDE.md` / `AGENTS.md` / Cursor rules?**
+No. Those are file formats. Agent.md is the distribution layer that fills them in and keeps them current — `link` writes into whichever ones your tools already read.
 
-Each preset page shows:
-- Full markdown preview
-- `npx agentmd-cli install` command with copy button
-- Category-level batch install command
+**Does it paste 30 standards into my prompt?**
+No. `link` writes a short block of *links*; the agent opens a standard when it needs it. For Cursor it also writes one scoped rule per standard with file globs, attached only while a matching file is open.
 
----
+**What does `review --fast` actually check?**
+Deterministic patterns over the added lines of a diff, scoped to the standards you installed — string-interpolated SQL, `SELECT *`, `eval`, shell commands built from variables, weak hashes for secrets, `Math.random()` tokens, `jwt.decode` without verify, wildcard CORS, hard-coded secrets, Pydantic v1 calls, synchronous `cookies()` in Next.js 15+. High precision on purpose; the model-backed review catches the rest.
 
-## Contributing
+**Why one file per family instead of one file?**
+Models differ in what they follow. Claude responds to XML-tagged sections; OpenAI models to compact imperative bullets. Writing once and generating per family keeps content identical while the shape fits the reader.
 
-We welcome contributions — new presets, improvements to existing ones, and platform work.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+**Is anything paid?**
+No. All 302 standards, the CLI, the extension and the MCP server are MIT licensed. `review`, `extract` and `test` use your own Anthropic key (or Ollama) when they need a model; `review --fast` needs nothing.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
-
----
+[MIT](LICENSE). Use it anywhere, including commercial projects, no attribution required.
 
 <div align="center">
 
-**Build better with AI. One preset at a time.**
-
-[agentmd.com](https://agentmd.com) · [npm](https://www.npmjs.com/package/agentmd-cli) · [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentmd.agentmd) *(coming soon)*
+**[agent.md](https://agent.md)** · **[npm](https://www.npmjs.com/package/agentmd-cli)** · **[X](https://x.com/agent_dot_md)**
 
 </div>
