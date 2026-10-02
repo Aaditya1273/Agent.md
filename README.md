@@ -147,7 +147,7 @@ npx activate-agentmd link
 <a href="https://agent-dot-md.vercel.app/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
 </div>
 
-**Or score a repo in the browser in 10 seconds** — drop a `package.json` at **[agent-dot-md.vercel.app/inspect](https://agent-dot-md.vercel.app/inspect)** and see every major your agent will get wrong. Nothing is uploaded.
+**Or try it in the browser in 10 seconds** at **[agent-dot-md.vercel.app/inspect](https://agent-dot-md.vercel.app/inspect)** — drop a `package.json` to see every major your agent will get wrong, or paste a `CLAUDE.md` to check it for leaked keys and prompt injection. Nothing is uploaded.
 
 ---
 
@@ -387,9 +387,9 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 304 standards |
+| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 304 standards |
 | 🔬 **Measuring** | Published per-library effect of every pin (old-API rate with vs. without), starting with the 15 checkable majors |
-| 🔨 **Next** | Pins for ~50 libraries (Vite, Vitest, TanStack Query, Drizzle, Hono, Svelte 5, Angular, NestJS, FastAPI, Node, TypeScript…) · library authors publishing their own pins · `lint` in the browser at /inspect |
+| 🔨 **Next** | Pins for ~50 libraries (Vite, Vitest, TanStack Query, Drizzle, Hono, Svelte 5, Angular, NestJS, FastAPI, Node, TypeScript…) · library authors publishing their own pins |
 | 💭 **Considering** | Hosted audit log for teams · signed-bundle format proposed to the AGENTS.md specification |
 
 ---
