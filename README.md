@@ -3,7 +3,7 @@
 
 # Agent.md
 
-### The trust layer for what your AI coding agent reads
+## The trust layer for what your AI coding agent reads
 
 Your agent's training data is frozen. Your dependencies are not —<br>
 and nothing checks the files that tell your agent what to do.<br>
