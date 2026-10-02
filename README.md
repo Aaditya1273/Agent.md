@@ -3,15 +3,16 @@
 
 # Agent.md
 
-### The toolchain that stops AI coding agents from writing broken, deprecated code
+### The trust layer for what your AI coding agent reads
 
-Your agent's training data is frozen. Your dependencies are not.<br>
-Agent.md gives **Claude Code, Cursor, Codex, Gemini CLI and Copilot** the rules your project actually runs on —<br>
-installed like packages, scoped like linters, enforced like tests.
+Your agent's training data is frozen. Your dependencies are not —<br>
+and nothing checks the files that tell your agent what to do.<br>
+Agent.md gives **Claude Code, Cursor, Codex, Gemini CLI and Copilot** version-accurate rules,<br>
+lints every instruction file they read, and signs the set your team approved.
 
 <br>
 
-<a href="https://agent.md"><img src="assets/hero.png" alt="Agent.md — install standards with any agent" width="100%"></a>
+<a href="https://agent-dot-md.vercel.app"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md — install standards with any agent" width="100%"></a>
 
 <br>
 
@@ -20,51 +21,70 @@ installed like packages, scoped like linters, enforced like tests.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Hacktoberfest](https://img.shields.io/badge/Hacktoberfest-2026-ff6b35)](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest)
 ![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
 
 ```bash
-npx activate-agentmd init
+npx activate-agentmd init     # detect your stack, pin breaking changes, install standards
+npx activate-agentmd lint     # check every file your agent reads — any repo, no setup
 ```
 
-**302 canonical standards · 20 categories · 11 model families · MIT · no account, no telemetry**
+**304 standards · 13 pinned libraries · 21 deterministic checks · 5 agent targets · MIT · no account · offline**
 
-**[Why](#-why-this-exists) · [Quick start](#-quick-start) · [The four pillars](#-the-four-pillars) · [How it works](#%EF%B8%8F-how-it-works) · [Agents](#-supported-agents) · [Registry](#-the-registry) · [Compare](#-compared-with-the-alternatives) · [Contributing](#-contributing) · [FAQ](#-faq)**
+**[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Quick start](#-quick-start) · [Why now](#-why-now-the-market-in-october-2026) · [Why it's different](#-why-its-different) · [For teams](#-for-teams-signed-context) · [CI](#-enforce-it-in-ci) · [Research](#-what-the-research-says--and-what-we-changed) · [FAQ](#-faq)**
 
 </div>
 
 ---
 
-## 🔥 Why this exists
+## 🔥 The problem
 
-Every AI coding agent now reads a rules file. Claude Code reads `CLAUDE.md`. Codex reads `AGENTS.md`. Cursor reads `.cursor/rules`. Gemini CLI reads `GEMINI.md`. Copilot reads `copilot-instructions.md`.
+AI agents now write a large share of production code, and every one of them reads a rules file first — `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md`, `copilot-instructions.md`. Those files decide what the agent believes about your codebase. Three things go wrong with them, and until now nothing addressed any of the three.
 
-**The format is standardised. The content is not.** So this happens on every team, in every repo:
+### 1. The agent writes your dependencies as they were, not as they are
 
+```ts
+// Next.js 16 · Prisma 7 · Zod 4 — what an agent writes from memory. All of it compiles.
+const prisma = new PrismaClient();                    // Prisma 7: no engine by default — fails at runtime
+const Email  = z.string().email();                    // Zod 4: deprecated, use z.email()
+export default function Page({ params }: { params: { slug: string } }) {
+  const token = cookies().get("session");             // Next 16: cookies() and params must be awaited
+}
 ```
-Week 1   Someone writes CLAUDE.md in a hurry before a demo.
-Week 3   It's 400 lines. Nobody has read it since week 1.
-Week 8   The stack moved to Pydantic 2. The file didn't. The agent still writes .dict().
-Week 12  The agent confidently violates a rule that was in the file the whole time.
-Week 16  Someone starts a new repo and writes the same 400 lines again, slightly differently.
-```
 
-Three failures hide inside that story, and they are the three things nobody had a tool for:
+This is not a hallucination you can prompt away. **Frontier models are version-oblivious**: JetBrains Research measured a persistent 7–10 point accuracy gap on APIs that changed between versions, and found that **telling the model the version gives no benefit — the relevant documentation gives +10–20 points** ([LibEvoBench, 2026](https://arxiv.org/abs/2606.25402)). The fix has to be in the context, and it has to be specific to the majors you actually run.
 
-| The failure | What it costs you | What Agent.md does about it |
+### 2. The instruction files are an unguarded attack surface
+
+These files are fed to the model on every session, with the agent's full permissions behind them.
+
+- **~0.7% of public agent instruction files contain a live credential**, mostly pasted by hand ([Radware, Aug 2026](https://www.radware.com/blog/the-new-env-measuring-credential-leakage-in-ai-agent-instruction-files/)) — and mainstream secret scanners don't watch these files.
+- **Rule files are a working prompt-injection channel**: a malicious rule can exfiltrate data while the agent still produces a correct patch ([Aletheia, 2026](https://arxiv.org/abs/2609.39678)).
+- **Skill scanners stop at `SKILL.md`** and miss `AGENTS.md`, `CLAUDE.md` and Cursor rules ([snyk/agent-scan#301](https://github.com/snyk/agent-scan/issues/301)); in one audit **13.4% of marketplace skills had a critical issue** ([Snyk ToxicSkills](https://snyk.io/blog/toxicskills-malicious-ai-agent-skills-clawhub/)), and every skill scanner tested was bypassed ([CSA / Trail of Bits](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-agent-skill-scanner-bypass-20260610-csa/)).
+
+### 3. They rot and bloat — and bloat costs accuracy
+
+- Agent instruction files **grow +226% over their lifetime**, and noisy instructions **cut instruction-following by 24 points** ([arXiv 2608.11095](https://arxiv.org/abs/2608.11095)).
+- **91 of the 100 most-starred repos** have at least one configuration smell — leaked lint rules, bloat, dead references, contradictions, never-edited `/init` output ([arXiv 2606.15828](https://arxiv.org/abs/2606.15828)).
+
+> **The painkiller:** put the exact breaking changes for your exact versions in front of the agent, check every file it reads like you check code, and make sure nobody changes those files without sign-off.
+
+---
+
+## 💊 What Agent.md does
+
+| | Pillar | The pain it removes |
 | --- | --- | --- |
-| **Training cutoff.** The model remembers the API that was current when it was trained. | Half an hour debugging code that calls a method deprecated two years ago | **Version pins** — reads the majors you run and tells the agent which methods are gone, before it writes a line |
-| **Context bloat.** A 500-line rules file goes into every prompt, and the model stops reading it. | Tokens burned on rules for files you aren't touching; instruction dilution | **Scoped rules** — one rule per standard, attached only while a matching file is open |
-| **No feedback loop.** Rules are wishes. Nothing checks whether the agent obeyed. | Violations reach code review; nobody knows which rules the model ignores | **`review` and `test`** — lint the diff against the rules, and benchmark obedience |
-
-And the fourth, the one every tech lead recognises: the rules that matter most are the *unwritten* ones, repeated in every code review. **`extract`** writes them down from your repo.
+| ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 21 deterministic checks then catch the old API in the diff, scoped to your version. | Deprecated code that compiles, passes review, and breaks later |
+| 🔒 | **`agentmd lint`** — checks every file an agent reads for leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, unsafe hooks, bloat, dead references and stale pins. Runs on any repo; exits non-zero in CI; SARIF for code scanning. | Secrets and injected instructions reaching the model; context rot |
+| ✍️ | **Signed context bundles** — sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any modified, added or removed file, and `attest` records which context was in force for each commit. | Unreviewed rule changes; no audit trail for agent-written code |
+| 📚 | **304 engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
 
 ---
 
 ## 🚀 Quick start
 
-Four commands. Each one is copy-paste and does exactly what it says.
-
-**1. Scan the stack, install matching standards, pin breaking library changes**
+**1. Detect the stack, pin breaking changes, install standards**
 
 ```bash
 npx activate-agentmd init
@@ -72,126 +92,220 @@ npx activate-agentmd init
 ```
   ✓ Next.js                  package.json (next)
   ✓ PostgreSQL               package.json (pg)
-  ⇅ Next.js 16               package.json (next ^16.1.0)   (version pin)
-  ⇅ Pydantic 2               pyproject.toml (pydantic>=2.6) (version pin)
+  ⇅ Next.js 16               node_modules (next 16.0.3)    (version pin)
+  ⇅ Prisma 7                 package.json (@prisma/client ^7.0.0)
 
 Recommended packages for claude:
   Security       authentication, owasp, sql-injection
-  Database       postgres, indexes, migration
-  ...
+  Database       postgres, prisma, indexes, migration
 Install these? [Y/n]
 ```
 
-**2. Infer your team's unwritten conventions from git history and configs**
+**2. Check every file your agent reads** — works on any repository, nothing to install first
 
 ```bash
-npx activate-agentmd extract          # add --dry to print without writing
+npx activate-agentmd lint
 ```
 ```
-Gathered evidence from 14 files (96k chars, claude-opus-5)
-  ✓ 9 conventions → .agentmd/presets/local-Team-conventions.md
-  Run `agentmd link` to wire it in.
+  ERROR   CLAUDE.md:14  secret
+          Looks like an Anthropic API key. Instruction files are sent to the model on every session — rotate it, then read it from the environment.
+  ERROR   .cursor/rules/deploy.mdc:3  injection
+          An HTML comment carries an instruction. GitHub hides comments from reviewers but the agent reads them.
+  WARNING CLAUDE.md:1  stale-pins
+          The version pins in the agentmd block do not match the dependencies this project now runs.
+
+  2 errors, 1 warning across 6 instruction files
 ```
 
-**3. Lint a diff against your standards — deterministic, offline, zero tokens**
+**3. See the breaking changes for the versions you run**
+
+```bash
+npx activate-agentmd pins
+```
+
+**4. Check a diff — deterministic, offline, zero tokens**
 
 ```bash
 npx activate-agentmd review --fast --fail-on=high
 ```
 ```
-Reviewing 1 changed file against 12 standards (patterns only)
-
-  HIGH   src/repo.ts:14  Security/sql-injection › sql-string-interpolation  [pattern]
+  MEDIUM app/page.tsx:12  Next.js 16 › next-sync-request-api  [pattern]
+         Next.js 16: `cookies()` / `headers()` must be awaited — synchronous access was removed.
+  HIGH   src/repo.ts:14   Security/sql-injection › sql-string-interpolation  [pattern]
          SQL built by string interpolation — use a parameterised query.
-
-  1 finding at or above "high" — failing.
 ```
 
-**4. Measure whether the agent actually obeys the rules**
+**5. Wire it into your agents**
 
 ```bash
-npx activate-agentmd test              # needs ANTHROPIC_API_KEY
-```
-```
-Rule efficacy — 3 standards × 3 tasks  (claude-opus-5)
-
-  ✓ Security/jwt            3/3
-  ✗ API/pagination          1/3   task 2: ignored "Use cursor pagination" — offset/limit used
-
-Score: 7/9 (78%)
+npx activate-agentmd link
 ```
 
-Then `npx activate-agentmd link` writes everything into `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` or `copilot-instructions.md`, and you commit `.agentmd/` so the whole team gets the same rules.
+`link` writes a managed block into whichever of `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` and `copilot-instructions.md` your tools read. Commit `.agentmd/` and the whole team gets the same rules.
 
 <div align="center">
-<a href="https://agent.md#setup"><img src="assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
+<a href="https://agent-dot-md.vercel.app/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
 </div>
+
+**Or score a repo in the browser in 10 seconds** — drop a `package.json` at **[agent-dot-md.vercel.app/inspect](https://agent-dot-md.vercel.app/inspect)** and see every major your agent will get wrong. Nothing is uploaded.
 
 ---
 
-## 🏛 The four pillars
+## 📈 Why now: the market in October 2026
 
-### ⇅ Breaking-change version pins
+**Agents are the default way code gets written.** Claude Code is used at work by **47% of US developers** and is the primary tool for 31%; Codex grew roughly **5× in six months** ([JetBrains Developer Ecosystem Survey 2026](https://blog.jetbrains.com/research/2026/08/ai-coding-agent-adoption-2026/)), with **5M+ weekly users** ([OpenAI](https://openai.com/index/codex-for-every-role-tool-workflow/)). Every one of those sessions starts by reading an instruction file.
 
-`init` reads the majors from `package.json`, `pyproject.toml`, `requirements.txt` and `go.mod`. `link` writes short, hand-written, version-specific rules into the agent file — only the breaking differences models routinely get wrong:
+**The file formats have standardised — the trust layer has not.**
+
+| What settled in 2025–26 | What it deliberately left open |
+| --- | --- |
+| **AGENTS.md** — 60,000+ repositories, 28+ tools, stewarded by the Linux Foundation's Agentic AI Foundation ([agents.md](https://agents.md)) | What goes *in* the file, whether it is current, whether it is safe |
+| **Agent Skills** and **Agent Plugins 1.0** (Amazon, Cursor, Microsoft, OpenAI, Vercel — Aug 2026) standardise packaging ([Vercel](https://vercel.com/blog/introducing-agent-plugins)) | The spec **explicitly excludes provenance, signing and permissions** |
+| Skill scanners from Snyk, Socket and others | `CLAUDE.md`, `AGENTS.md` and rules files — and every scanner was bypassed |
+
+**Governance demand is arriving with deadlines.** Gartner sizes AI-governance platforms as a **billion-dollar market growing 36% a year** ([Gartner, Feb 2026](https://www.gartner.com/en/newsroom/press-releases/2026-02-17-gartner-global-ai-regulations-fuel-billion-dollar-market-for-ai-governance-platforms)); the EU AI Act's high-risk logging obligations took effect in August 2026. Teams need to show *what their agents were told* — and today no tool records it.
+
+**Where that leaves the market:**
+
+```
+                     what the agent knows ─────────────────────► what the agent did
+  ┌─────────────────────────────┬──────────────────────────┬───────────────────────────┐
+  │ Docs retrieval (Context7)   │  ★ Agent.md              │ Code review (CodeRabbit,  │
+  │ Skills marketplaces         │  version pins · lint ·   │ Claude Code /code-review) │
+  │ Hand-written CLAUDE.md      │  signed, attested context│ SAST (Semgrep, Snyk)      │
+  └─────────────────────────────┴──────────────────────────┴───────────────────────────┘
+```
+
+Everyone else works on what the agent *can look up* or what it *already wrote*. Agent.md owns the layer in between: **what the agent is told, whether it is true for your versions, and whether anyone approved it.**
+
+---
+
+## 🧭 Why it's different
+
+| | Agent.md | Hand-written `CLAUDE.md` | Skills marketplaces | Docs retrieval (Context7) | Code review bots |
+| --- | :--: | :--: | :--: | :--: | :--: |
+| Breaking changes for *your* installed majors, in context before the agent writes | ✅ | ✋ by hand | ❌ | ⚠️ when the agent asks | ❌ |
+| Deterministic check for the old API, scoped by version | ✅ 21 checks | ❌ | ❌ | ❌ | ⚠️ model-judged |
+| Lints `CLAUDE.md` / `AGENTS.md` / rules / skills for secrets and injection | ✅ | ❌ | ⚠️ `SKILL.md` only | ❌ | ❌ |
+| Signed, approved context with an audit record per commit | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Works across Claude Code, Cursor, Codex, Gemini CLI, Copilot | ✅ 5 | ❌ 1 | ⚠️ varies | ✅ via MCP | ⚠️ varies |
+| Runs offline, no account, no API key for the core | ✅ | ✅ | ⚠️ | ❌ | ❌ |
+| Open source | ✅ MIT | n/a | ⚠️ varies | ⚠️ partly | ❌ mostly |
+
+**What makes it hard to copy:**
+
+1. **Neutral across vendors.** Every agent vendor's incentive is to make *its own* context load more easily. A record of what Claude Code, Cursor and Copilot were told — signed with *your* key — has to come from someone who is none of them.
+2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reports **zero errors across the 4,278 files of this registry**, including security standards that quote attacks to teach them.
+3. **Evidence-first content.** Pins are measured, not asserted: each one carries a deterministic judge, and the effect (old-API rate with vs. without the pin) is published per library as measurements land.
+4. **It honours the research instead of fighting it.** See below.
+
+---
+
+## 🔬 What the research says — and what we changed
+
+Three independent 2026 studies measured generic, always-on context files and found **no gain in task success at 20%+ more cost**; LLM-generated ones made agents *worse* ([ETH Zurich, arXiv 2602.11988](https://arxiv.org/abs/2602.11988); [arXiv 2607.27250](https://arxiv.org/abs/2607.27250); [arXiv 2608.11095](https://arxiv.org/abs/2608.11095)). The exception is **version-specific API facts** ([LibEvoBench](https://arxiv.org/abs/2606.25402)).
+
+So Agent.md was redesigned around that evidence:
+
+| Finding | What Agent.md does now |
+| --- | --- |
+| Always-on generic guidance costs more than it helps | **Only version pins are always on.** Every standard loads on demand, when the agent opens a matching file. |
+| Version-specific facts help, naming the version doesn't | Pins state the *changed API*, read from what is actually installed in `node_modules` |
+| Noise and bloat measurably hurt | `lint` flags bloat, dead references, leaked lint rules and stale pins |
+| Effect has to be measured, not assumed | Every pin has a deterministic judge; `agentmd test --baseline` reports what a standard *changed*, not just whether it was obeyed |
+| Instruction files are a security boundary | `lint` treats them as untrusted input; `bundle` makes changes reviewable |
+
+---
+
+## 🏛 The pillars in depth
+
+### ⇅ Version pins
+
+`link` writes the breaking changes for the majors you run, first in every agent file:
 
 ```markdown
 ### Version pins (detected from this project)
 
-**Pydantic 2** — _pyproject.toml (pydantic>=2.6)_
-- Use `.model_dump()` / `.model_dump_json()` / `.model_validate()` — `.dict()`, `.json()`, `.parse_obj()` are deprecated v1 names.
-- Validators are `@field_validator` and `@model_validator`; `@validator` and `@root_validator` are deprecated.
-
-**Next.js 16** — _package.json (next ^16.1.0)_
+**Next.js 16** — _node_modules (next 16.0.3)_
 - Request APIs are async only — `params`, `searchParams`, `cookies()`, `headers()` must be awaited.
 - `middleware.ts` is `proxy.ts`; the old filename is not picked up.
+
+**Prisma 7** — _package.json (@prisma/client ^7.0.0)_
+- No Rust query engine by default: instantiate the client with a driver adapter, not a bare `new PrismaClient()`.
 ```
 
-Pins exist for Next.js 13–16, React 18–19, Pydantic 1–2, SQLAlchemy 2, Django 5, Prisma 5–7, Tailwind 3–4, Express 5, Zod 4, ESLint 9, Vue 3, Go 1.22–1.25 and Python 3.12–3.13. Bump a dependency, run `link`, and the agent file follows.
+Coverage: Next.js 13–16, React 18–19, Pydantic 1–2, SQLAlchemy 2, Django 5, Prisma 5–7, Tailwind 3–4, Express 5, Zod 4, ESLint 9, Vue 3, Go 1.22–1.25, Python 3.12–3.13. The installed version beats the declared range, so a lockfile bump from 15 to 16 is pinned as 16 — and `lint` flags the block as stale until you run `link`.
 
-### 🎯 File-glob context scoping
+### 🔒 `agentmd lint`
 
-`link` never pastes standards into your prompt — every target gets a short block of *links*, so 30 standards add a few hundred tokens, not thousands. For Cursor it goes further and writes **one scoped `.mdc` rule per standard** with file globs by category:
+| Severity | Rule | Catches |
+| --- | --- | --- |
+| error | `secret` | Anthropic, OpenAI, GitHub, AWS, Slack, Stripe, Google keys; private keys; long values assigned to secret names. Placeholders are ignored; the secret is never echoed. |
+| error | `injection` | "ignore previous instructions", permission-bypass flags, zero-width / bidi / tag characters, instructions hidden in HTML comments, hooks that pipe a download into a shell |
+| warning | `bloat` · `blind-reference` · `stale-pins` · `permissions` | always-on files over 200 lines, `@file` links to nothing, pins out of date, unscoped `Bash` permissions |
+| notice | `lint-leakage` · `fossil` | formatting rules a formatter already enforces, unedited `/init` output |
 
-| Category | Attached while editing |
+Injection rules read prose only — not code fences, not inline code, not lines that warn *against* the thing — so documentation about attacks doesn't trip them.
+
+### 🎯 On-demand standards
+
+Each installed standard is written in the agent's own scoped format, so it costs nothing until it's relevant:
+
+| Agent | On-demand format |
 | --- | --- |
-| Database | `*.sql`, `*.prisma`, `prisma/`, `migrations/`, `db/`, `models/` |
-| Frontend / Design | `*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, `*.css`, `components/`, `pages/` |
-| Backend / API | `api/`, `server/`, `routes/`, `controllers/`, `services/`, `*.py`, `*.go` |
-| Testing | `*.test.*`, `*.spec.*`, `tests/`, `conftest.py`, `*_test.go` |
-| DevOps | `Dockerfile*`, `docker-compose*`, `.github/workflows/`, `*.tf`, `*.yml` |
+| Claude Code | `.claude/rules/*.md` with `paths:` |
+| Cursor | `.cursor/rules/*.mdc` with `globs:`, `alwaysApply: false` |
+| GitHub Copilot | `.github/instructions/*.instructions.md` with `applyTo` |
+| Codex, Gemini CLI | linked from `AGENTS.md` / `GEMINI.md` |
 
-The Postgres standard costs nothing while you edit CSS.
-
-### 🧬 Convention extraction
-
-`extract` reads the folder structure, lint/format/type configs, `package.json` scripts, the last 50 commit subjects and a bounded sample of source and tests, then asks Claude for only the conventions with evidence in that sample — each rule cites the file or config it came from. The result is a normal standard (`Team/conventions`) in your manifest: `link` includes it, `update` leaves it alone, `remove` removes it.
-
-### 🛡 Zero-cost enforcement + agent test suites
-
-Every `review` starts with a **deterministic pattern fast-path** — interpolated SQL, `SELECT *`, `eval`/`exec`, shell commands built from variables, MD5/SHA-1 for secrets, `Math.random()` tokens, `jwt.decode` without verify, wildcard CORS, hard-coded secrets, Pydantic v1 calls, sync `cookies()` in Next.js 15+ — scoped to the standards you installed. `--fast` stops there: no key, no network, milliseconds. The full review sends the diff and standards to Claude (prompt-cached) or, with `--local`, to Ollama on your machine. `test` generates adversarial tasks per standard, runs them with the standard in context, and judges every attempt — so you know which rules the model actually follows.
+The Postgres standard costs nothing while you edit CSS. Overrides in `.agentmd/overrides/` replace a registry standard with your team's own text.
 
 ---
 
-## ⚙️ How it works
+## 🏢 For teams: signed context
 
-```mermaid
-flowchart LR
-    R["<b>This repo</b><br/>_canonical/ → 11 family dirs"] -->|HTTPS, no account| C["<b>activate-agentmd</b><br/>init · install · link"]
-    C --> M[".agentmd/manifest.json<br/>.agentmd/presets/*.md"]
-    M --> L["CLAUDE.md · AGENTS.md<br/>.cursor/rules · GEMINI.md<br/>copilot-instructions.md"]
-    L --> A["Your agent"]
-    P["Version pins<br/>package.json · pyproject · go.mod"] --> L
-    X["agentmd extract<br/>your repo's conventions"] --> M
-    A -->|diff| V["agentmd review<br/>patterns → model"]
-    A -->|tasks| T["agentmd test<br/>obedience score"]
+```bash
+npx activate-agentmd bundle keygen --out ~/keys/agentmd.key --kid acme-2026   # private key never inside the repo
+npx activate-agentmd bundle sign --key ~/keys/agentmd.key                     # writes .agentmd/bundle.sig
+npx activate-agentmd bundle verify                                            # exit 1 on any change
+npx activate-agentmd bundle attest                                            # commit + context digest, as JSON
 ```
 
-1. **Content is written once** in `_canonical/<Category>/<name>.md` and generated per model family — XML-tagged sections for Claude, compact imperative bullets for OpenAI, and so on.
-2. **The CLI fetches** the family you use straight from this repository over HTTPS, records it in `.agentmd/manifest.json` with a checksum, and keeps the markdown in `.agentmd/presets/`.
-3. **`link` writes** a managed block into whichever agent files your tools already read, plus the version pins, plus scoped rules for Cursor. Everything outside the block is yours.
-4. **`update` respects your edits** — a package you tuned is skipped unless you pass `--force`; `outdated` tells you what drifted.
-5. **`review` and `test` close the loop**: the diff is checked against the rules; the rules are checked against the model.
+```
+  ✗  the files an agent reads have changed since the bundle was signed
+     modified    CLAUDE.md
+     unapproved  .cursor/rules/new-rule.mdc
+```
+
+- Covers every instruction file plus installed standards, overrides and policy; per-developer `*.local.*` files stay out.
+- `requireSignedContext: true` in `.agentmd/enterprise.json` makes `lint` fail on any unsigned change.
+- **In CI, pin trusted keys from a secret** (`AGENTMD_BUNDLE_KEYS`) — otherwise a pull request could swap the key in the repo and re-sign. `verify` warns when it isn't set.
+- `attest` gives an auditor one record per build: the commit, a digest of every instruction in force, and whether it was approved.
+
+This is a CI and review gate, not runtime enforcement: it stops an unapproved instruction file from merging unseen.
+
+---
+
+## 🛡 Enforce it in CI
+
+```yaml
+name: agentmd
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  agentmd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npx --yes activate-agentmd lint                    # secrets, injection, stale pins
+      - run: npx --yes activate-agentmd review --base origin/${{ github.base_ref }} --fast --fail-on=high
+```
+
+Zero tokens, no API key, nothing leaves the runner. Upload `lint --sarif` to GitHub code scanning to see findings inline. `npx activate-agentmd ci --write` generates this workflow for you.
 
 ---
 
@@ -199,151 +313,73 @@ flowchart LR
 
 | Target | File written | Read by |
 | --- | --- | --- |
-| `claude` | `CLAUDE.md` | Claude Code |
-| `agents` | `AGENTS.md` | Codex, Amp, Jules, Antigravity and others |
-| `cursor` | `.cursor/rules/agentmd.mdc` + one scoped `agentmd-*.mdc` per standard | Cursor |
+| `claude` | `CLAUDE.md` + `.claude/rules/` | Claude Code |
+| `agents` | `AGENTS.md` | Codex, Amp, Jules, Antigravity, Devin and others |
+| `cursor` | `.cursor/rules/agentmd.mdc` + one scoped rule per standard | Cursor |
 | `gemini` | `GEMINI.md` | Gemini CLI |
-| `copilot` | `.github/copilot-instructions.md` | GitHub Copilot |
+| `copilot` | `.github/copilot-instructions.md` + `.github/instructions/` | GitHub Copilot |
 
-**Teach the agent itself.** Two [Agent Skills](https://skills.sh) ship with the toolchain — `agentmd-usage` (the registry playbooks) and `agentmd-standards` (the discipline of following what's installed):
+**Agent Skills.** Two skills teach the agent to use the toolchain — `agentmd-usage` (install, pins, lint) and `agentmd-standards` (following what's installed):
 
 ```bash
 npx skills@latest add Aaditya1273/Agent.md -a claude-code -a cursor -y
 ```
 
-**Connect the MCP.** The registry is also an MCP server, so an agent can search and read standards mid-task:
+**MCP server.** Search and read standards mid-task:
 
 ```bash
-claude mcp add --transport http agentmd https://agent.md/api/mcp     # Claude Code
-codex  mcp add agentmd --url https://agent.md/api/mcp                # Codex
-gemini mcp add --transport http agentmd https://agent.md/api/mcp     # Gemini CLI
+claude mcp add --transport http agentmd https://agent-dot-md.vercel.app/api/mcp     # Claude Code
+codex  mcp add agentmd --url https://agent-dot-md.vercel.app/api/mcp                # Codex
+gemini mcp add --transport http agentmd https://agent-dot-md.vercel.app/api/mcp     # Gemini CLI
 ```
 
-Cursor and VS Code add it in one click from [agent.md](https://agent.md#setup). Claude Code users can also `/plugin marketplace add Aaditya1273/Agent.md` for `/agentmd:setup` and `/agentmd:review`.
-
----
-
-## 📦 What's in this repo
-
-This repository **is the registry** — the markdown the CLI installs. Nothing else lives here, so it stays easy to read, diff and review.
-
-```
-_canonical/<Category>/<preset>.md     the source of truth: one file per standard
-claude/<Category>/<preset>/…          that standard, in Claude's native shape
-open-ai/<Category>/<preset>/…         …and in OpenAI's, and nine more families
-```
-
-| Family | Directory | Family | Directory |
-| --- | --- | --- | --- |
-| Claude | `claude/` | Kimi | `kimi/` |
-| OpenAI | `open-ai/` | GLM | `glm/` |
-| Gemini | `gemini/` | MiniMax | `minimax/` |
-| DeepSeek | `deepseek/` | Mistral | `mistral/` |
-| Grok | `grok/` | Sarvam | `sarvam-ai/` |
-| Qwen | `qwen/` | | |
-
-The count that matters is **302**; the 3,322 files are the same standards in each family's native shape. The CLI (`activate-agentmd` on npm), the VS Code extension, the MCP server and the website are the tooling around this content — docs for all of them at **[agent.md](https://agent.md)**.
+Cursor and VS Code: one click at **[agent-dot-md.vercel.app/connect](https://agent-dot-md.vercel.app/connect)**.
 
 ---
 
 ## 📚 The registry
 
+This repository is the registry — plain markdown, written once in [`_canonical/`](https://github.com/Aaditya1273/Agent.md/tree/main/_canonical) and generated for eleven model families (Claude, OpenAI, Gemini, DeepSeek, Grok, Qwen, Kimi, GLM, MiniMax, Mistral, Sarvam).
+
 | Category | Examples |
 | --- | --- |
 | **Security** | owasp, jwt, oauth, sql-injection, xss, csrf, cors, secret-management, passwords, headers |
 | **Backend** | express, nextjs, fastapi, django, flask, pydantic, python-async, go-http, go-errors, go-concurrency |
-| **Database** | postgres, mysql, mongodb, prisma, sqlalchemy, go-database, indexes, migration, schema-design |
+| **Database** | postgres, mysql, mongodb, prisma, sqlalchemy, indexes, migration, schema-design |
 | **Frontend** | react, nextjs, typescript, tailwind, hooks, server-components, routing, forms, state-management |
-| **API** | rest, graphql, pagination, versioning, rate-limiting, webhooks, open-api, sdk |
+| **API** | rest, graphql, pagination, versioning, rate-limiting, webhooks, open-api |
 | **Testing** | unit, integration, e2e, pytest, go-testing, load, accessibility, test-strategy |
-| **Performance** | caching, go-performance, bundle-size, rendering, queries |
-| **DevOps** | docker, kubernetes, github-actions, cicd, deployment, environments, rollback |
-| **System Design** | architecture, caching, microservices, event-driven, distributed-systems, high-availability |
+| **Performance · DevOps · System Design** | caching, bundle-size, docker, kubernetes, github-actions, cicd, microservices, event-driven |
 | **Design** | 74 brand design languages — apple, stripe, linear, vercel, airbnb, spotify… |
 | + AI, Review, Documentation, Checklists, Startup, Business, Open Source, Templates, Community, Research | |
 
-Browse everything with logos and search at **[agent.md](https://agent.md)**, or from the terminal:
-
 ```bash
 npx activate-agentmd search "rate limiting"
-npx activate-agentmd list claude/Security
 npx activate-agentmd info Security/jwt
-npx activate-agentmd install Security/jwt          # one package
-npx activate-agentmd install Database/             # a whole category
+npx activate-agentmd install Database/          # a whole category
 ```
 
-Every install fetches the file straight from this repository over HTTPS. No mirror, no account, no telemetry.
+Browse with logos and search at **[agent-dot-md.vercel.app](https://agent-dot-md.vercel.app)**. Full CLI reference: [docs/cli.md](docs/cli.md).
 
 ---
 
-## 🛡 Enforce it in CI
+## 💳 Free and Pro
 
-Drop this into `.github/workflows/agentmd-review.yml` in your own repo. Zero token cost, no API key, nothing leaves the runner:
+| | Free — MIT, forever | Pro |
+| --- | --- | --- |
+| `init`, `link`, `install`, `update`, `pins`, `lint`, `review --fast`, `review --local`, `bundle` | ✅ | ✅ |
+| All 304 standards, the MCP server, the skills | ✅ | ✅ |
+| `extract` (derive your team's conventions), private standards sync, analytics | | ✅ |
 
-```yaml
-name: agentmd review
-on: [pull_request]
-permissions:
-  contents: read
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - run: npx activate-agentmd review --base origin/${{ github.base_ref }} --fast --fail-on=high
-```
-
-Want a full model review that comments on the PR? Add `ANTHROPIC_API_KEY` to your secrets, give the job `pull-requests: write`, and swap `--fast` for `--github`. Need diffs to stay on your own machines? `agentmd review --local` judges with [Ollama](https://ollama.com) instead.
-
----
-
-## 🆚 Compared with the alternatives
-
-| | Agent.md | Hand-written `CLAUDE.md` | Awesome-list of prompts | Cursor Rules |
-| --- | :--: | :--: | :--: | :--: |
-| Curated, reviewed content | ✅ | ❌ | ⚠️ varies | ❌ |
-| Install with one command | ✅ | ❌ | ❌ | ❌ |
-| Detects your stack | ✅ | ❌ | ❌ | ❌ |
-| Pins breaking library versions | ✅ | ❌ | ❌ | ❌ |
-| Scopes rules to the files you're editing | ✅ | ❌ | ❌ | ⚠️ manual |
-| Learns your own conventions | ✅ `extract` | ✋ by hand | ❌ | ✋ by hand |
-| Checks the diff against the rules | ✅ `review` | ❌ | ❌ | ❌ |
-| Measures whether the model obeys | ✅ `test` | ❌ | ❌ | ❌ |
-| Update path / staleness report | ✅ | ❌ | ❌ | ❌ |
-| Works across multiple agents | ✅ 5 | ❌ 1 | ⚠️ copy-paste | ❌ 1 |
-| Open source | ✅ MIT | n/a | ⚠️ varies | ❌ |
+Pro is built; checkout is not open yet. Everything above the line works today with no account and no key.
 
 ---
 
 ## 🤝 Contributing
 
-Standards are plain markdown, written once in `_canonical/<Category>/<name>.md`:
+Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: imperative, specific, short wrong/right code pairs, an anti-patterns table and a checklist — and **evidence that the standard changes what a model writes** (`agentmd test --baseline` prints it). A standard that doesn't change the output isn't a standard; it's a file.
 
-```markdown
----
-name: jwt
-category: Security
-description: Issuing and validating JSON Web Tokens safely — algorithm pinning, claim validation, key rotation.
-license: MIT
-author: Agent.md maintainers
-last-verified: 2026-09-13
-reviewed-by: unreviewed
-version: 2.0.0
----
-
-# Purpose
-…
-# Anti-patterns
-…
-# Checklist
-```
-
-The bar: imperative, specific, opinionated, short right/wrong code blocks, an anti-patterns table and a checklist, ~200 lines. Match a neighbour in the same category. Open a PR with the canonical file; maintainers generate the eleven family variants.
-
-**Most wanted right now:** Rust, Vue, Svelte, NestJS and Java. The CLI already detects those stacks and deliberately recommends nothing, because there is no content for them yet. See [CONTRIBUTING.md](CONTRIBUTING.md).
+**Hacktoberfest 2026:** the [open issues](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest) are scoped, markdown-only and need no build — new standards for Vue, Svelte, Angular, Rust, NestJS, Fastify and Java; upgrades of legacy packages; verification against React 19, Next 16, Prisma 7 and Tailwind 4. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -351,31 +387,32 @@ The bar: imperative, specific, opinionated, short right/wrong code blocks, an an
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | CLI (`init` · `install` · `link` · `update` · `outdated` · `extract` · `review` · `test`) · version pins · scoped Cursor rules · pattern fast-path · Ollama review · MCP server · Agent Skills · Claude Code plugin · VS Code + Cursor extension · 302 standards for 11 families |
-| 🔨 **Next** | Rust / Vue / Svelte / NestJS / Java packs · extension on the Marketplace · Claude Code scoped rules · per-package semantic versions |
-| 💭 **Considering** | Signed packages · publishing from outside this repo · first-class private team registries |
+| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 304 standards |
+| 🔬 **Measuring** | Published per-library effect of every pin (old-API rate with vs. without), starting with the 15 checkable majors |
+| 🔨 **Next** | Pins for ~50 libraries (Vite, Vitest, TanStack Query, Drizzle, Hono, Svelte 5, Angular, NestJS, FastAPI, Node, TypeScript…) · library authors publishing their own pins · `lint` in the browser at /inspect |
+| 💭 **Considering** | Hosted audit log for teams · signed-bundle format proposed to the AGENTS.md specification |
 
 ---
 
 ## ❓ FAQ
 
 **Is this a replacement for `CLAUDE.md` / `AGENTS.md` / Cursor rules?**
-No. Those are file formats. Agent.md is the distribution layer that fills them in and keeps them current — `link` writes into whichever ones your tools already read.
+No — those are file formats. Agent.md fills them with what is true for your versions, checks them, and makes changes to them reviewable.
 
-**Does it paste 30 standards into my prompt?**
-No. `link` writes a short block of *links*; the agent opens a standard when it needs it. For Cursor it also writes one scoped rule per standard with file globs, attached only while a matching file is open.
+**Does it paste 30 standards into every prompt?**
+No. Only version pins are always on. Standards load on demand, when the agent opens a matching file.
 
-**What does `review --fast` actually check?**
-Deterministic patterns over the added lines of a diff, scoped to the standards you installed. High precision on purpose — a false positive in CI costs more trust than a missed catch. The model-backed review catches the rest.
+**Does `lint` need Agent.md installed in the repo?**
+No. `npx activate-agentmd lint` works on any repository with any agent instruction files.
 
-**Why one file per family instead of one file?**
-Models differ in what they follow. Claude responds to XML-tagged sections; OpenAI models to compact imperative bullets. Writing once and generating per family keeps content identical while the shape fits the reader.
+**What does `review --fast` check?**
+Deterministic patterns over the added lines of a diff — injection, weak crypto, wildcard CORS, hard-coded secrets — plus the version checks for the majors you run. No model, no key, milliseconds.
 
 **Does anything leave my machine?**
-`init`, `install`, `link`, `review --fast` and `review --local` never contact Anthropic. `review`, `extract` and `test` send the diff / evidence and the installed standards to the Anthropic API under your own key — nothing else. The website and the CLI collect no telemetry.
+`init`, `install`, `link`, `pins`, `lint`, `bundle` and `review --fast` / `--local` run offline. `review` (model mode), `extract` and `test` send the diff or evidence to the Anthropic API under your own key. Anonymous usage counters are **off by default** and opt-in (`agentmd telemetry`).
 
-**Is anything paid?**
-No. All 302 standards, the CLI, the extension and the MCP server are MIT licensed.
+**Does a pin actually change what a model writes?**
+That is the right question, and it is being measured rather than assumed: each pin has a deterministic judge, and results are published per library in the registry as they land.
 
 ---
 
@@ -385,7 +422,7 @@ No. All 302 standards, the CLI, the extension and the MCP server are MIT license
 
 <div align="center">
 
-**[agent.md](https://agent.md)** · **[npm](https://www.npmjs.com/package/activate-agentmd)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
+**[agent-dot-md.vercel.app](https://agent-dot-md.vercel.app)** · **[npm](https://www.npmjs.com/package/activate-agentmd)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
 
 <sub>If Agent.md saved you a debugging session, a ⭐ helps the next person find it.</sub>
 

@@ -1,0 +1,11 @@
+interface:
+  display_name: "Agent.md standards"
+  short_description: "Search, read and install curated engineering standards, then wire them into the agent's config."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "agentmd"
+      description: "Agent.md, the registry of engineering standards for AI coding agents"
+      transport: "streamable_http"
+      url: "https://agent-dot-md.vercel.app/api/mcp"
