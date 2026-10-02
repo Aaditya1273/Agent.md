@@ -15,15 +15,15 @@ installed like packages, scoped like linters, enforced like tests.
 
 <br>
 
-[![npm version](https://img.shields.io/npm/v/agentmd-cli?color=6366f1&label=agentmd-cli)](https://www.npmjs.com/package/agentmd-cli)
-[![npm downloads](https://img.shields.io/npm/dm/agentmd-cli?color=8b5cf6)](https://www.npmjs.com/package/agentmd-cli)
+[![npm version](https://img.shields.io/npm/v/activate-agentmd?color=6366f1&label=activate-agentmd)](https://www.npmjs.com/package/activate-agentmd)
+[![npm downloads](https://img.shields.io/npm/dm/activate-agentmd?color=8b5cf6)](https://www.npmjs.com/package/activate-agentmd)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 ![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
 
 ```bash
-npx agentmd-cli init
+npx activate-agentmd init
 ```
 
 **302 canonical standards · 20 categories · 11 model families · MIT · no account, no telemetry**
@@ -67,7 +67,7 @@ Four commands. Each one is copy-paste and does exactly what it says.
 **1. Scan the stack, install matching standards, pin breaking library changes**
 
 ```bash
-npx agentmd-cli init
+npx activate-agentmd init
 ```
 ```
   ✓ Next.js                  package.json (next)
@@ -85,7 +85,7 @@ Install these? [Y/n]
 **2. Infer your team's unwritten conventions from git history and configs**
 
 ```bash
-npx agentmd-cli extract          # add --dry to print without writing
+npx activate-agentmd extract          # add --dry to print without writing
 ```
 ```
 Gathered evidence from 14 files (96k chars, claude-opus-5)
@@ -96,7 +96,7 @@ Gathered evidence from 14 files (96k chars, claude-opus-5)
 **3. Lint a diff against your standards — deterministic, offline, zero tokens**
 
 ```bash
-npx agentmd-cli review --fast --fail-on=high
+npx activate-agentmd review --fast --fail-on=high
 ```
 ```
 Reviewing 1 changed file against 12 standards (patterns only)
@@ -110,7 +110,7 @@ Reviewing 1 changed file against 12 standards (patterns only)
 **4. Measure whether the agent actually obeys the rules**
 
 ```bash
-npx agentmd-cli test              # needs ANTHROPIC_API_KEY
+npx activate-agentmd test              # needs ANTHROPIC_API_KEY
 ```
 ```
 Rule efficacy — 3 standards × 3 tasks  (claude-opus-5)
@@ -121,7 +121,7 @@ Rule efficacy — 3 standards × 3 tasks  (claude-opus-5)
 Score: 7/9 (78%)
 ```
 
-Then `npx agentmd-cli link` writes everything into `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` or `copilot-instructions.md`, and you commit `.agentmd/` so the whole team gets the same rules.
+Then `npx activate-agentmd link` writes everything into `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` or `copilot-instructions.md`, and you commit `.agentmd/` so the whole team gets the same rules.
 
 <div align="center">
 <a href="https://agent.md#setup"><img src="assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
@@ -177,7 +177,7 @@ Every `review` starts with a **deterministic pattern fast-path** — interpolate
 
 ```mermaid
 flowchart LR
-    R["<b>This repo</b><br/>_canonical/ → 11 family dirs"] -->|HTTPS, no account| C["<b>agentmd-cli</b><br/>init · install · link"]
+    R["<b>This repo</b><br/>_canonical/ → 11 family dirs"] -->|HTTPS, no account| C["<b>activate-agentmd</b><br/>init · install · link"]
     C --> M[".agentmd/manifest.json<br/>.agentmd/presets/*.md"]
     M --> L["CLAUDE.md · AGENTS.md<br/>.cursor/rules · GEMINI.md<br/>copilot-instructions.md"]
     L --> A["Your agent"]
@@ -242,7 +242,7 @@ open-ai/<Category>/<preset>/…         …and in OpenAI's, and nine more famili
 | Grok | `grok/` | Sarvam | `sarvam-ai/` |
 | Qwen | `qwen/` | | |
 
-The count that matters is **302**; the 3,322 files are the same standards in each family's native shape. The CLI (`agentmd-cli` on npm), the VS Code extension, the MCP server and the website are the tooling around this content — docs for all of them at **[agent.md](https://agent.md)**.
+The count that matters is **302**; the 3,322 files are the same standards in each family's native shape. The CLI (`activate-agentmd` on npm), the VS Code extension, the MCP server and the website are the tooling around this content — docs for all of them at **[agent.md](https://agent.md)**.
 
 ---
 
@@ -265,11 +265,11 @@ The count that matters is **302**; the 3,322 files are the same standards in eac
 Browse everything with logos and search at **[agent.md](https://agent.md)**, or from the terminal:
 
 ```bash
-npx agentmd-cli search "rate limiting"
-npx agentmd-cli list claude/Security
-npx agentmd-cli info Security/jwt
-npx agentmd-cli install Security/jwt          # one package
-npx agentmd-cli install Database/             # a whole category
+npx activate-agentmd search "rate limiting"
+npx activate-agentmd list claude/Security
+npx activate-agentmd info Security/jwt
+npx activate-agentmd install Security/jwt          # one package
+npx activate-agentmd install Database/             # a whole category
 ```
 
 Every install fetches the file straight from this repository over HTTPS. No mirror, no account, no telemetry.
@@ -293,7 +293,7 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - run: npx agentmd-cli review --base origin/${{ github.base_ref }} --fast --fail-on=high
+      - run: npx activate-agentmd review --base origin/${{ github.base_ref }} --fast --fail-on=high
 ```
 
 Want a full model review that comments on the PR? Add `ANTHROPIC_API_KEY` to your secrets, give the job `pull-requests: write`, and swap `--fast` for `--github`. Need diffs to stay on your own machines? `agentmd review --local` judges with [Ollama](https://ollama.com) instead.
@@ -385,7 +385,7 @@ No. All 302 standards, the CLI, the extension and the MCP server are MIT license
 
 <div align="center">
 
-**[agent.md](https://agent.md)** · **[npm](https://www.npmjs.com/package/agentmd-cli)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
+**[agent.md](https://agent.md)** · **[npm](https://www.npmjs.com/package/activate-agentmd)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
 
 <sub>If Agent.md saved you a debugging session, a ⭐ helps the next person find it.</sub>
 
