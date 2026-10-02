@@ -8,4 +8,4 @@ dependencies:
       value: "agentmd"
       description: "Agent.md, the registry of engineering standards for AI coding agents"
       transport: "streamable_http"
-      url: "https://agent-dot-md.vercel.app/api/mcp"
+      url: "https://agentmd.pages.dev/api/mcp"

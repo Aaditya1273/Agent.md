@@ -12,7 +12,7 @@ lints every instruction file they read, and signs the set your team approved.
 
 <br>
 
-<a href="https://agent-dot-md.vercel.app"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md — install standards with any agent" width="100%"></a>
+<a href="https://agentmd.pages.dev"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md — install standards with any agent" width="100%"></a>
 
 <br>
 
@@ -144,10 +144,10 @@ npx activate-agentmd link
 `link` writes a managed block into whichever of `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` and `copilot-instructions.md` your tools read. Commit `.agentmd/` and the whole team gets the same rules.
 
 <div align="center">
-<a href="https://agent-dot-md.vercel.app/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
+<a href="https://agentmd.pages.dev/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
 </div>
 
-**Or try it in the browser in 10 seconds** at **[agent-dot-md.vercel.app/inspect](https://agent-dot-md.vercel.app/inspect)** — drop a `package.json` to see every major your agent will get wrong, or paste a `CLAUDE.md` to check it for leaked keys and prompt injection. Nothing is uploaded.
+**Or try it in the browser in 10 seconds** at **[agentmd.pages.dev/inspect](https://agentmd.pages.dev/inspect)** — drop a `package.json` to see every major your agent will get wrong, or paste a `CLAUDE.md` to check it for leaked keys and prompt injection. Nothing is uploaded.
 
 ---
 
@@ -328,12 +328,12 @@ npx skills@latest add Aaditya1273/Agent.md -a claude-code -a cursor -y
 **MCP server.** Search and read standards mid-task:
 
 ```bash
-claude mcp add --transport http agentmd https://agent-dot-md.vercel.app/api/mcp     # Claude Code
-codex  mcp add agentmd --url https://agent-dot-md.vercel.app/api/mcp                # Codex
-gemini mcp add --transport http agentmd https://agent-dot-md.vercel.app/api/mcp     # Gemini CLI
+claude mcp add --transport http agentmd https://agentmd.pages.dev/api/mcp     # Claude Code
+codex  mcp add agentmd --url https://agentmd.pages.dev/api/mcp                # Codex
+gemini mcp add --transport http agentmd https://agentmd.pages.dev/api/mcp     # Gemini CLI
 ```
 
-Cursor and VS Code: one click at **[agent-dot-md.vercel.app/connect](https://agent-dot-md.vercel.app/connect)**.
+Cursor and VS Code: one click at **[agentmd.pages.dev/connect](https://agentmd.pages.dev/connect)**.
 
 ---
 
@@ -359,7 +359,7 @@ npx activate-agentmd info Security/jwt
 npx activate-agentmd install Database/          # a whole category
 ```
 
-Browse with logos and search at **[agent-dot-md.vercel.app](https://agent-dot-md.vercel.app)**. Full CLI reference: [docs/cli.md](docs/cli.md).
+Browse with logos and search at **[agentmd.pages.dev](https://agentmd.pages.dev)**. Full CLI reference: [docs/cli.md](docs/cli.md).
 
 ---
 
@@ -422,7 +422,7 @@ That is the right question, and it is being measured rather than assumed: each p
 
 <div align="center">
 
-**[agent-dot-md.vercel.app](https://agent-dot-md.vercel.app)** · **[npm](https://www.npmjs.com/package/activate-agentmd)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
+**[agentmd.pages.dev](https://agentmd.pages.dev)** · **[npm](https://www.npmjs.com/package/activate-agentmd)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
 
 <sub>If Agent.md saved you a debugging session, a ⭐ helps the next person find it.</sub>
 

@@ -35,7 +35,7 @@ Everything goes through one CLI. Always invoke it as `npx activate-agentmd` unle
 
 ## If the Agent.md MCP is connected
 
-The registry is also served as an MCP server at `https://agent-dot-md.vercel.app/api/mcp`
+The registry is also served as an MCP server at `https://agentmd.pages.dev/api/mcp`
 (streamable HTTP). When it is connected, prefer its tools over shelling out
 to search — they return structured results without leaving the conversation:
 
@@ -49,10 +49,10 @@ to search — they return structured results without leaving the conversation:
 The MCP is read-only. Installing into the project is always the CLI's job —
 run the commands `install_command` returns in the project root.
 
-Connect it: `claude mcp add --transport http agentmd https://agent-dot-md.vercel.app/api/mcp`
-(Claude Code), `codex mcp add agentmd --url https://agent-dot-md.vercel.app/api/mcp` (Codex),
-`gemini mcp add --transport http agentmd https://agent-dot-md.vercel.app/api/mcp` (Gemini CLI),
-or the one-click buttons for Cursor and VS Code on https://agent-dot-md.vercel.app.
+Connect it: `claude mcp add --transport http agentmd https://agentmd.pages.dev/api/mcp`
+(Claude Code), `codex mcp add agentmd --url https://agentmd.pages.dev/api/mcp` (Codex),
+`gemini mcp add --transport http agentmd https://agentmd.pages.dev/api/mcp` (Gemini CLI),
+or the one-click buttons for Cursor and VS Code on https://agentmd.pages.dev.
 
 ## Tool map
 
