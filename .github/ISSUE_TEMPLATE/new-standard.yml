@@ -1,0 +1,37 @@
+name: New standard
+description: Propose a standard for a stack that has none
+title: "[Standard] Category/name"
+labels: ["new standard", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One standard per issue. Read [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md)
+        first — in particular, you write `_canonical/<Category>/<name>.md` and
+        nothing else. The eleven model directories are generated.
+  - type: input
+    id: path
+    attributes:
+      label: File you intend to write
+      placeholder: _canonical/Frontend/vue.md
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What does a model get wrong without this file?
+      description: >
+        The reason a standard exists. Name the API that changed, the pattern
+        models reach for from memory, the thing you keep correcting in review.
+        Two or three concrete examples beat a paragraph of intent.
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: How do you know these rules are right?
+      description: >
+        Which version, which docs page, what you run in production. "I ship
+        this daily at work" is a real answer.
+    validations:
+      required: true

@@ -1,0 +1,25 @@
+name: A standard is wrong or stale
+description: A rule contradicts current documentation, or the file predates the canonical format
+title: "[Fix] Category/name"
+labels: ["content"]
+body:
+  - type: input
+    id: path
+    attributes:
+      label: Which standard
+      placeholder: _canonical/Backend/fastapi.md
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What is wrong
+      description: Quote the rule, then say what the current documentation says instead. Link it.
+    validations:
+      required: true
+  - type: checkboxes
+    id: claim
+    attributes:
+      label: Are you fixing it?
+      options:
+        - label: I intend to open the pull request myself

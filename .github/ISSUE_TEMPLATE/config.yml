@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How contributions work here
+    url: https://github.com/Aaditya1273/Agent.md/blob/main/CONTRIBUTING.md
+    about: Edit _canonical/ only — the eleven model directories are generated and your edit would be overwritten.
