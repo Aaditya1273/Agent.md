@@ -6,7 +6,7 @@ targetModels:
   - "Claude 5 Family"
 name: hanami
 category: Motion
-description: HANAMI, the cherry-blossom product film — a 2–3 minute cinematic film in code with a Japanese visual system, voice-first timing, hanko verdicts and real receipts as the climax.
+description: HANAMI, the cherry-blossom product film — a 2–3 minute cinematic film for any product, made in code with a Japanese visual system, voice-first timing, hanko verdicts and real receipts as the climax.
 license: MIT
 author: Agent.md maintainers
 last-verified: 2026-10-05
@@ -61,7 +61,7 @@ These five rules apply to every frame. When a creative choice is unclear, the ru
 | **Space is a material** | 間 *ma*, the meaningful pause | One idea per frame. Leave at least 35% of the canvas empty. Silence after a big line is planned, not left over. |
 | **Warm imperfection** | 侘寂 *wabi-sabi* | Cream paper, faint grain, soft vignette, drifting light. Never pure white or flat black. |
 | **Every motion means something** | 一期一会 *ichigo ichie*, each moment once | Nothing moves just to look busy. An element moves because the narration says something about it at that exact moment. |
-| **Truth is the climax** | 誠 *makoto*, sincerity | The emotional peak is a **real receipt**: a live transaction, a real dashboard, a dated source. Illustrations are labelled as illustrations. Numbers are never invented. |
+| **Truth is the climax** | 誠 *makoto*, sincerity | The emotional peak is a **real receipt**: a live run, a real dashboard, a log line, a dated source. Illustrations are labelled as illustrations. Numbers are never invented. |
 
 ---
 
@@ -70,7 +70,7 @@ These five rules apply to every frame. When a creative choice is unclear, the ru
 Collect all three before writing anything.
 
 **A. Product brief**, one paragraph each:
-- the painful problem, stated as a *scene* ("It's Saturday. The market is closed…"), not as a category;
+- the painful problem, stated as a *scene* ("It's Friday, 6 PM. The release just went out…"), not as a category;
 - who gets hurt and how much;
 - the product's single unfair insight, as one sentence a 12-year-old could repeat;
 - the three or four product moments worth showing.
@@ -84,7 +84,7 @@ Collect all three before writing anything.
 - logo mark (transparent PNG or WEBP) and wordmark font;
 - one hero image (landscape, high resolution; a cherry-blossom scene fits this theme best);
 - product UI facts: exact copy, colours, radii and real values to rebuild screens;
-- **receipts**: screenshots of live proof (explorer pages, dashboards, logs), captured at 1600×1000 CSS px with a headless browser.
+- **receipts**: screenshots of live proof (dashboards, logs, analytics, public status pages), captured at 1600×1000 CSS px with a headless browser.
 
 > **Rule:** if a number isn't in the fact sheet, it doesn't go in the film.
 
@@ -106,14 +106,14 @@ A Hanami film follows a fixed arc. The timings below are for a ~3:00 cut; scale 
 | 8 | **The answer** | The product solving *exactly* the hook's scenario, live | 1:56–2:10 | Payoff |
 | 9 | **The refusal** | The system saying **no** to something unsafe, with the reason on screen | 2:10–2:18 | Trust |
 | 10 | **Edge case** | The subtle moment others miss (a reopen, a retry, a grace window) | 2:18–2:27 | Depth |
-| 11 | **Receipts** | Real transactions or real logs, with zoom and callouts | 2:27–2:36 | Belief |
+| 11 | **Receipts** | Real activity: a live dashboard, logs or results, with zoom and callouts | 2:27–2:36 | Belief |
 | 12 | **Thesis and end card** | Why now and who needs it; one quotable line; logo and links | 2:36–3:00 | Memory |
 
 **Writing the voiceover:**
-- Lines are 6–20 words. Prefer short declaratives: "The market closes." "Borrowing stops."
+- Lines are 6–20 words. Prefer short declaratives: "The build passes." "The customer leaves."
 - Each scene gets one to four lines. The *first words* of a line are what trigger the visuals.
 - Use spoken numbers: "thirty-two hours", "eleven oh seven Eastern".
-- End the hook with a **question** and the film with an **inversion** ("A stock price is not a permission.").
+- End the hook with a **question** and the film with an **inversion** ("A green checkmark is not a guarantee.").
 - Read the script aloud once. Rewrite any line you stumble over.
 
 ---
@@ -144,8 +144,8 @@ script.json ──TTS──► audio/<line>.wav + timings.json ──► timelin
 
 ```json
 [
-  { "id": "hook1", "pause": 0.4, "text": "It's Saturday. The stock market is closed." },
-  { "id": "hook2", "pause": 0.4, "text": "But your stock token isn't. It trades twenty-four seven." }
+  { "id": "hook1", "pause": 0.4, "text": "It's Friday, six PM. The release just went out." },
+  { "id": "hook2", "pause": 0.4, "text": "Your dashboard is green. Your customers are not." }
 ]
 ```
 
@@ -205,7 +205,7 @@ warning. Every colour that carries meaning also gets an icon or a word, so it st
 | --- | --- | --- |
 | Display and UI | **Inter** (variable) | Headlines 64–92 px at weight 700–800, tracking −0.035 em to −0.045 em |
 | Emotional accent | **Dancing Script** | 84–120 px at 700, pink, used once or twice per film ("and actions.", the closing line) |
-| Data and receipts | System mono (`ui-monospace, SF Mono, Menlo`) | 17–24 px; hashes, timestamps, sources in UPPER CASE |
+| Data and receipts | System mono (`ui-monospace, SF Mono, Menlo`) | 17–24 px; IDs, timestamps, sources in UPPER CASE |
 | Kanji accents (optional) | **Shippori Mincho** or **Noto Serif JP** | 160–260 px chapter marks at 6–10% opacity; see §9 |
 
 Use a scale of five sizes at most per scene. Emphasise with weight or colour, never with a new size.
@@ -221,7 +221,7 @@ Use a scale of five sizes at most per scene. Emphasise with weight or colour, ne
 
 - Canvas 1920×1080, with 160–200 px side margins for the main content.
 - Headlines sit at the top (y ≈ 80–120) or at the bottom third (y ≈ 760–860), never in the dead centre over content.
-- Footer receipt band: mono, 17 px, `muted`, right-aligned at `bottom: 30`, e.g. `ROBINHOOD CHAIN TESTNET · MOCK ASSETS · LIVE ENGINE`.
+- Footer receipt band: mono, 17 px, `muted`, right-aligned at `bottom: 30`, e.g. `[PRODUCT] · LIVE DATA · RECORDED [DATE]`.
 
 ---
 
@@ -241,7 +241,7 @@ Use a scale of five sizes at most per scene. Emphasise with weight or colour, ne
 | Move | Recipe |
 | --- | --- |
 | **Word bloom** | Each word fades in from `opacity 0`, `translateY(0.45em)` and `blur(10px)` over 18 frames, staggered by 3 frames. The headline always enters this way. |
-| **Hanko slam** | The stamp scales from 2.2 to 1 on `pop`, rotated −3° to −6°, with a 5 px vermilion border and letter-spacing 0.12 em. Used for verdicts like *CLOSED* and *LENDERS LOSE*. |
+| **Hanko slam** | The stamp scales from 2.2 to 1 on `pop`, rotated −3° to −6°, with a 5 px vermilion border and letter-spacing 0.12 em. Used for verdicts like *FAILED*, *BLOCKED* or *SHIPPED*. |
 | **Petal drift** | 18–30 procedural petals, each with a seeded size, speed, rotation and occasional blur. They drift diagonally and loop. |
 | **Iris open** | `clip-path: circle()` grows from 0 to 1500 px in 26 frames to reveal the hero image, with a slow 1.12 → 1.02 zoom behind it. |
 | **Screen-Studio camera** | Keyframes `{f, x, y, s}`, interpolated with `EASE_IN_OUT`. Zoom 1.0–1.6 onto the element being talked about, then ease back. |
@@ -323,7 +323,7 @@ export const Camera: React.FC<{ keys: { f: number; x: number; y: number; s: numb
 
 Also build these: `Card`, `Pill`, `Icon` (24 px line icons), `Check` (a stroke that draws in), `Cursor`
 (keyframed, with a click ring), `Typed`, `Counter`, `Stamp` (hanko), `Live` (pulsing dot), `AppWindow`,
-`SceneFade` and `TestnetTag`.
+`SceneFade` and `SourceTag` (the footer receipt band).
 
 ---
 
@@ -332,7 +332,7 @@ Also build these: `Card`, `Pill`, `Icon` (24 px line icons), `Check` (a stroke t
 Each recipe gives the **visual**, the **motion** and the **cue words**. Replace the bracketed content with your own.
 
 ### Beat 1: Hook, "the specific moment"
-- **Visual:** a 7-day strip across the top with the current day highlighted in pink. Below it, two cards side by side: *[the thing that stopped]* with a **CLOSED** hanko stamped over its icon, and *[the thing still running]* with a live sparkline, a ticking price and a gradient "24/7".
+- **Visual:** a 7-day strip across the top with the current day highlighted in pink. Below it, two cards side by side: *[the thing that stopped]* with a **STOPPED** hanko stamped over its icon, and *[the thing still running]* with a live sparkline, a ticking counter and a gradient "24/7".
 - **Motion:** the day pills pop in a cascade; the stamp slams on "*closed*"; the live card rises on line 2. On the question line, both cards shrink to 0.88 and lift, and the question blooms in at y ≈ 830.
 - **Cue words:** the noun that names the problem; the word "*isn't*"; the question.
 
@@ -345,9 +345,9 @@ Each recipe gives the **visual**, the **motion** and the **cue words**. Replace 
 - **Visual:** a full-width chart with dashed time markers. Two lines:
   - *reality*: an ink line drawn live, with a sharp event drop;
   - *the system's belief*: a dashed pink line, frozen.
-- **Annotations:** shade the gap between the lines in vermilion at 16% and label it "−12% gap". An ink event pill marks the moment ("⚡ Sat 9:14 AM · bad news").
-- **The steps:** a row of 3–4 step cards (buy → post → borrow → walk away) with arrows, each popping on its spoken verb.
-- **Verdict:** a full-width hanko stamp, e.g. **LENDERS LOSE ≈ $28 PER TOKEN**.
+- **Annotations:** shade the gap between the lines in vermilion at 16% and label it with *[the size of the gap]*. An ink event pill marks the moment ("⚡ *[time]* · *[what happened]*").
+- **The steps:** a row of 3–4 step cards (*[cause → spread → missed → damage]*) with arrows, each popping on its spoken verb.
+- **Verdict:** a full-width hanko stamp naming the cost, e.g. **[WHO] LOSES [MEASURED AMOUNT]**.
 - **Label:** "illustration" in the eyebrow.
 
 ### Beat 4: It's real, "evidence cards"
@@ -370,8 +370,8 @@ Each recipe gives the **visual**, the **motion** and the **cue words**. Replace 
 - **Visual:** the input chips (one per signal) light up as each is named, flow into a dark engine block, and resolve into one big answer card ("Is it safe? **Yes / No**").
 
 ### Beat 8: The answer, "the hook, solved"
-- **Visual:** the product's real status screen. A clock pill ticks to the critical time. A signed-report *packet* flies in, a banner drops, and every row flips one by one, 7 frames apart (green "Normal" → vermilion "Closed").
-- **Columns:** as the narration names each consequence, its column gets a highlight box. The one thing that stays allowed (e.g. "Repay: Open") is highlighted in matcha green.
+- **Visual:** the product's real status screen. A clock pill ticks to the critical time. A signal *packet* flies in, a banner drops, and every affected row flips one by one, 7 frames apart (green "Normal" → vermilion "*[Stopped]*").
+- **Columns:** as the narration names each consequence, its column gets a highlight box. The one thing that stays allowed (e.g. "*[safe action]*: Allowed") is highlighted in matcha green.
 
 ### Beat 9: The refusal, "no, and here's why"
 - **Visual:** a chat window. The user's request types out; an agent card runs its checks (a policy check passes, a risk check fails); then a vermilion "Not executed." box quotes the system's real refusal text.
@@ -379,17 +379,17 @@ Each recipe gives the **visual**, the **motion** and the **cue words**. Replace 
 
 ### Beat 10: Edge case, "the subtle moment"
 - **Visual:** a horizontal timeline of segments: Closed (vermilion) → Grace (pink) → Normal (matcha). A playhead moves across it with a state pill riding on top.
-- **Caption:** "Nobody is liquidated on the first wild print." Add a mono line saying **"NOT TO SCALE"** when it isn't to scale.
+- **Caption:** "*[One sentence on why the edge case is handled]*." Add a mono line saying **"NOT TO SCALE"** when it isn't to scale.
 
 ### Beat 11: Receipts, "the real thing"
-1. **The headline card:** a "LIVE" pill and the date and time. One row per event, `STATE → STATE` with the time and a truncated hash, flipping in sequence.
-2. **The explorer:** a browser frame (traffic lights, a URL bar with the full real URL) around the real screenshot. Camera keys zoom onto **From**, then **Contract**, then **Status**. Pink callout rings with ink label pills: "Reporter · signer", "Engine · [runtime]", "Success · [time]".
-3. **The stream:** the contract's transaction list, scrolling slowly, with a pill like "A signed report every 2 min · all public".
+1. **The headline card:** a "LIVE" pill and the date and time. One row per event, `STATE → STATE` with the time and a short ID, flipping in sequence.
+2. **The detail page:** a browser frame (traffic lights, a URL bar with the full real URL) around the real screenshot. Camera keys zoom onto the three fields that prove the claim (who or what acted, when, the result). Pink callout rings with ink label pills: "*[Actor]*", "*[System · runtime]*", "Success · *[time]*".
+3. **The stream:** the full activity list, scrolling slowly, with a pill like "*[Event]* every *[interval]* · *[where it can be checked]*".
 
 ### Beat 12: Thesis and end card
-- **Thesis:** a token wall funnels into a single pink gradient bar labelled "[Product] layer", with the consumers (markets, agents, wallets) connected above it by dashed lines.
+- **Thesis:** a wall of *[the many inputs or users]* funnels into a single pink gradient bar labelled "[Product]", with *[the audiences it serves]* connected above it by dashed lines.
 - **Close:** a 92 px ink inversion line, then the promise in pink script on two lines.
-- **End card:** the hero image at 35% under cream fog, petals, the logo, "Live on [network]", URL pills and the event credit. Fade out over 24 frames.
+- **End card:** the hero image at 35% under cream fog, petals, the logo, "Live at [URL or platform]", URL pills and any credit. Fade out over 24 frames.
 
 ---
 
@@ -441,18 +441,18 @@ All of it gets a 3 s reverb at 0.35 mix, a normalised peak and a 0.4 s fade-in.
 
 The receipt is the climax, so capture it properly.
 
-1. Find the real event: query the chain or logs for the exact transaction where the state changed.
+1. Find the real event: the exact log line, run, record or dashboard moment where the state changed.
 2. Capture the page with a headless browser at **1600×1000 CSS px**, device scale 1, with the page fully loaded.
 3. Capture **two** views:
-   - the single transaction's detail page (status, from, to, time);
-   - the contract's transaction list (proves the activity is continuous).
+   - the single event's detail view (status, actor, time, result);
+   - the list or history view (proves the activity is continuous, not staged).
 4. Place the screenshot at scale 0.9 inside a browser frame. Map each callout target from screenshot coordinates: `X = 240 + x × 0.9`, `Y = 140 + y × 0.9`.
-5. Say the **time in the viewer's terms** (e.g. "11:07 AM ET") and put the same time in the callout label. If the explorer shows another timezone, the callout carries the conversion.
+5. Say the **time in the viewer's terms** (e.g. "11:07 AM ET") and put the same time in the callout label. If the page shows another timezone, the callout carries the conversion.
 
 **Honesty rules (non-negotiable):**
 - Illustrations carry the word **"illustration"** on screen.
 - Every external number shows a mono source line on screen.
-- Test networks and mock assets are labelled on every product frame.
+- Demo environments and sample data are labelled on every frame that shows them.
 - Never claim "production-ready", "audited" or "verified" unless it is, and say which.
 
 ---
@@ -484,7 +484,7 @@ Never render the full film blind.
 | Audio | AAC 256 kbps, 48 kHz |
 | Loudness | **−14 LUFS integrated, −1 dBTP true peak** (two-pass `loudnorm`, linear) |
 | Length | 2:00–3:00 |
-| Thumbnail | The beat-3 hanko frame or the beat-11 explorer callout frame |
+| Thumbnail | The beat-3 hanko frame or the beat-11 receipt callout frame |
 
 **Master command:**
 
@@ -515,7 +515,7 @@ Steps:
 5. Capture the receipts with a headless browser (§11).
 6. Run the quality loop (§12) and show me the contact sheets before the full render.
 7. Render, master to −14 LUFS (§13), and report: runtime, loudness, and every on-screen number with its source.
-Never invent a number. Label illustrations. Label test networks.
+Never invent a number. Label illustrations. Label demo or sample data.
 ```
 
 ---
@@ -529,7 +529,7 @@ Never invent a number. Label illustrations. Label test networks.
 - [ ] The product solves the **exact** hook scenario on screen.
 - [ ] The system refuses something unsafe, with the reason visible.
 - [ ] One edge case shows depth.
-- [ ] A real receipt (transaction or log) is the emotional peak.
+- [ ] A real receipt (live run, log or dashboard) is the emotional peak.
 - [ ] The film closes with a quotable inversion line.
 
 **Design**
@@ -546,7 +546,7 @@ Never invent a number. Label illustrations. Label test networks.
 
 **Truth**
 - [ ] Every number is on the fact sheet with a source.
-- [ ] Illustrations, test networks and mocks are labelled on screen.
+- [ ] Illustrations, demo environments and sample data are labelled on screen.
 
 **Delivery**
 - [ ] Contact sheets reviewed: no overlaps, crops or wraps.
