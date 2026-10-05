@@ -351,7 +351,7 @@ This repository is the registry — plain markdown, written once in [`_canonical
 | **Testing** | unit, integration, e2e, pytest, go-testing, load, accessibility, test-strategy |
 | **Performance · DevOps · System Design** | caching, bundle-size, docker, kubernetes, github-actions, cicd, microservices, event-driven |
 | **Design** | 74 brand design languages — apple, stripe, linear, vercel, airbnb, spotify… |
-| **Motion** 🆕 *(Claude)* | lumen — bright keynote-grade launch films · hanami — cherry-blossom cinematic films · framewright — themeable films with real footage, virtual camera and cursor · truecut — a 60–120 s demo edited from one honest screen recording. All built in code: story, motion, voice, score, render |
+| **Motion** 🆕 *(Claude)* | lumen — bright keynote-grade launch films · hanami — cherry-blossom cinematic films · hanko-reel — ink-and-seal films: washi paper, sumi ink, one vermilion seal · truecut — a 60–120 s demo edited from one honest screen recording. All built in code: story, motion, voice, score, render |
 | + AI, Review, Documentation, Checklists, Startup, Business, Open Source, Templates, Community, Research | |
 
 ```bash
