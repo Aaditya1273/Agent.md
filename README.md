@@ -25,11 +25,11 @@ lints every instruction file they read, and signs the set your team approved.
 ![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
 
 ```bash
+npx activate-agentmd lint     # check every file your agent reads — leaked keys, injection, bloat. Any repo, no setup
 npx activate-agentmd init     # detect your stack, pin breaking changes, install standards
-npx activate-agentmd lint     # check every file your agent reads — any repo, no setup
 ```
 
-**304 standards · 13 pinned libraries · 21 deterministic checks · 5 agent targets · MIT · no account · offline**
+**Instruction-file linter · 305 standards · 13 pinned libraries · 5 agent targets · MIT · no account · offline**
 
 **[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Quick start](#-quick-start) · [Why now](#-why-now-the-market-in-october-2026) · [Why it's different](#-why-its-different) · [For teams](#-for-teams-signed-context) · [CI](#-enforce-it-in-ci) · [Research](#-what-the-research-says--and-what-we-changed) · [FAQ](#-faq)**
 
@@ -75,10 +75,10 @@ These files are fed to the model on every session, with the agent's full permiss
 
 | | Pillar | The pain it removes |
 | --- | --- | --- |
-| ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 21 deterministic checks then catch the old API in the diff, scoped to your version. | Deprecated code that compiles, passes review, and breaks later |
 | 🔒 | **`agentmd lint`** — checks every file an agent reads for leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, unsafe hooks, bloat, dead references and stale pins. Runs on any repo; exits non-zero in CI; SARIF for code scanning. | Secrets and injected instructions reaching the model; context rot |
+| ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 21 deterministic checks then catch the old API in the diff, scoped to your version. Biggest effect where the model's training predates the version. | Deprecated code that compiles, passes review, and breaks later |
 | ✍️ | **Signed context bundles** — sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any modified, added or removed file, and `attest` records which context was in force for each commit. | Unreviewed rule changes; no audit trail for agent-written code |
-| 📚 | **304 engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
+| 📚 | **305 engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps, motion design and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
 
 ---
 
@@ -196,7 +196,7 @@ Everyone else works on what the agent *can look up* or what it *already wrote*. 
 
 1. **Neutral across vendors.** Every agent vendor's incentive is to make *its own* context load more easily. A record of what Claude Code, Cursor and Copilot were told — signed with *your* key — has to come from someone who is none of them.
 2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reports **zero errors across the 4,278 files of this registry**, including security standards that quote attacks to teach them.
-3. **Evidence-first content.** Pins are measured, not asserted: each one carries a deterministic judge, and the effect (old-API rate with vs. without the pin) is published per library as measurements land.
+3. **Evidence-first content.** Pins are measured, not asserted: each one carries a deterministic judge, and the effect (old-API rate with vs. without the pin) is run on more than one model before it is published. No pin is added until the existing ones show an effect that repeats.
 4. **It honours the research instead of fighting it.** See below.
 
 ---
@@ -351,12 +351,14 @@ This repository is the registry — plain markdown, written once in [`_canonical
 | **Testing** | unit, integration, e2e, pytest, go-testing, load, accessibility, test-strategy |
 | **Performance · DevOps · System Design** | caching, bundle-size, docker, kubernetes, github-actions, cicd, microservices, event-driven |
 | **Design** | 74 brand design languages — apple, stripe, linear, vercel, airbnb, spotify… |
+| **Motion** 🆕 *(Claude)* | lumen — keynote-grade launch films built in code: story, motion, voice, score, render |
 | + AI, Review, Documentation, Checklists, Startup, Business, Open Source, Templates, Community, Research | |
 
 ```bash
 npx activate-agentmd search "rate limiting"
 npx activate-agentmd info Security/jwt
 npx activate-agentmd install Database/          # a whole category
+npx activate-agentmd install claude/Motion/lumen # make a launch film with Claude
 ```
 
 Browse with logos and search at **[agentmd.pages.dev](https://agentmd.pages.dev)**. Full CLI reference: [docs/cli.md](docs/cli.md).
@@ -368,7 +370,7 @@ Browse with logos and search at **[agentmd.pages.dev](https://agentmd.pages.dev)
 | | Free — MIT, forever | Pro |
 | --- | --- | --- |
 | `init`, `link`, `install`, `update`, `pins`, `lint`, `review --fast`, `review --local`, `bundle` | ✅ | ✅ |
-| All 304 standards, the MCP server, the skills | ✅ | ✅ |
+| All 305 standards, the MCP server, the skills | ✅ | ✅ |
 | `extract` (derive your team's conventions), private standards sync, analytics | | ✅ |
 
 Pro is built; checkout is not open yet. Everything above the line works today with no account and no key.
@@ -387,9 +389,9 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 304 standards |
-| 🔬 **Measuring** | Published per-library effect of every pin (old-API rate with vs. without), starting with the 15 checkable majors |
-| 🔨 **Next** | Pins for ~50 libraries (Vite, Vitest, TanStack Query, Drizzle, Hono, Svelte 5, Angular, NestJS, FastAPI, Node, TypeScript…) · library authors publishing their own pins |
+| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 305 standards · Motion category (Claude) |
+| 🔬 **Measuring** | Effect of every pin (old-API rate with vs. without), on more than one model before anything is published. Pin expansion is paused until the effect repeats |
+| 🔨 **Next** | More lint rules · more Motion standards · library authors publishing their own pins · pins for more libraries once measurement supports it |
 | 💭 **Considering** | Hosted audit log for teams · signed-bundle format proposed to the AGENTS.md specification |
 
 ---
@@ -412,7 +414,7 @@ Deterministic patterns over the added lines of a diff — injection, weak crypto
 `init`, `install`, `link`, `pins`, `lint`, `bundle` and `review --fast` / `--local` run offline. `review` (model mode), `extract` and `test` send the diff or evidence to the Anthropic API under your own key. Anonymous usage counters are **off by default** and opt-in (`agentmd telemetry`).
 
 **Does a pin actually change what a model writes?**
-That is the right question, and it is being measured rather than assumed: each pin has a deterministic judge, and results are published per library in the registry as they land.
+That is the right question, and it is being measured rather than assumed. On a current frontier-class model, the first run of 140 tasks found the effect concentrated in a few libraries, because recent models already know most of these versions. Pins matter most when the model's training predates the version you run. Results are published once they repeat on a second model.
 
 ---
 
