@@ -705,12 +705,14 @@ agentmd lint             # exit 1 on any error
 agentmd lint --strict    # warnings fail too
 agentmd lint --json
 agentmd lint --sarif     # SARIF 2.1.0 for GitHub code scanning
+agentmd lint --fix       # delete lint-leakage and duplicate lines, then re-check
 ```
 
 It finds `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`,
 `.windsurfrules`, `.cursor/rules/`, `.claude/rules/`, `.claude/skills/**/SKILL.md`,
 `.github/copilot-instructions.md`, `.github/instructions/`, hook settings in
-`.claude/settings*.json`, and the same files nested in workspaces.
+`.claude/settings*.json`, MCP server configs (`.mcp.json`, `.cursor/mcp.json`,
+`.vscode/mcp.json`, `.gemini/settings.json`), and the same files nested in workspaces.
 
 | Severity | Rule | Catches |
 | --- | --- | --- |
@@ -719,9 +721,11 @@ It finds `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`,
 | warning | `injection` | `curl … \| sh` in prose, long base64 runs |
 | warning | `bloat` | an always-on file of 200+ lines or over 3,000 tokens |
 | warning | `blind-reference` | `@file` imports and relative links that point at nothing |
+| warning | `stale-reference` | a repo path in backticks (`src/auth/middleware.ts`) that no longer exists. Paths are matched from the root, from the file, and as the tail of any real path; a `.js` reference to a `.ts` source counts; examples, placeholders, home-folder configs, build output and paths outside the repo's own folders are skipped |
 | warning | `stale-pins` | the agentmd block's pins no longer match the dependencies — run `link` |
 | warning | `permissions` | `Bash` allowed with no pattern in Claude settings |
-| notice | `lint-leakage` | formatting rules a formatter in the repo already enforces |
+| notice | `lint-leakage` | formatting rules a formatter in the repo already enforces — fixable with `--fix` |
+| notice | `duplicate` | the same instruction twice in an always-on file — fixable with `--fix` |
 | notice | `fossil` | unedited `/init` boilerplate |
 | error | `unsigned-context` | with `requireSignedContext`, any change not covered by `bundle sign` |
 
@@ -733,6 +737,22 @@ no errors.
 `ci --write` adds a lint step before the review step. The Claude Code plugin
 runs the same check as a hook after every edit to an instruction file and
 reports errors back to the agent.
+
+## audit
+
+Run `lint` on any public GitHub repository without cloning it yourself.
+
+```bash
+agentmd audit vercel/next.js
+agentmd audit https://github.com/owner/repo
+agentmd audit ./local/checkout
+agentmd audit owner/repo --json
+```
+
+It downloads only what lint reads — instruction files, skills, MCP configs,
+formatter config and dependency manifests — and creates every other path
+empty, so stale-path checks still know what exists. Nothing from the repo is
+executed. Exit code 1 when an error (a secret, an injection) is found.
 
 ## pins
 

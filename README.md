@@ -25,7 +25,8 @@ lints every instruction file they read, and signs the set your team approved.
 ![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
 
 ```bash
-npx activate-agentmd lint     # check every file your agent reads — leaked keys, injection, bloat. Any repo, no setup
+npx activate-agentmd audit vercel/next.js   # audit any public repo's agent context, no clone
+npx activate-agentmd lint     # check every file your agent reads — leaked keys, injection, rot, bloat. Any repo, no setup
 npx activate-agentmd init     # detect your stack, pin breaking changes, install standards
 ```
 
@@ -75,7 +76,7 @@ These files are fed to the model on every session, with the agent's full permiss
 
 | | Pillar | The pain it removes |
 | --- | --- | --- |
-| 🔒 | **`agentmd lint`** — checks every file an agent reads for leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, unsafe hooks, bloat, dead references and stale pins. Runs on any repo; exits non-zero in CI; SARIF for code scanning. | Secrets and injected instructions reaching the model; context rot |
+| 🔒 | **`agentmd lint`** — checks every file an agent reads (instruction files, skills, MCP configs) for leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, unsafe hooks, bloat, duplicated rules, references to files that no longer exist, and stale pins. `--fix` deletes what only costs tokens. `audit owner/repo` runs it on any public repo. Exits non-zero in CI; SARIF for code scanning. | Secrets and injected instructions reaching the model; context rot |
 | ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 21 deterministic checks then catch the old API in the diff, scoped to your version. Biggest effect where the model's training predates the version. | Deprecated code that compiles, passes review, and breaks later |
 | ✍️ | **Signed context bundles** — sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any modified, added or removed file, and `attest` records which context was in force for each commit. | Unreviewed rule changes; no audit trail for agent-written code |
 | 📚 | **308 engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps, motion design and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
@@ -195,7 +196,7 @@ Everyone else works on what the agent *can look up* or what it *already wrote*. 
 **What makes it hard to copy:**
 
 1. **Neutral across vendors.** Every agent vendor's incentive is to make *its own* context load more easily. A record of what Claude Code, Cursor and Copilot were told — signed with *your* key — has to come from someone who is none of them.
-2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reports **zero errors across the 4,278 files of this registry**, including security standards that quote attacks to teach them.
+2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reports **zero errors and zero warnings across the 4,292 files of this registry**, including security standards that quote attacks to teach them.
 3. **Evidence-first content.** Pins are measured, not asserted: each one carries a deterministic judge, and the effect (old-API rate with vs. without the pin) is run on more than one model before it is published. No pin is added until the existing ones show an effect that repeats.
 4. **It honours the research instead of fighting it.** See below.
 
