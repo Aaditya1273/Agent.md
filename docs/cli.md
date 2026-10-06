@@ -709,7 +709,9 @@ agentmd lint --fix       # delete lint-leakage and duplicate lines, then re-chec
 ```
 
 It finds `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`,
-`.windsurfrules`, `.cursor/rules/`, `.claude/rules/`, `.claude/skills/**/SKILL.md`,
+`.windsurfrules`, `.cursor/rules/`, `.claude/rules/`, every `SKILL.md` (in
+`.claude/skills/`, `skills/`, or at the root of a skill repository) and the
+scripts bundled with it,
 `.github/copilot-instructions.md`, `.github/instructions/`, hook settings in
 `.claude/settings*.json`, MCP server configs (`.mcp.json`, `.cursor/mcp.json`,
 `.vscode/mcp.json`, `.gemini/settings.json`), and the same files nested in workspaces.
@@ -727,6 +729,9 @@ It finds `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`,
 | notice | `lint-leakage` | formatting rules a formatter in the repo already enforces — fixable with `--fix` |
 | notice | `duplicate` | the same instruction twice in an always-on file — fixable with `--fix` |
 | notice | `fossil` | unedited `/init` boilerplate |
+| error | `skill-payload` | in a skill's bundled scripts: a download piped into a shell, decoded data passed to `eval`/`exec`, the whole environment serialised, a credential store (`~/.ssh`, `.aws/credentials`, `.npmrc`, keychain) read by a script that also makes network calls. Comments are skipped; ordinary tooling (spawning ffmpeg or Chrome, calling an API with a key from the environment, decoding a `data:` image) is not flagged |
+| warning | `skill-payload` | a skill script that writes to the agent's own configuration — settings, hooks, MCP servers, instruction files, shell profile — or reads a credential store without sending anything |
+| notice | `skill-network` | the hosts each skill script contacts, so you know where data goes before you install it |
 | error | `unsigned-context` | with `requireSignedContext`, any change not covered by `bundle sign` |
 
 Injection rules read prose only — not code fences, not inline code, not lines
