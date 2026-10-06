@@ -633,6 +633,16 @@ Deliver in order, and show me each before moving on:
 Run the §14 quality gate and report each item as pass or fail with evidence.
 ```
 
+## Verify the render with numbers
+
+Before you call the film done, measure it. Run:
+
+```bash
+npx activate-agentmd motion check out/film.mp4 --preset hanko-reel
+```
+
+It checks this style's delivery targets (−14 LUFS, true peak ≤ −1 dBTP, 30 fps) and the gates every Motion film shares: the render decodes and moves (G0), no empty frames mid-film (G1), a short end hold (G2), the final shot's share of the film (G3), and loudness (G4). It exits 1 on a failure, so it can gate a CI job. Passing is a floor, not taste: judge proof readability and one hero per frame by eye on a contact sheet. The timing and anti-slop rules behind these gates are in the `motion-craft` standard.
+
 ---
 
 *HANKO REEL was distilled from the [STOCKBACK demo film](https://youtu.be/70fX_mN6MuE): 4,500 code-rendered frames, an original synthesized score and a real product take.*

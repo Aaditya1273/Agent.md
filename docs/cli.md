@@ -759,6 +759,31 @@ formatter config and dependency manifests — and creates every other path
 empty, so stale-path checks still know what exists. Nothing from the repo is
 executed. Exit code 1 when an error (a secret, an injection) is found.
 
+## motion check
+
+Measure a rendered film against the gates of the Motion standards, instead of
+trusting the agent that made it to say it came out well.
+
+```bash
+agentmd motion check out/film.mp4
+agentmd motion check out/film.mp4 --preset hanko-reel   # lumen | hanami | hanko-reel | truecut | motion-craft
+agentmd motion check out/film.mp4 --lufs -16 --hold 2 --json
+```
+
+| Gate | Passes when |
+| --- | --- |
+| G0 render | the film decodes, has picture content and moves |
+| G1 no empty frames | no run of more than 3 flat-colour frames mid-film (a fade at the very start or end is fine) |
+| G2 end hold | the picture is unchanged at the end for at most 1.4 s (`--hold`) |
+| G3 final shot | the last shot is at most 25 % of the film (warns when too few hard cuts to measure) |
+| G4 loudness | integrated within ±1 LU of the target (−14 LUFS, `--lufs`) and true peak under the preset's limit |
+
+It also prints a motion note — the mean frame-to-frame change against the band
+measured on human-made launch films — and the one-line ffmpeg command for a
+contact sheet, because proof readability and one hero per frame are judged by
+eye. Exit 1 on a failed gate. Needs ffmpeg. Adapted from motionmaxxing's
+`look.py` (Apache-2.0). What it cannot see: [KNOWN-LIMITS.md](KNOWN-LIMITS.md).
+
 ## pins
 
 Print the breaking changes for the dependency majors this project runs, in

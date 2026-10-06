@@ -30,7 +30,7 @@ npx activate-agentmd lint     # check every file your agent reads — leaked key
 npx activate-agentmd init     # detect your stack, pin breaking changes, install standards
 ```
 
-**Instruction-file linter · 308 standards · 13 pinned libraries · 5 agent targets · MIT · no account · offline**
+**Instruction-file linter · 309 standards · 13 pinned libraries · 5 agent targets · MIT · no account · offline**
 
 **[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Quick start](#-quick-start) · [Why now](#-why-now-the-market-in-october-2026) · [Why it's different](#-why-its-different) · [For teams](#-for-teams-signed-context) · [CI](#-enforce-it-in-ci) · [Research](#-what-the-research-says--and-what-we-changed) · [FAQ](#-faq)**
 
@@ -79,7 +79,7 @@ These files are fed to the model on every session, with the agent's full permiss
 | 🔒 | **`agentmd lint`** — checks every file an agent reads (instruction files, skills, MCP configs) for leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, unsafe hooks, bloat, duplicated rules, references to files that no longer exist, and stale pins. `--fix` deletes what only costs tokens. `audit owner/repo` runs it on any public repo. Exits non-zero in CI; SARIF for code scanning. | Secrets and injected instructions reaching the model; context rot |
 | ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 21 deterministic checks then catch the old API in the diff, scoped to your version. Biggest effect where the model's training predates the version. | Deprecated code that compiles, passes review, and breaks later |
 | ✍️ | **Signed context bundles** — sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any modified, added or removed file, and `attest` records which context was in force for each commit. | Unreviewed rule changes; no audit trail for agent-written code |
-| 📚 | **308 engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps, motion design and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
+| 📚 | **309 engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps, motion design and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
 
 ---
 
@@ -352,7 +352,7 @@ This repository is the registry — plain markdown, written once in [`_canonical
 | **Testing** | unit, integration, e2e, pytest, go-testing, load, accessibility, test-strategy |
 | **Performance · DevOps · System Design** | caching, bundle-size, docker, kubernetes, github-actions, cicd, microservices, event-driven |
 | **Design** | 74 brand design languages — apple, stripe, linear, vercel, airbnb, spotify… |
-| **Motion** 🆕 *(Claude)* | lumen — bright keynote-grade launch films · hanami — cherry-blossom cinematic films · hanko-reel — ink-and-seal films: washi paper, sumi ink, one vermilion seal · truecut — a 60–120 s demo edited from one honest screen recording. All built in code: story, motion, voice, score, render |
+| **Motion** 🆕 *(Claude)* | lumen — bright keynote-grade launch films · hanami — cherry-blossom cinematic films · hanko-reel — ink-and-seal films: washi paper, sumi ink, one vermilion seal · truecut — a 60–120 s demo edited from one honest screen recording · motion-craft — measured timing and anti-slop rules for all of them. Check any render with `motion check` |
 | + AI, Review, Documentation, Checklists, Startup, Business, Open Source, Templates, Community, Research | |
 
 ```bash
@@ -371,7 +371,7 @@ Browse with logos and search at **[agentmd.pages.dev](https://agentmd.pages.dev)
 | | Free — MIT, forever | Pro |
 | --- | --- | --- |
 | `init`, `link`, `install`, `update`, `pins`, `lint`, `review --fast`, `review --local`, `bundle` | ✅ | ✅ |
-| All 308 standards, the MCP server, the skills | ✅ | ✅ |
+| All 309 standards, the MCP server, the skills | ✅ | ✅ |
 | `extract` (derive your team's conventions), private standards sync, analytics | | ✅ |
 
 Pro is built; checkout is not open yet. Everything above the line works today with no account and no key.
@@ -390,7 +390,7 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 308 standards · Motion category (Claude) |
+| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 309 standards · Motion category (Claude) |
 | 🔬 **Measuring** | Effect of every pin (old-API rate with vs. without), on more than one model before anything is published. Pin expansion is paused until the effect repeats |
 | 🔨 **Next** | More lint rules · more Motion standards · library authors publishing their own pins · pins for more libraries once measurement supports it |
 | 💭 **Considering** | Hosted audit log for teams · signed-bundle format proposed to the AGENTS.md specification |
