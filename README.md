@@ -3,18 +3,15 @@
 
 # Agent.md
 
-## The trust layer for what your AI coding agent reads
+## ESLint for CLAUDE.md, AGENTS.md and agent skills
 
-Your agent's training data is frozen. Your dependencies are not —<br>
-and nothing checks the files that tell your agent what to do.<br>
-Agent.md gives **Claude Code, Cursor, Codex, Gemini CLI and Copilot** version-accurate rules,<br>
-lints every instruction file they read, and signs the set your team approved.
+Your AI coding agent follows these files blindly, before it reads a line of your code.<br>
+Agent.md finds the **leaked keys, hidden instructions, dead references and toxic skill scripts** in them.<br>
+Any repo. Ten seconds. No account.
 
-<br>
-
-<a href="https://agentmd.pages.dev"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md — install standards with any agent" width="100%"></a>
-
-<br>
+```bash
+npx activate-agentmd audit your/repo
+```
 
 [![npm version](https://img.shields.io/npm/v/activate-agentmd?color=6366f1&label=activate-agentmd)](https://www.npmjs.com/package/activate-agentmd)
 [![npm downloads](https://img.shields.io/npm/dm/activate-agentmd?color=8b5cf6)](https://www.npmjs.com/package/activate-agentmd)
@@ -24,17 +21,42 @@ lints every instruction file they read, and signs the set your team approved.
 [![Hacktoberfest](https://img.shields.io/badge/Hacktoberfest-2026-ff6b35)](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest)
 ![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
 
-```bash
-npx activate-agentmd audit vercel/next.js   # audit any public repo's agent context, no clone
-npx activate-agentmd lint     # check every file your agent reads — leaked keys, injection, rot, bloat. Any repo, no setup
-npx activate-agentmd init     # detect your stack, pin breaking changes, install standards
+</div>
+
+### What it finds
+
+Real output, on a small example repo:
+
+```text
+  Agent context audit  acme-app
+  2 files an agent reads · ~52 tokens loaded on every prompt
+
+     1  secrets in files the agent reads
+     1  prompt-injection signals
+     1  dangerous patterns in 1 skill script
+     1  references to files that no longer exist
+     1  formatting rules a formatter already enforces  auto-fixable
+
+  ERROR   .claude/skills/deploy/scripts/run.sh:2  skill-payload
+          Downloads code and pipes it straight into a shell.
+  ERROR   CLAUDE.md:4  secret
+          Looks like an Anthropic API key. Instruction files are sent to the model on every session.
+  ERROR   CLAUDE.md:6  injection
+          An HTML comment carries an instruction. GitHub hides comments from reviewers but the agent reads them.
+  WARNING CLAUDE.md:3  stale-reference
+          `src/auth/middleware.ts` does not exist in this repository. The agent will look for it and guess.
 ```
 
-**Instruction-file linter · 308 standards · 13 pinned libraries · 5 agent targets · MIT · no account · offline**
+| Command | What it does |
+| --- | --- |
+| `npx activate-agentmd audit owner/repo` | Check any public GitHub repo, without cloning it |
+| `npx activate-agentmd lint` | Check your own repo. Exits non-zero in CI; SARIF for code scanning |
+| `npx activate-agentmd lint --fix` | Delete what only costs tokens: rules your formatter already enforces, duplicated lines |
+| `npx activate-agentmd init` | Optional: add version notes and standards for your exact stack |
+
+It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally, nothing uploaded. Precision first: **zero false alarms across the 4,293 files of this repository** and the instruction files of 20 large open-source projects. What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
 
 **[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Quick start](#-quick-start) · [Why now](#-why-now-the-market-in-october-2026) · [Why it's different](#-why-its-different) · [For teams](#-for-teams-signed-context) · [CI](#-enforce-it-in-ci) · [Research](#-what-the-research-says--and-what-we-changed) · [FAQ](#-faq)**
-
-</div>
 
 ---
 
@@ -196,7 +218,7 @@ Everyone else works on what the agent *can look up* or what it *already wrote*. 
 **What makes it hard to copy:**
 
 1. **Neutral across vendors.** Every agent vendor's incentive is to make *its own* context load more easily. A record of what Claude Code, Cursor and Copilot were told — signed with *your* key — has to come from someone who is none of them.
-2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reports **zero errors and zero warnings across the 4,292 files of this registry**, including security standards that quote attacks to teach them.
+2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reports **zero errors and zero warnings across the 4,293 files of this registry**, including security standards that quote attacks to teach them.
 3. **Evidence-first content.** Pins are measured, not asserted: each one carries a deterministic judge, and the effect (old-API rate with vs. without the pin) is run on more than one model before it is published. No pin is added until the existing ones show an effect that repeats.
 4. **It honours the research instead of fighting it.** See below.
 
@@ -339,6 +361,8 @@ Cursor and VS Code: one click at **[agentmd.pages.dev/connect](https://agentmd.p
 ---
 
 ## 📚 The registry
+
+<a href="https://agentmd.pages.dev"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md registry — install standards with any agent" width="100%"></a>
 
 This repository is the registry — plain markdown, written once in [`_canonical/`](https://github.com/Aaditya1273/Agent.md/tree/main/_canonical) and generated for eleven model families (Claude, OpenAI, Gemini, DeepSeek, Grok, Qwen, Kimi, GLM, MiniMax, Mistral, Sarvam).
 
