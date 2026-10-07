@@ -466,13 +466,3 @@ Paste this with the file:
 > Deliver `<PRODUCT>-demo.mp4` (1920×1080, 30 fps, ≈ −16 LUFS, 60–120 s), a 1280×720 thumbnail quoting the
 > recording verbatim, and the filled quality-gate checklist. If any step of the product fails on camera,
 > stop and report it; do not fake it in the edit.
-
-## Verify the render with numbers
-
-Before you call the film done, measure it. Run:
-
-```bash
-npx activate-agentmd motion check out/film.mp4 --preset truecut
-```
-
-It checks this style's delivery targets (about −16 LUFS, no clipping, 30 fps) and the gates every Motion film shares: the render decodes and moves (G0), no empty frames mid-film (G1), a short end hold (G2), the final shot's share of the film (G3), and loudness (G4). It exits 1 on a failure, so it can gate a CI job. Passing is a floor, not taste: judge proof readability and one hero per frame by eye on a contact sheet. The timing and anti-slop rules behind these gates are in the `motion-craft` standard.

@@ -659,16 +659,6 @@ and a list mapping every on-screen number to its source file (§14).
 Never invent a number, never show unlabelled illustration as fact, badge every time-lapse.
 ```
 
-## Verify the render with numbers
-
-Before you call the film done, measure it. Run:
-
-```bash
-npx activate-agentmd motion check out/film.mp4 --preset lumen
-```
-
-It checks this style's delivery targets (−14 LUFS, true peak ≤ −1.5 dBTP, 60 fps) and the gates every Motion film shares: the render decodes and moves (G0), no empty frames mid-film (G1), a short end hold (G2), the final shot's share of the film (G3), and loudness (G4). It exits 1 on a failure, so it can gate a CI job. Passing is a floor, not taste: judge proof readability and one hero per frame by eye on a contact sheet. The timing and anti-slop rules behind these gates are in the `motion-craft` standard.
-
 ---
 
 *LUMEN was distilled from the COMMIT film (WeAreDevelopers × BAND Dark Factory, October 2026). Reference implementation: `commit-video/`. Everything in it is open source and generated locally.*
