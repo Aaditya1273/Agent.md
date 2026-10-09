@@ -398,7 +398,9 @@ Browse with logos and search at **[agentmd.pages.dev](https://agentmd.pages.dev)
 | All 308 standards, the MCP server, the skills | ✅ | ✅ |
 | `extract` (derive your team's conventions), private standards sync, analytics | | ✅ |
 
-Pro is built; checkout is not open yet. Everything above the line works today with no account and no key.
+**Pro: $9/month ($7/month billed yearly), early access.** Checkout is not open yet: [join the waitlist →](https://tally.so/r/QKg14g)
+
+Everything in the Free column works today with no account and no key.
 
 ---
 
