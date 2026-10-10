@@ -278,7 +278,7 @@ agentmd logout
 agentmd whoami
 ```
 
-Signs in with an Agent.md Pro license key. With no `--key`, it opens the Pro
+Signs in with an Agent.md Team license key. With no `--key`, it opens the Team
 page and prompts for the key with echo disabled, so it stays out of your
 scrollback and out of a screen share.
 
@@ -327,7 +327,7 @@ sign you out.
 
 ---
 
-## sync (Pro)
+## sync (free)
 
 ```bash
 agentmd sync --private [--push | --pull] [--dry]
@@ -360,7 +360,7 @@ hostile registry cannot place a file outside the project.
 
 ---
 
-## analytics (Pro)
+## analytics (free)
 
 ```bash
 agentmd analytics [--since 30d|12w|6m|all] [--json]
@@ -405,7 +405,7 @@ agentmd ci                    # print the workflow this project should use
 agentmd ci --write [--force]  # save it to .github/workflows/agentmd.yml
 agentmd ci --check            # validate the workflow you already have
 agentmd ci --cloud            # explains the private preview, sends nothing
-agentmd ci --cloud --preview  # Pro + invite token: hand the run to the hosted runner
+agentmd ci --cloud --preview  # Team + invite token: hand the run to the hosted runner
 ```
 
 Free. Generates a GitHub Actions workflow tuned to what is actually in the
@@ -960,7 +960,7 @@ token usage.
 | `AGENTMD_REGISTRY_BASE` | Override the registry base URL (mirrors, testing) |
 | `AGENTMD_TIMEOUT_MS` | Per-request timeout, default 30000. A whole request gets twice this |
 | `AGENTMD_DEBUG` | Print a stack trace on error |
-| `AGENTMD_PRO_KEY` | Pro license key. Highest priority, and nothing is written to disk |
+| `AGENTMD_PRO_KEY` | Agent.md Team license key (the variable keeps its original name). Highest priority, and nothing is written to disk |
 | `AGENTMD_CONFIG_HOME` | Where credentials and telemetry settings live (default `~/.agentmd`) |
 | `AGENTMD_PRIVATE_REGISTRY` | Overrides `privateRegistry` from `.agentmd/enterprise.json` |
 | `AGENTMD_CLOUD_URL` | Overrides `cloudUrl` from `.agentmd/enterprise.json` |
@@ -977,7 +977,7 @@ token usage.
 
 `0` success · `1` failure — an unknown package, a failed fetch, validation
 errors, or `outdated` finding something that needs attention ·
-`2` a Pro command run without a license, which is not a failure of the command.
+`2` a Team feature (`ci --cloud --preview`) run without a license, which is not a failure of the command.
 `lint` exits `1` on any error (and on warnings with `--strict`); `bundle verify`
 exits `1` on any untrusted signature or changed file.
 

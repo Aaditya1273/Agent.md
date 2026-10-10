@@ -54,7 +54,7 @@ Real output, on a small example repo:
 | `npx activate-agentmd lint --fix` | Delete what only costs tokens: rules your formatter already enforces, duplicated lines |
 | `npx activate-agentmd init` | Optional: add version notes and standards for your exact stack |
 
-It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally, nothing uploaded. Precision first: **zero false alarms across the 4,293 files of this repository** and the instruction files of 20 large open-source projects. What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
+It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally, nothing uploaded. Precision first: **zero false alarms at release (2.7.0) across 4,292 registry files, 272 skill scripts and the instruction files of 20 large open-source projects**; one found since was fixed in 2.7.1. What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
 
 **[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Quick start](#-quick-start) · [Why now](#-why-now-the-market-in-october-2026) · [Why it's different](#-why-its-different) · [For teams](#-for-teams-signed-context) · [CI](#-enforce-it-in-ci) · [Research](#-what-the-research-says--and-what-we-changed) · [FAQ](#-faq)**
 
@@ -99,9 +99,9 @@ These files are fed to the model on every session, with the agent's full permiss
 | | Pillar | The pain it removes |
 | --- | --- | --- |
 | 🔒 | **`agentmd lint`** — checks every file an agent reads (instruction files, skills, MCP configs) for leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, unsafe hooks, bloat, duplicated rules, references to files that no longer exist, and stale pins. `--fix` deletes what only costs tokens. `audit owner/repo` runs it on any public repo. Exits non-zero in CI; SARIF for code scanning. | Secrets and injected instructions reaching the model; context rot |
-| ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 21 deterministic checks then catch the old API in the diff, scoped to your version. Biggest effect where the model's training predates the version. | Deprecated code that compiles, passes review, and breaks later |
+| ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 15 deterministic version checks across 13 pinned libraries then catch the old API in the diff, scoped to your version. Biggest effect where the model's training predates the version. | Deprecated code that compiles, passes review, and breaks later |
 | ✍️ | **Signed context bundles** — sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any modified, added or removed file, and `attest` records which context was in force for each commit. | Unreviewed rule changes; no audit trail for agent-written code |
-| 📚 | **308 engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps, motion design and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
+| 📚 | **300+ engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps, motion design and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
 
 ---
 
@@ -208,7 +208,7 @@ Everyone else works on what the agent *can look up* or what it *already wrote*. 
 | | Agent.md | Hand-written `CLAUDE.md` | Skills marketplaces | Docs retrieval (Context7) | Code review bots |
 | --- | :--: | :--: | :--: | :--: | :--: |
 | Breaking changes for *your* installed majors, in context before the agent writes | ✅ | ✋ by hand | ❌ | ⚠️ when the agent asks | ❌ |
-| Deterministic check for the old API, scoped by version | ✅ 21 checks | ❌ | ❌ | ❌ | ⚠️ model-judged |
+| Deterministic check for the old API, scoped by version | ✅ 15 checks | ❌ | ❌ | ❌ | ⚠️ model-judged |
 | Lints `CLAUDE.md` / `AGENTS.md` / rules / skills for secrets and injection | ✅ | ❌ | ⚠️ `SKILL.md` only | ❌ | ❌ |
 | Signed, approved context with an audit record per commit | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Works across Claude Code, Cursor, Codex, Gemini CLI, Copilot | ✅ 5 | ❌ 1 | ⚠️ varies | ✅ via MCP | ⚠️ varies |
@@ -218,7 +218,7 @@ Everyone else works on what the agent *can look up* or what it *already wrote*. 
 **What makes it hard to copy:**
 
 1. **Neutral across vendors.** Every agent vendor's incentive is to make *its own* context load more easily. A record of what Claude Code, Cursor and Copilot were told — signed with *your* key — has to come from someone who is none of them.
-2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reports **zero errors and zero warnings across the 4,293 files of this registry**, including security standards that quote attacks to teach them.
+2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reported **zero errors and zero warnings across the 4,292 files of this registry at release 2.7.0**, including security standards that quote attacks to teach them.
 3. **Evidence-first content.** Pins are measured, not asserted: each one carries a deterministic judge, and the effect (old-API rate with vs. without the pin) is run on more than one model before it is published. No pin is added until the existing ones show an effect that repeats.
 4. **It honours the research instead of fighting it.** See below.
 
@@ -390,15 +390,18 @@ Browse with logos and search at **[agentmd.pages.dev](https://agentmd.pages.dev)
 
 ---
 
-## 💳 Free and Pro
+## 💳 Free and Team
 
-| | Free — MIT, forever | Pro |
+Free is anything Agent.md does not have to remember. Team is what needs Agent.md to hold state across people, repositories and time.
+
+| | Free — MIT, forever | Team |
 | --- | --- | --- |
-| `init`, `link`, `install`, `update`, `pins`, `lint`, `review --fast`, `review --local`, `bundle` | ✅ | ✅ |
-| All 308 standards, the MCP server, the skills | ✅ | ✅ |
-| `extract` (derive your team's conventions), private standards sync, analytics | | ✅ |
+| `init`, `link`, `install`, `update`, `pins`, `lint`, `audit`, `review`, `test`, `bundle`, `extract`, `sync`, `analytics` | ✅ | ✅ |
+| All 300+ standards, the MCP server, the skills | ✅ | ✅ |
+| GitHub App: a named reviewer's approval bound to a signed snapshot of the files your agents read, checked in CI | | ✅ |
+| Signed, timestamped evidence export · org policy pack for Claude Code and AGENTS.md · hosted private registry | | ✅ |
 
-**Pro: $9/month ($7/month billed yearly), early access.** Checkout is not open yet: [join the waitlist →](https://tally.so/r/QKg14g)
+**Team: $19 per active contributor per month ($182.40 per year billed annually), five-contributor minimum, public repositories free.** Team is in design-partner preview and checkout is not open: [join the design-partner waitlist →](https://tally.so/r/QKg14g)
 
 Everything in the Free column works today with no account and no key.
 
@@ -416,10 +419,10 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | CLI · version pins with 21 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 308 standards · Motion category (Claude) |
+| ✅ **Shipping** | CLI · version pins with 15 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
 | 🔬 **Measuring** | Effect of every pin (old-API rate with vs. without), on more than one model before anything is published. Pin expansion is paused until the effect repeats |
-| 🔨 **Next** | More lint rules · more Motion standards · library authors publishing their own pins · pins for more libraries once measurement supports it |
-| 💭 **Considering** | Hosted audit log for teams · signed-bundle format proposed to the AGENTS.md specification |
+| 🔨 **Next** | Agent.md Team: GitHub App for approval-bound context, with design partners · VS Code extension on the Marketplace · More lint rules · more Motion standards · library authors publishing their own pins · pins for more libraries once measurement supports it |
+| 💭 **Considering** | Signed-bundle format proposed to the AGENTS.md specification · adapters for Cursor, Gemini and Copilot policy |
 
 ---
 
