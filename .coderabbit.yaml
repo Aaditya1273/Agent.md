@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit reviews pull requests against CONTRIBUTING.md. Free for public repositories.
+language: en-US
+tone_instructions: "Review like a maintainer enforcing CONTRIBUTING.md. Be specific, cite the line, and skip praise and style nits a formatter would catch."
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    - "!**/*.mp4"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.gif"
+
+  path_instructions:
+    - path: "_canonical/**/*.md"
+      instructions: |
+        This is a source standard. Check it against "The bar" in CONTRIBUTING.md:
+        - Frontmatter has all eight fields: name, category, description, license, author, last-verified (YYYY-MM-DD), reviewed-by, version.
+        - The description names what a model gets wrong without this file.
+        - Body has `# Purpose`, then four to seven rule sections named as instructions ("# Derive, do not store"), not topics ("# State").
+        - Code examples come in pairs: wrong first, right second, and the wrong one's comment says what actually breaks.
+        - Ends with `# Anti-patterns` (a table) and `# Checklist`.
+        - Imperative and specific. Flag "prefer", "consider", "you might" and other hedging.
+        - Roughly 200 lines. Flag tutorials, framework summaries and anything obvious from a type signature.
+        - Most important: check technical accuracy. Flag any API, flag or default that is wrong or outdated for the version the file names, and say which version changed it.
+        - One standard per pull request.
+
+    - path: "{claude,open-ai,gemini,qwen,deepseek,glm,grok,kimi,minimax,mistral,sarvam-ai}/**"
+      instructions: |
+        These folders are generated from _canonical/ and must not be edited by hand. The next sync overwrites them.
+        If this pull request edits a file here, say so in one comment, and ask the contributor to make the change in the matching file under _canonical/ instead.
+        Exception: `<model>/Design/<brand>/DESIGN.md` is hand-authored and may be edited. Do not review the content of generated files otherwise.
+
+    - path: "skills/**"
+      instructions: |
+        Agent skills. Check that SKILL.md has `name` and `description` frontmatter and that the description says when to use the skill.
+        Flag any script that downloads and runs code, reads credentials or environment variables, or sends data to a network address.
+
+    - path: "{README.md,CONTRIBUTING.md,docs/**}"
+      instructions: |
+        Flag any number or claim that is not backed by the repository (counts of standards, rules or checks, precision, users, downloads).
+        Downloads must never be described as users. Links must point to github.com/Aaditya1273/Agent.md, never to another repository of this project.
+
+chat:
+  auto_reply: true
