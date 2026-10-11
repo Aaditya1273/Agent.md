@@ -705,6 +705,7 @@ agentmd lint             # exit 1 on any error
 agentmd lint --strict    # warnings fail too
 agentmd lint --json
 agentmd lint --sarif     # SARIF 2.1.0 for GitHub code scanning
+agentmd lint --base main # also flag lines describing code this branch changed
 agentmd lint --fix       # delete lint-leakage and duplicate lines, then re-check
 ```
 
@@ -723,7 +724,8 @@ scripts bundled with it,
 | warning | `injection` | `curl … \| sh` in prose, long base64 runs |
 | warning | `bloat` | an always-on file of 200+ lines or over 3,000 tokens |
 | warning | `blind-reference` | `@file` imports and relative links that point at nothing |
-| warning | `stale-reference` | a repo path in backticks (`src/auth/middleware.ts`) that no longer exists. Paths are matched from the root, from the file, and as the tail of any real path; a `.js` reference to a `.ts` source counts; examples, placeholders, home-folder configs, build output and paths outside the repo's own folders are skipped |
+| warning | `stale-reference` | a repo path in backticks (`src/auth/middleware.ts`) that no longer exists; an `npm run X` (or `pnpm`/`yarn`/`bun run`) or `npm test` command when no `package.json` defines that script; a symbol named next to a file that no longer contains it ("`verifyToken()` in `src/lib/auth.ts`", "`a.ts` exports `x`"). Examples, placeholders, home-folder configs, build output, installed standards and skills are skipped |
+| notice | `stale-reference` | with `--base <branch>`: a line that names a file or folder this branch changed, in an instruction file the branch did not touch. A prompt to recheck the line, never a failure |
 | warning | `stale-pins` | the agentmd block's pins no longer match the dependencies — run `link` |
 | warning | `permissions` | `Bash` allowed with no pattern in Claude settings |
 | notice | `lint-leakage` | formatting rules a formatter in the repo already enforces — fixable with `--fix` |
