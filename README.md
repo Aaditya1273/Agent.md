@@ -17,6 +17,7 @@ npx activate-agentmd audit your/repo
 [![npm downloads](https://img.shields.io/npm/dm/activate-agentmd?color=8b5cf6)](https://www.npmjs.com/package/activate-agentmd)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/AmukvXywRr)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Hacktoberfest](https://img.shields.io/badge/Hacktoberfest-2026-ff6b35)](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest)
 ![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
@@ -408,6 +409,8 @@ Everything in the Free column works today with no account and no key.
 ---
 
 ## 🤝 Contributing
+
+**Questions?** Ask in the [Agent.md Discord](https://discord.gg/AmukvXywRr) — about a standard, the CLI, or whether an idea is worth a pull request. No question is too small.
 
 Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: imperative, specific, short wrong/right code pairs, an anti-patterns table and a checklist — and **evidence that the standard changes what a model writes** (`agentmd test --baseline` prints it). A standard that doesn't change the output isn't a standard; it's a file.
 

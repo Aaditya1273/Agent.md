@@ -4,6 +4,8 @@ Standards here are plain markdown. There is no build to run and no toolchain to
 install — if you can write a convincing paragraph about a framework you know
 well, you can contribute.
 
+**Questions?** Ask in the [Agent.md Discord](https://discord.gg/AmukvXywRr) — about a standard, the CLI, or whether an idea is worth a pull request. No question is too small.
+
 ## Read this first: edit `_canonical/`, nothing else
 
 The repository looks like it has 4,280 markdown files. It has 131 sources.
