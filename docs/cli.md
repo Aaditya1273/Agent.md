@@ -724,7 +724,7 @@ scripts bundled with it,
 | warning | `injection` | `curl … \| sh` in prose, long base64 runs |
 | warning | `bloat` | an always-on file of 200+ lines or over 3,000 tokens |
 | warning | `blind-reference` | `@file` imports and relative links that point at nothing |
-| warning | `stale-reference` | a repo path in backticks (`src/auth/middleware.ts`) that no longer exists; an `npm run X` (or `pnpm`/`yarn`/`bun run`) or `npm test` command when no `package.json` defines that script; a symbol named next to a file that no longer contains it ("`verifyToken()` in `src/lib/auth.ts`", "`a.ts` exports `x`"). Examples, placeholders, home-folder configs, build output, installed standards and skills are skipped |
+| warning | `stale-reference` | a repo path in backticks (`src/auth/middleware.ts`) that no longer exists; an `npm run X` (or `pnpm`/`yarn`/`bun run`) or `npm test` command when no `package.json` defines that script; a symbol named next to a file that no longer contains it ("`verifyToken()` in `src/lib/auth.ts`", "`a.ts` exports `x`"); a scoped rule (`globs:`, `applyTo:`, `paths:`) that matches no file. Examples, placeholders, home-folder configs, build output, installed standards and skills are skipped |
 | notice | `stale-reference` | with `--base <branch>`: a line that names a file or folder this branch changed, in an instruction file the branch did not touch. A prompt to recheck the line, never a failure |
 | warning | `stale-pins` | the agentmd block's pins no longer match the dependencies — run `link` |
 | warning | `permissions` | `Bash` allowed with no pattern in Claude settings |
