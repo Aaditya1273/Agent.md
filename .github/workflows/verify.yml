@@ -1,0 +1,81 @@
+# Agent.md Team — the verifying workflow.
+#
+# A customer repository calls it:
+#
+#   on: { pull_request: {}, pull_request_review: {}, push: { branches: [main] } }
+#   permissions: { id-token: write, contents: read }
+#   jobs:
+#     verify:
+#       uses: Aaditya1273/Agent.md/.github/workflows/verify.yml@team-v1
+#
+# Agent.md pins this file's ref and commit. Only a job running this workflow can
+# present a GitHub OIDC token with that job_workflow_ref and job_workflow_sha, so a
+# pull request cannot change how its own manifest is computed by editing its own
+# workflow file. Every action and the CLI version below are pinned for the same
+# reason. Only paths, sha256 hashes and the head SHA leave the runner.
+name: Agent.md verify
+
+on:
+  workflow_call:
+    inputs:
+      registry-path:
+        description: Folder of standards to publish to the organisation's private registry on pushes to the default branch.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      AGENTMD_PATH_SALT:
+        description: Optional. When the policy sets privacy.saltPaths, paths are uploaded as keyed hashes.
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      AGENTMD: activate-agentmd@2.12.0
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ON_DEFAULT: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      # The CLI is fetched from the public registry with no project or user config, so a
+      # pull request's .npmrc cannot redirect it.
+      NPM_CONFIG_USERCONFIG: /dev/null
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      # On the default branch, publish the policy first: the policy a pull request is
+      # judged by only ever comes from here.
+      - name: Publish the policy
+        if: env.ON_DEFAULT == 'true' && hashFiles('.agentmd/policy.yml') != ''
+        working-directory: ${{ runner.temp }}
+        run: npx --yes "$AGENTMD" team policy upload --dir "$GITHUB_WORKSPACE"
+
+      - name: Verify the agent context
+        working-directory: ${{ runner.temp }}
+        env:
+          AGENTMD_PATH_SALT: ${{ secrets.AGENTMD_PATH_SALT }}
+        run: npx --yes "$AGENTMD" team verify --dir "$GITHUB_WORKSPACE" --head "$HEAD_SHA" --out "$RUNNER_TEMP/agentmd-evidence.json"
+
+      - name: Publish to the private registry
+        if: env.ON_DEFAULT == 'true' && inputs.registry-path != ''
+        working-directory: ${{ runner.temp }}
+        run: npx --yes "$AGENTMD" team registry publish "$GITHUB_WORKSPACE/${{ inputs.registry-path }}"
+
+      - name: Keep the evidence record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agentmd-evidence-${{ env.HEAD_SHA }}
+          path: ${{ runner.temp }}/agentmd-evidence.json
+          retention-days: 90
+          if-no-files-found: ignore
