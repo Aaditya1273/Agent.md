@@ -55,7 +55,7 @@ Real output, on a small example repo:
 | `npx activate-agentmd lint --fix` | Delete what only costs tokens: rules your formatter already enforces, duplicated lines |
 | `npx activate-agentmd init` | Optional: add version notes and standards for your exact stack |
 
-It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally, nothing uploaded. Precision first: **zero false alarms at release (2.7.0) across 4,292 registry files, 272 skill scripts and the instruction files of 20 large open-source projects**; one found since was fixed in 2.7.1. What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
+It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally, nothing uploaded. Precision first: **no known false alarms on the instruction files of 146 company repositories**, every reference finding checked by hand, plus 4,292 registry files and 272 skill scripts (measured at 2.11.1). What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
 
 **[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Quick start](#-quick-start) · [Why now](#-why-now-the-market-in-october-2026) · [Why it's different](#-why-its-different) · [For teams](#-for-teams-signed-context) · [CI](#-enforce-it-in-ci) · [Research](#-what-the-research-says--and-what-we-changed) · [FAQ](#-faq)**
 
@@ -402,7 +402,7 @@ Free is anything Agent.md does not have to remember. Team is what needs Agent.md
 | GitHub App: a named reviewer's approval bound to a signed snapshot of the files your agents read, checked in CI | | ✅ |
 | Signed, timestamped evidence export · org policy pack for Claude Code and AGENTS.md · hosted private registry | | ✅ |
 
-**Team: $19 per active contributor per month ($182.40 per year billed annually), five-contributor minimum, public repositories free.** Team is in design-partner preview and checkout is not open: [join the design-partner waitlist →](https://tally.so/r/QKg14g)
+**Team: $19 per active contributor per month ($182.40 per year billed annually), five-contributor minimum, public repositories free.** Team works today and is in design-partner preview: we switch it on per organisation, and checkout is not open. How it works and how to set it up: [docs/team.md](docs/team.md). [Apply as a design partner →](https://tally.so/r/QKg14g)
 
 Everything in the Free column works today with no account and no key.
 
@@ -422,9 +422,9 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | CLI · version pins with 15 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
+| ✅ **Shipping** | CLI · Agent.md Team GitHub App (design-partner preview) · version pins with 15 checks · `lint` (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
 | 🔬 **Measuring** | Effect of every pin (old-API rate with vs. without), on more than one model before anything is published. Pin expansion is paused until the effect repeats |
-| 🔨 **Next** | Agent.md Team: GitHub App for approval-bound context, with design partners · VS Code extension on the Marketplace · More lint rules · more Motion standards · library authors publishing their own pins · pins for more libraries once measurement supports it |
+| 🔨 **Next** | Agent.md Team pilots with design partners · VS Code extension on the Marketplace · More lint rules · more Motion standards · library authors publishing their own pins · pins for more libraries once measurement supports it |
 | 💭 **Considering** | Signed-bundle format proposed to the AGENTS.md specification · adapters for Cursor, Gemini and Copilot policy |
 
 ---
