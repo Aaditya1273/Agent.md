@@ -53,6 +53,8 @@ Verification data is deleted after 90 days.
 
 ## Check a record yourself
 
+An example from our own test run, readable in the browser: [a squash merge approved by a named reviewer](https://agentmd.pages.dev/evidence/c0a78f26-9bf3-4ac0-9e29-c7e1f7ab9e34). Every record has a page like it, at `agentmd.pages.dev/evidence/<id>`.
+
 Each run uploads `agentmd-evidence.json` as a workflow artifact. Any record can also be fetched by ID, then checked with no network call:
 
 ```sh

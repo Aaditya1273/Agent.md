@@ -1,0 +1,21 @@
+# Agent.md Team uptime. A failed run emails the repository owner. GitHub delays
+# scheduled runs under load, so this catches outages in minutes, not seconds.
+name: Uptime
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Team API answers and its database is reachable
+        run: |
+          for url in https://agentmd.pages.dev/api/team/health https://agentmd.pages.dev/api/team/keys https://agentmd.pages.dev/; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --retry 2 --retry-delay 10 --max-time 20 "$url")
+            echo "$code $url"
+            [ "$code" = 200 ] || failed=1
+          done
+          exit ${failed:-0}
