@@ -168,10 +168,10 @@ npx activate-agentmd link
 `link` writes a managed block into whichever of `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` and `copilot-instructions.md` your tools read. Commit `.agentmd/` and the whole team gets the same rules.
 
 <div align="center">
-<a href="https://agentmd.pages.dev/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
+<a href="https://agentmd.tech/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
 </div>
 
-**Or try it in the browser in 10 seconds** at **[agentmd.pages.dev/inspect](https://agentmd.pages.dev/inspect)** — drop a `package.json` to see every major your agent will get wrong, or paste a `CLAUDE.md` to check it for leaked keys and prompt injection. Nothing is uploaded.
+**Or try it in the browser in 10 seconds** at **[agentmd.tech/inspect](https://agentmd.tech/inspect)** — drop a `package.json` to see every major your agent will get wrong, or paste a `CLAUDE.md` to check it for leaked keys and prompt injection. Nothing is uploaded.
 
 ---
 
@@ -357,13 +357,13 @@ codex  mcp add agentmd --url https://agentmd.pages.dev/api/mcp                # 
 gemini mcp add --transport http agentmd https://agentmd.pages.dev/api/mcp     # Gemini CLI
 ```
 
-Cursor and VS Code: one click at **[agentmd.pages.dev/connect](https://agentmd.pages.dev/connect)**.
+Cursor and VS Code: one click at **[agentmd.tech/connect](https://agentmd.tech/connect)**.
 
 ---
 
 ## 📚 The registry
 
-<a href="https://agentmd.pages.dev"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md registry — install standards with any agent" width="100%"></a>
+<a href="https://agentmd.tech"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md registry — install standards with any agent" width="100%"></a>
 
 This repository is the registry — plain markdown, written once in [`_canonical/`](https://github.com/Aaditya1273/Agent.md/tree/main/_canonical) and generated for eleven model families (Claude, OpenAI, Gemini, DeepSeek, Grok, Qwen, Kimi, GLM, MiniMax, Mistral, Sarvam).
 
@@ -387,7 +387,7 @@ npx activate-agentmd install Database/          # a whole category
 npx activate-agentmd install claude/Motion/lumen # make a launch film with Claude
 ```
 
-Browse with logos and search at **[agentmd.pages.dev](https://agentmd.pages.dev)**. Full CLI reference: [docs/cli.md](docs/cli.md).
+Browse with logos and search at **[agentmd.tech](https://agentmd.tech)**. Full CLI reference: [docs/cli.md](docs/cli.md).
 
 ---
 
@@ -457,7 +457,7 @@ That is the right question, and it is being measured rather than assumed. On a c
 
 <div align="center">
 
-**[agentmd.pages.dev](https://agentmd.pages.dev)** · **[npm](https://www.npmjs.com/package/activate-agentmd)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
+**[agentmd.tech](https://agentmd.tech)** · **[npm](https://www.npmjs.com/package/activate-agentmd)** · **[X @agent_dot_md](https://x.com/agent_dot_md)**
 
 <sub>If Agent.md saved you a debugging session, a ⭐ helps the next person find it.</sub>
 
