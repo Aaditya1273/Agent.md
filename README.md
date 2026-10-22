@@ -1,5 +1,8 @@
 <div align="center">
-<img width="250" height="250" alt="logo" src="https://github.com/user-attachments/assets/cbaa799c-9358-424b-a487-505c50b0aa41" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+  <img alt="agent.md" width="360" src="assets/logo-light.png">
+</picture>
 
 # Agent.md
 
