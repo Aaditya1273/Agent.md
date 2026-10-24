@@ -2,7 +2,7 @@
 
 What `lint` and `audit` cannot see. A pass is a floor, not a verdict: these are deterministic checks that report patterns. A person, or an agent reading the evidence, still decides whether the context is good.
 
-Precision comes first. A check that cries wolf gets switched off, so every rule below prefers to miss a case rather than raise a false alarm. Measured on 4,292 registry files (0 errors, 0 warnings), 272 real skill scripts, and 146 company repositories with agent instruction files, each reference finding checked by hand: no known false alarms remain in those 146 repositories.
+Precision comes first. A check that cries wolf gets switched off, so every rule below prefers to miss a case rather than raise a false alarm. Measured on 4,292 registry files (0 errors, 0 warnings), 272 real skill scripts, and 146 company repositories with agent instruction files, each reference finding checked by hand: no known false alarms remain in those 146 repositories. The rules added in 2.13 were measured on 72 company and open-source repositories, comparing 2.12.2 with 2.13.0 and checking every new finding by hand, and `guard` on 33 everyday installs (none blocked) and on registered typosquat shapes.
 
 ## `lint` and `audit`
 
@@ -15,4 +15,9 @@ Precision comes first. A check that cries wolf gets switched off, so every rule 
 | `skill-payload` | Only patterns with no ordinary use in a skill: a download piped into a shell, decoded data passed to `eval`/`exec`, the whole environment serialised, credential stores read by a script that also makes network calls. Obfuscation split across lines or files, payloads fetched at run time, and binaries are not analysed. Comments are skipped. |
 | `skill-network` | Only hosts written literally in the script. URLs built at run time are not listed. |
 | `bloat` | Counts tokens as characters ÷ 4. Nested `AGENTS.md` files load only when the agent works in that folder, so they are not counted as always-on. |
+| `package-swap` | Offline it judges a name's shape only: one or two letters off, two swapped, separators changed, a near-miss scope. An extension-shaped squat (`numpy-hl`) looks like any plugin and is left to the registry check. Installs are read from code blocks and command spans, not from prose. Names not compared: the project's own packages and scopes, global tool installs, placeholders. |
+| `package-missing` | Needs `--online` (on by default for `audit owner/repo`). Skips npm scopes the `.npmrc` routes elsewhere, PyPI names when the repo configures its own index, and `npx`/`bunx` names that may be a dependency's command. "Established" is a threshold (1,000 npm downloads a week; 3 PyPI releases over 180 days), not a reputation check: an old, popular package can still be compromised. Fails open. |
+| `permissions` · `skill-preapproval` | Judges the grant's fixed prefix: a wildcard after one known program is not flagged, even though some programs can be pushed into running code (`pytest` runs `conftest.py`). Only `Bash(...)` grants in JSON settings and `allowed-tools`. |
+| `mcp-unpinned` | A runner is fine when the package is a dependency, assuming a lockfile pins it; the lockfile itself is not read. |
+| `install-source` | Hosts written literally. An index is "the project's own" when its subdomain or a path segment equals the GitHub owner, the repository or a package name: a look-alike owner name would pass. |
 | `audit` | Fetches only instruction files, skills and their scripts, MCP configs, formatter configs and manifests. Every other file is created empty, so checks that need file *contents* elsewhere in the repo do not run. Nothing from the repository is executed. |

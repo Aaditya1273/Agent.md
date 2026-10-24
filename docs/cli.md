@@ -695,6 +695,72 @@ project. Lists what is implemented, not what is planned.
 
 ---
 
+## guard
+
+```bash
+agentmd guard "pip install tranformers"      # judge one command; exit 1 blocks
+agentmd guard --install                       # add a PreToolUse hook to .claude/settings.json
+agentmd guard --hook                          # what the hook runs: reads the Claude Code event on stdin, exit 2 blocks
+agentmd guard --json "npm install lodahs"
+agentmd guard --offline "…"                   # skip the registry and OSV lookups
+```
+
+A gate between "the agent read an install command" and "it ran".
+Checks, in order: install sources (`--extra-index-url`, `--index-url`,
+`--registry`, `--trusted-host`, plain HTTP, `PIP_CONFIG_FILE` and registry
+environment variables, `pip config set`), hidden directives inside `-r` files,
+typosquat shapes against the project's manifests and a list of widely installed
+npm and PyPI packages (one or two letters off as in `tranformers`, two swapped
+as in `lodahs`, separators changed as in `azurecore` for `azure-core`, a
+near-miss scope as in `@anthropic/sdk`), then, online, the registry's answer:
+a name nobody has registered is blocked, a new or barely used package named
+like a widely used one is blocked, and an established package is never
+blocked. Plugins and extensions (`react-router-dom`, `pytest-xdist`,
+`@types/react`), global tools and the project's own packages are not
+look-alikes. Last, known vulnerabilities for exact pins via OSV. Every network
+step fails open (5 s for the registry, 2.5 s for OSV). The Claude Code plugin ships the
+hook on; `--install` adds it to a repo without the plugin. Local paths, git
+URLs and the ecosystem registries always pass. Model: arXiv 2607.15143.
+
+---
+
+## sbom
+
+```bash
+agentmd sbom                                 # summary
+agentmd sbom --json                          # CycloneDX 1.6 on stdout
+agentmd sbom --out .agentmd/context-bom.json
+```
+
+The context bill of materials: every instruction file, rule, skill and the
+scripts beside it, subagent, hook command, MCP server (as a `pkg:npm` /
+`pkg:pypi` purl with its pin state) and permission grant, each with a SHA-256
+hash, plus a context digest over the whole set. CycloneDX 1.6, so it loads into
+Dependency-Track and the rest. Offline, deterministic. Model: arXiv 2609.07360.
+
+---
+
+## cost
+
+```bash
+agentmd cost                       # per always-on file: tokens, dollars per developer per month
+agentmd cost --devs 8 --model sonnet
+agentmd cost --price 3 --prompts 30 --sessions 3 --days 22
+agentmd cost --json
+```
+
+Every token in an always-on file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor
+`alwaysApply` rules, `copilot-instructions.md`) is sent on every prompt of every
+session. `cost` prices that at list input prices (presets `opus` $5/M, `sonnet`
+$3/M, `haiku` $1/M, October 2026; `--price` for your own), with cached re-reads
+at 10%, and shows what `lint --fix` would remove and which one-task sections
+could move to a skill. Offline, zero tokens. The model is the per-session setup
+cost of [arXiv 2610.11007](https://arxiv.org/abs/2610.11007).
+
+---
+
+---
+
 ## lint
 
 Check every file your agent reads before it reads your code. Works on any
@@ -711,8 +777,9 @@ agentmd lint --fix       # delete lint-leakage and duplicate lines, then re-chec
 
 It finds `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`,
 `.windsurfrules`, `.cursor/rules/`, `.claude/rules/`, every `SKILL.md` (in
-`.claude/skills/`, `skills/`, or at the root of a skill repository) and the
-scripts bundled with it,
+`.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.codex/skills/`, `.github/skills/`,
+`.gemini/skills/`, `skills/`, or at the root of a skill repository) and the scripts
+bundled with it, `.claude/agents/*.md` subagents,
 `.github/copilot-instructions.md`, `.github/instructions/`, hook settings in
 `.claude/settings*.json`, MCP server configs (`.mcp.json`, `.cursor/mcp.json`,
 `.vscode/mcp.json`, `.gemini/settings.json`), and the same files nested in workspaces.
@@ -734,6 +801,18 @@ scripts bundled with it,
 | error | `skill-payload` | in a skill's bundled scripts: a download piped into a shell, decoded data passed to `eval`/`exec`, the whole environment serialised, a credential store (`~/.ssh`, `.aws/credentials`, `.npmrc`, keychain) read by a script that also makes network calls. Comments are skipped; ordinary tooling (spawning ffmpeg or Chrome, calling an API with a key from the environment, decoding a `data:` image) is not flagged |
 | warning | `skill-payload` | a skill script that writes to the agent's own configuration — settings, hooks, MCP servers, instruction files, shell profile — or reads a credential store without sending anything |
 | notice | `skill-network` | the hosts each skill script contacts, so you know where data goes before you install it |
+| warning · notice | `package-swap` | a package name with a typosquat's shape, in an install command (in a code block or a command span) or in a rule that swaps it for one the project installs: one or two letters off (`reqeusts`, `tranformers`), two letters swapped (`lodahs`), the separators changed (`crossenv`), or the same name under a near-miss scope (`@anthropic/sdk`), compared with the project's dependencies and a list of widely used packages. A **warning** offline: shape alone is not proof. A replacement that is not a look-alike (`axios-secure` for `axios`) is a notice. Extensions are never judged by shape (`react-router-dom`, `pytest-xdist`, `@types/react`). Quiet for the project's own packages and npm scopes, global tool installs, placeholders (`PACKAGE`, `<pkg>`), shell comments, and repos with no readable manifest |
+| error | `package-swap` · `package-missing` (`lint --online`; on by default in `audit owner/repo`) | npm and PyPI are asked about every package the files install. A look-alike or replacement that is new or barely used (under 1,000 npm downloads a week; under 3 PyPI releases or 180 days) becomes an **error** with the registry's numbers; an established one is dropped. A name **not registered at all** is `package-missing`: whoever registers it first runs code on every machine that follows the line (slopsquatting). Skipped for npm scopes the `.npmrc` sends to a private registry, PyPI names behind the repo's own index, and `npx`/`bunx` names that may be a dependency's command (`npx tsgo`). Fails open; a local folder's names are only sent with `--online` |
+| warning | `conflict` | two directives for the same thing with opposite polarity ("always run the full suite" / "never run the full suite"); a bare install for a package manager the lockfile contradicts (`npm install` in a pnpm repo). Only commands the agent is told to run count, and not installs of a named package: those are often instructions for the project's users (`npm install @medusajs/loyalty-plugin`) |
+| notice | `skill-leakage` | a one-task procedure ("Adding a new provider", "How to cut a release": 4+ numbered steps or 15+ lines) in a root always-on file. Nested `AGENTS.md` files already load on demand, and a practice for every change ("How to split large changes") is not a task. Belongs in a skill or a scoped rule |
+| notice | `redundant-overview` | a section of an always-on file whose lines are 60%+ copied word for word from `README.md`. The agent reads the README when it needs it; the copy costs tokens on every prompt and does not raise task success ([arXiv 2602.11988](https://arxiv.org/abs/2602.11988)) |
+| error · warning | `install-source` | `--extra-index-url` / `--index-url` / `--index` / `--find-links` / `--registry` to a host that is not the ecosystem's registry (warning), `--trusted-host` (warning), plain-HTTP indexes (error), `--index-strategy unsafe-best-match` (warning: any index can supply any package, the dependency-confusion setting uv turns off by default), `PIP_CONFIG_FILE` and similar config redirection (warning). An index named after the project (`pypi.fury.io/lancedb/` in lancedb/lancedb) is its own. In instruction files and in root `requirements*.txt`, `.npmrc`, `pip.conf`, `uv.toml`, `.yarnrc`. Lines that warn against the pattern do not fire |
+| warning | `mcp-unpinned` | an MCP server run through `npx` / `uvx` / `bunx` / `pipx` with no version or with `@latest`, a Docker image with no tag or digest, or a server URL over plain HTTP, in `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.gemini/settings.json` and Claude settings. An `npx` package that is a project dependency runs the lockfile's copy and is fine |
+| warning | `permissions` | also: grants that let any instruction run any code, each with the reason: an interpreter with no script (`Bash(python3:*)`, `Bash(node -e:*)`), a runner with no package or a code runner (`Bash(npx:*)`, `Bash(npx ts-node:*)`), a command that runs its argument (`Bash(xargs:*)`, `Bash(env:*)`), `docker`, `docker run` and `docker exec`, and bare `sed` / `awk`. One known program is not flagged (`Bash(python -m pytest:*)`, `Bash(npx tsc:*)`, `Bash(docker ps:*)`), nor an exact command with no wildcard, nor `Bash(find:*)`: Claude Code does not auto-approve its `-exec` form |
+| warning | `skill-preapproval` | `allowed-tools` that grants a shell for the whole turn: bare `Bash`, or a grant that is a shell by the `permissions` test above. Skills are found under `.claude`, `.agents`, `.cursor`, `.codex`, `.github` and `.gemini` |
+| notice | `skill-frontmatter` | a `SKILL.md` without `name` or `description`, which the Agent Skills specification requires. Claude Code falls back to the folder name and the first paragraph, so a notice. A `SKILL.md` that only points at the shared copy (`@../../.agents/skills/x/SKILL.md`) is skipped |
+| warning | `agent-description` | a `.claude/agents/*.md` subagent without a `description`: Claude Code skips it. A `README.md` in that folder is documentation, not a subagent |
+| notice | `accretion` | an always-on file of 80+ lines with 8+ commits whose history shows additions only (deletions under 5% of additions). Files that only grow dilute compliance ([arXiv 2610.11007](https://arxiv.org/abs/2610.11007)); needs git history, silent otherwise |
 | error | `unsigned-context` | with `requireSignedContext`, any change not covered by `bundle sign` |
 
 Injection rules read prose only — not code fences, not inline code, not lines
@@ -754,6 +833,8 @@ agentmd audit vercel/next.js
 agentmd audit https://github.com/owner/repo
 agentmd audit ./local/checkout
 agentmd audit owner/repo --json
+agentmd audit owner/repo --offline       # skip the npm / PyPI check of the packages the files install
+agentmd audit ./folder --online          # run that check for a local folder (off by default: its names stay local)
 ```
 
 It downloads only what lint reads — instruction files, skills, MCP configs,
