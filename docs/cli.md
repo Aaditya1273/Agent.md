@@ -724,6 +724,116 @@ URLs and the ecosystem registries always pass. Model: arXiv 2607.15143.
 
 ---
 
+## pin
+
+```bash
+agentmd pin                    # what would be pinned, and its token cost
+agentmd pin --install          # add the SessionStart hook (compact, resume) to .claude/settings.json
+agentmd pin --budget 800       # tokens the pinned block may use (default 600)
+```
+
+Keeps the hard rules in context through compaction. A long session
+compacts: the harness summarises the conversation and carries the summary
+forward, and the project's rules go into that summary like everything else.
+Measured, with the policy in context violations are 0%; after compaction
+they are 30% on average and 59% for some models (arXiv 2606.22528). The fix
+the paper measures is to keep the constraints out of the lossy summary, and
+that is what the hook does: on every session start after a compaction or a
+resume it prints the rules again, and Claude Code adds its output to the
+fresh context.
+
+```
+  Pinned after compaction  6 of 6 hard rules · 63 of 600 tokens
+
+  ✗ CLAUDE.md:3  Never force-push to main.
+  ✗ CLAUDE.md:4  Do not commit the `.env` file.
+  ● CLAUDE.md:5  Always run `npm test` before a commit.
+  ● CLAUDE.md:9  Prefer named exports.  (pinned explicitly)
+```
+
+**What is pinned.** Lines in the root always-on files (CLAUDE.md, AGENTS.md,
+GEMINI.md, `.cursorrules`, copilot-instructions.md) that say *never*, *do
+not*, *must*, *always*, *only*, *forbidden* or *required*; any line marked
+`<!-- pin -->`; everything under a heading named *Pinned*, *Always*, *Hard
+rules*, *Never*, *Non-negotiables* or *Invariants*. Fenced code and headings
+are skipped. Within the budget, explicit rules go first, then prohibitions,
+then obligations.
+
+Only Claude Code has a hook that fires after compaction today. Codex, Cursor
+and Gemini CLI are reported as not covered, not pretended.
+
+---
+
+## enforce
+
+```bash
+agentmd enforce                # the coverage report
+agentmd enforce --write        # add the mappable rules to .claude/settings.json permissions.deny
+agentmd enforce --check        # exit 1 while an enforceable rule is prose only (CI)
+```
+
+A rule in CLAUDE.md is text the model interprets. A permission rule in
+`.claude/settings.json` is a control the harness applies before the action
+runs. Both can say "never force-push"; only one of them stops it. In 481
+public CLAUDE.md files, 4–16% of the security rules had a matching control
+(arXiv 2608.23550, "CLAUDE.md is a write-only channel"). A production user's
+count after six months: prose rules violated "on the order of 100% of the
+time in extended sessions", hook-backed rules 0% (anthropics/claude-code#34197).
+
+```
+  Enforcement  6 hard rules · 4 prohibitions · 4 enforceable · 0 enforced · 2 left to the model
+
+  ! prose only CLAUDE.md:3  Never force-push to main.
+               force pushes: Bash(git push --force:*), Bash(git push -f:*), Bash(git push --force-with-lease:*)
+  ! prose only CLAUDE.md:8  Never edit `src/generated/**` by hand.
+               edits to `src/generated/**`: Edit(./src/generated/**)
+
+  2 rules have no mechanical reading and stay with the model, e.g.:
+    CLAUDE.md:5  Always run `npm test` before a commit.
+    Keep them pinned (`agentmd pin --install`) so compaction does not drop them.
+```
+
+**What maps.** Only sentences with one mechanical reading: force pushes,
+pushes to `main`/`master`, `rm -rf`, reading or editing `.env`, database
+resets and drops, history rewrites, `sudo`, publishing, production deploys,
+global installs, `curl | sh`, and "never edit `path`". Everything else is
+counted as left to the model, which is the number the report exists for.
+Install rules ("install packages only after…") are covered by the `guard`
+hook when it is installed. Only Claude Code has a repository-level deny list
+today.
+
+---
+
+## learn
+
+```bash
+agentmd learn                  # corrections you gave twice or more, with counts
+agentmd learn --all            # every correction
+agentmd learn --days 30        # sessions from the last 30 days
+agentmd learn --write          # append the repeats to CLAUDE.md under "## Learned from sessions"
+```
+
+The rules your own sessions are asking for. Developers write instruction
+files reactively, "when the agent makes the same mistake twice", and the
+corrections are already on disk in the agent's session logs. Across 20,574
+real sessions, 91.5% of visible failures were resolved by the user saying so
+(arXiv 2605.29442); users push back in half of all turns (arXiv 2604.20779).
+
+```
+  Learned from sessions  14 sessions · 23 corrections · 3 repeated
+
+  4× in 3 sessions  No, use pnpm not npm
+  3× in 2 sessions  Don't run the migrations locally  (already in CLAUDE.md — the rule exists and is not being followed: enforce or pin it)
+  2× in 2 sessions  Use the existing logger, not console.log
+```
+
+It proposes; it does not judge. One success proves little (Cortex, arXiv
+2610.14216), so `agentmd test` is the next step. Reads
+`~/.claude/projects/<project>/*.jsonl` locally; nothing is sent anywhere.
+Only Claude Code logs are read today.
+
+---
+
 ## sbom
 
 ```bash
@@ -758,6 +868,18 @@ could move to a skill. Offline, zero tokens. The model is the per-session setup
 cost of [arXiv 2610.11007](https://arxiv.org/abs/2610.11007).
 
 ---
+
+---
+
+### A budget in CI
+
+```bash
+agentmd cost --budget 1500     # exit 1 when the always-on context is over 1,500 tokens
+```
+
+Every always-on token is re-sent on every prompt. A budget check in the
+pull-request workflow stops the file growing by appending; `ci --write` lists
+it as an optional gate.
 
 ---
 
@@ -841,6 +963,21 @@ It downloads only what lint reads — instruction files, skills, MCP configs,
 formatter config and dependency manifests — and creates every other path
 empty, so stale-path checks still know what exists. Nothing from the repo is
 executed. Exit code 1 when an error (a secret, an injection) is found.
+
+### code-drift and skill-conflict (2.14)
+
+| Rule | Level | Fires when |
+| --- | --- | --- |
+| `code-drift` | warning | the file and the repository disagree on a fact the repository states: "2 spaces" where `.editorconfig` `[*]` says tabs or 4; `npx jest` where only vitest (or mocha, ava) is a dependency (`npm install` in a pnpm-locked repository is the existing `conflict` rule). One finding per fact per file; lines that warn against the thing do not count |
+| `skill-conflict` | notice | two skills in one skills folder share a name |
+
+Agents follow the stale file over the code in 90.1% of choices and point out
+the conflict while doing it (arXiv 2610.30571). `lint --fix` appends the
+sentence that paper measured to a drifted file: *"When this file and the
+existing code disagree, follow the code and say so in the reply."* Memory
+files (`.claude/memory/*.md`) are linted like any other instruction file.
+
+---
 
 ## pins
 
