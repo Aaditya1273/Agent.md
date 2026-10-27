@@ -6,24 +6,28 @@
 
 # Agent.md
 
-## ESLint for CLAUDE.md, AGENTS.md and agent skills
+## The files your agents follow, checked every time.
 
-Your AI coding agent follows these files blindly, before it reads a line of your code.<br>
-Agent.md finds the **leaked keys, hidden instructions, dead references and toxic skill scripts** in them.<br>
-Any repo. Ten seconds. No account.
+Your AI coding agent reads `CLAUDE.md`, `AGENTS.md`, rules, skills, hooks and MCP configs before it reads a line of your code, then does what they say.<br>
+Agent.md **checks** them (26 deterministic checks), **keeps** the hard rules through compaction, **turns** "never" lines into real deny rules, and **guards** every install the agent runs.<br>
+Any repo. Ten seconds. No account. Nothing uploaded.
 
 ```bash
 npx activate-agentmd audit your/repo
 ```
 
 [![npm version](https://img.shields.io/npm/v/activate-agentmd?color=6366f1&label=activate-agentmd)](https://www.npmjs.com/package/activate-agentmd)
-[![npm downloads](https://img.shields.io/npm/dm/activate-agentmd?color=8b5cf6)](https://www.npmjs.com/package/activate-agentmd)
+[![26 checks](https://img.shields.io/badge/lint-26%20deterministic%20checks-4bc680)](#-agentmd-lint-the-26-checks)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/AmukvXywRr)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Hacktoberfest](https://img.shields.io/badge/Hacktoberfest-2026-ff6b35)](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest)
 ![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
+
+**[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Every time](#-every-time-not-once) · [Quick start](#-quick-start) · [Why it's different](#-why-its-different) · [Research](#-what-the-research-says--and-what-we-built) · [CI](#-enforce-it-in-ci) · [FAQ](#-faq)**
+
+<img src="assets/lint.gif" alt="agentmd lint finding a leaked key, a package-swap attack, a hidden instruction, a conflict and a stale path in CLAUDE.md" width="92%">
 
 </div>
 
@@ -55,76 +59,156 @@ Real output, on a small example repo:
 | --- | --- |
 | `npx activate-agentmd audit owner/repo` | Check any public GitHub repo, without cloning it |
 | `npx activate-agentmd lint` | Check your own repo. Exits non-zero in CI; SARIF for code scanning |
-| `npx activate-agentmd guard --install` | Pre-install gate: block typosquats, untrusted indexes and vulnerable pins before the agent's `pip`/`npm install` runs |
-| `npx activate-agentmd pin --install` | Keep the hard rules in context through compaction: a SessionStart hook re-reads them after every `/compact` and resume |
+| `npx activate-agentmd lint --fix` | Delete what only costs tokens, and tell the agent to follow the code when a file drifted from it |
+| `npx activate-agentmd guard --install` | Block typosquats, untrusted indexes and vulnerable pins before the agent's `pip` / `npm install` runs |
+| `npx activate-agentmd pin --install` | Keep the hard rules in context through compaction: they come back after every `/compact` and resume |
 | `npx activate-agentmd enforce --write` | Turn "never do X" lines into permission deny rules, and see which rules are still prose only |
-| `npx activate-agentmd learn` | The corrections you keep giving in sessions, proposed as rules |
-| `npx activate-agentmd sbom --out bom.json` | Context bill of materials (CycloneDX 1.6): every file, skill, script, hook, MCP server and grant an agent loads, hashed |
-| `npx activate-agentmd lint --fix` | Delete what only costs tokens: rules your formatter already enforces, duplicated lines |
+| `npx activate-agentmd learn` | The corrections you keep giving your agent, proposed as rules |
 | `npx activate-agentmd cost` | What your always-on context costs per developer per month, and what `--fix` gives back |
-| `npx activate-agentmd init` | Optional: add version notes and standards for your exact stack |
+| `npx activate-agentmd sbom --out bom.json` | Context bill of materials (CycloneDX 1.6): every file, skill, script, hook, MCP server and grant an agent loads, hashed |
+| `npx activate-agentmd ci --write` | All of it on every pull request, as one GitHub Actions workflow |
+| `npx activate-agentmd init` | Optional: version notes and engineering standards for your exact stack |
 
-It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally, nothing uploaded. Precision first: **no known false alarms on the instruction files of 146 company repositories**, every reference finding checked by hand, plus 4,292 registry files and 272 skill scripts (measured at 2.11.1). What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
-
-**[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Quick start](#-quick-start) · [Why now](#-why-now-the-market-in-october-2026) · [Why it's different](#-why-its-different) · [For teams](#-for-teams-signed-context) · [CI](#-enforce-it-in-ci) · [Research](#-what-the-research-says--and-what-we-changed) · [FAQ](#-faq)**
+It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, subagents, hooks, memory files and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally. Precision first: **no known false alarms on the instruction files of 146 real-world repositories**, every reference finding checked by hand, plus 4,292 registry files and 272 skill scripts. What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
 
 ---
 
 ## 🔥 The problem
 
-AI agents now write a large share of production code, and every one of them reads a rules file first — `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md`, `copilot-instructions.md`. Those files decide what the agent believes about your codebase. Three things go wrong with them, and until now nothing addressed any of the three.
+Every coding agent reads a rules file first, on every prompt, and trusts it more than your code. Nobody reviews those files like code, and nothing enforces what they say.
 
-### 1. The agent writes your dependencies as they were, not as they are
+### 1. They go stale, and the agent follows the stale file
 
-```ts
-// Next.js 16 · Prisma 7 · Zod 4 — what an agent writes from memory. All of it compiles.
-const prisma = new PrismaClient();                    // Prisma 7: no engine by default — fails at runtime
-const Email  = z.string().email();                    // Zod 4: deprecated, use z.email()
-export default function Page({ params }: { params: { slug: string } }) {
-  const token = cookies().get("session");             // Next 16: cookies() and params must be awaited
-}
-```
+In 320 runs across 40 projects, **90.1% of agent choices followed an outdated instruction file over the existing code**. Claude Code noticed the conflict in 79 of 80 runs and followed the file anyway. One sentence telling the agent to prefer the code raised code-following from 4.2% to 91.4% ([arXiv 2610.30571](https://arxiv.org/abs/2610.30571)).
 
-This is not a hallucination you can prompt away. **Frontier models are version-oblivious**: JetBrains Research measured a persistent 7–10 point accuracy gap on APIs that changed between versions, and found that **telling the model the version gives no benefit — the relevant documentation gives +10–20 points** ([LibEvoBench, 2026](https://arxiv.org/abs/2606.25402)). The fix has to be in the context, and it has to be specific to the majors you actually run.
+### 2. The rules vanish, and "never" is only a sentence
 
-### 2. The instruction files are an unguarded attack surface
+- After a session compacts, violations of the project's own rules go **from 0% to 30–59%** ([arXiv 2606.22528](https://arxiv.org/abs/2606.22528)); the request to fix it upstream was closed *not planned* ([claude-code#24460](https://github.com/anthropics/claude-code/issues/24460)).
+- In 481 public `CLAUDE.md` files, only **4.4–16% of security rules have a control that enforces them** ([arXiv 2608.23550](https://arxiv.org/abs/2608.23550)). "Never force-push" is advice until something refuses the command.
 
-These files are fed to the model on every session, with the agent's full permissions behind them.
+### 3. They are an unguarded attack surface
 
-- **~0.7% of public agent instruction files contain a live credential**, mostly pasted by hand ([Radware, Aug 2026](https://www.radware.com/blog/the-new-env-measuring-credential-leakage-in-ai-agent-instruction-files/)) — and mainstream secret scanners don't watch these files.
-- **Rule files are a working prompt-injection channel**: a malicious rule can exfiltrate data while the agent still produces a correct patch ([Aletheia, 2026](https://arxiv.org/abs/2609.39678)).
-- **Skill scanners stop at `SKILL.md`** and miss `AGENTS.md`, `CLAUDE.md` and Cursor rules ([snyk/agent-scan#301](https://github.com/snyk/agent-scan/issues/301)); in one audit **13.4% of marketplace skills had a critical issue** ([Snyk ToxicSkills](https://snyk.io/blog/toxicskills-malicious-ai-agent-skills-clawhub/)), and every skill scanner tested was bypassed ([CSA / Trail of Bits](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-agent-skill-scanner-bypass-20260610-csa/)).
+- **~0.7% of public agent instruction files contain a live credential**, mostly pasted by hand ([Radware, Aug 2026](https://www.radware.com/blog/the-new-env-measuring-credential-leakage-in-ai-agent-instruction-files/)), and mainstream secret scanners don't watch these files.
+- **Shared rule files make agents install look-alike packages** with 79% success across 8 agents and 13 models ([arXiv 2610.09264](https://arxiv.org/abs/2610.09264)); editing only a README or requirements file makes agents pull from attacker indexes ([Microsoft, arXiv 2607.15143](https://arxiv.org/abs/2607.15143)).
+- **Rule files are a working prompt-injection channel** ([Aletheia, 2026](https://arxiv.org/abs/2609.39678)); skill scanners stop at `SKILL.md`, and every one tested was bypassed ([CSA / Trail of Bits](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-agent-skill-scanner-bypass-20260610-csa/)).
 
-### 3. They rot and bloat — and bloat costs accuracy
+### 4. They bloat, and bloat costs accuracy
 
 - Agent instruction files **grow +226% over their lifetime**, and noisy instructions **cut instruction-following by 24 points** ([arXiv 2608.11095](https://arxiv.org/abs/2608.11095)).
-- **91 of the 100 most-starred repos** have at least one configuration smell — leaked lint rules, bloat, dead references, contradictions, never-edited `/init` output ([arXiv 2606.15828](https://arxiv.org/abs/2606.15828)).
+- **91 of the 100 most-starred repos** have at least one configuration smell: leaked lint rules, bloat, dead references, contradictions, never-edited `/init` output ([arXiv 2606.15828](https://arxiv.org/abs/2606.15828)).
 
-> **The painkiller:** put the exact breaking changes for your exact versions in front of the agent, check every file it reads like you check code, and make sure nobody changes those files without sign-off.
+> **The fix:** check every file the agent reads like you check code, keep the rules in context, turn the "never" lines into controls, and gate the installs. Every time, not once.
 
 ---
 
 ## 💊 What Agent.md does
 
-| | Pillar | The pain it removes |
+| | Feature | The pain it removes |
 | --- | --- | --- |
-| 🔒 | **`agentmd lint`** — 26 deterministic checks on every file an agent reads (instruction files, rules, skills, subagents, hooks, MCP configs, requirements files): leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, look-alike package swaps, untrusted install sources, unpinned MCP servers, shell-wide permission grants, contradictions, bloat, dead references, stale pins. `--fix` deletes what only costs tokens. `audit owner/repo` runs it on any public repo. Exits non-zero in CI; SARIF for code scanning. | Secrets, injected instructions and poisoned setup steps reaching the model; context rot |
-| 🛡 | **`agentmd guard`** — a pre-install gate for the agent's own `pip` / `npm` / `uv` commands: typosquats and separator confusion against your manifests and the widely installed names, untrusted `--extra-index-url` / registries, plain-HTTP indexes, hidden directives in requirements files, config poisoning, and known-vulnerable pins (OSV). One command installs it as a Claude Code hook; the plugin ships it on. | Agents install from an untrusted index almost unconditionally and miss vulnerable pins 30/30 ([Microsoft, 2026](https://arxiv.org/abs/2607.15143)) |
-| 📋 | **`agentmd sbom`** — a context bill of materials in CycloneDX 1.6: every instruction file, rule, skill and its scripts, subagent, hook, MCP server (as a purl, pinned or not) and permission grant, with SHA-256 hashes and a context digest. Drops into the SBOM tooling you already run. | "What was this agent loading?" has no answer today |
-| 📌 | **`agentmd pin` + `agentmd enforce`** — `pin --install` re-injects the hard rules after every `/compact` and resume, so they survive the summary. `enforce --write` turns "never" lines (force-push, `rm -rf`, editing `.env`, pushing to main) into `permissions.deny` rules the harness applies, and reports which rules are still prose only; `--check` fails CI on a gap. `learn` reads your own session logs for corrections you keep repeating and proposes them as rules. | Rules lost at compaction; "never" written as a hope, not a control |
-| ⇅ | **Version pins + checks** — reads the majors you actually run (from `node_modules`, `package.json`, `pyproject.toml`, `go.mod`) and puts their breaking changes in the agent's context. 15 deterministic version checks across 13 pinned libraries then catch the old API in the diff, scoped to your version. Biggest effect where the model's training predates the version. | Deprecated code that compiles, passes review, and breaks later |
-| ✍️ | **Signed context bundles** — sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any modified, added or removed file, and `attest` records which context was in force for each commit. | Unreviewed rule changes; no audit trail for agent-written code |
-| 📚 | **300+ engineering standards, on demand** — security, backend, database, frontend, API, testing, DevOps, motion design and more, each loaded only when the agent works in that area, in each agent's own scoped format. | Re-writing the same 400-line rules file in every repo |
+| 🔒 | **`lint` / `audit`**: 26 deterministic checks on every file an agent reads: leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, look-alike packages, untrusted install sources, unpinned MCP servers, shell-wide permission grants, contradictions, file-vs-code drift, duplicate skills, bloat, dead references, stale pins. `--fix` deletes what only costs tokens. Exit 1 in CI; SARIF for code scanning. | Secrets, injected instructions and poisoned setup steps reaching the model; files that drifted from the code |
+| 📌 | **`pin`**: a Claude Code `SessionStart` hook that re-injects the hard rules after every `/compact` and resume, inside a token budget you set. | Rules that disappear halfway through a long session |
+| ⛔ | **`enforce`**: compiles one-reading "never" lines (force-push, push to main, `rm -rf`, editing `.env`, `sudo`, publish, `terraform`, `kubectl`, `curl \| sh` …) into `permissions.deny`, and reports what stays prose. `--check` fails CI on a gap. | "Never" that nothing enforces |
+| 🛡 | **`guard`**: a pre-install gate for the agent's own `pip` / `npm` / `uv` commands: typosquats, separator confusion, untrusted `--extra-index-url` and registries, plain-HTTP indexes, hidden directives in requirements files, known-vulnerable pins (OSV). | Agents install from an untrusted index almost unconditionally |
+| 🧠 | **`learn`**: reads your own local session logs for the corrections you keep giving ("use pnpm", "don't touch the migrations") and proposes them as rules. Nothing is kept without you. | Repeating yourself to the agent every day |
+| 💸 | **`cost`**: what your always-on context costs per developer per month, per agent. `--budget` fails a PR that pushes it over your limit. | Context that only grows |
+| 📋 | **`sbom`**: a context bill of materials in CycloneDX 1.6: every instruction file, rule, skill and script, subagent, hook, MCP server and permission grant, hashed. | "What was this agent loading?" has no answer today |
+| ⇅ | **Version pins + checks**: reads the majors you actually run and puts their breaking changes in the agent's context; 15 deterministic checks across 13 libraries catch the old API in the diff. | Deprecated code that compiles, passes review, and breaks later |
+| ✍️ | **Signed context bundles**: sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any change. | Unreviewed rule changes |
+| 📚 | **300+ engineering standards, on demand**: security, backend, database, frontend, API, testing, DevOps, motion design and more, loaded only when the agent works in that area. | Re-writing the same 400-line rules file in every repo |
+
+---
+
+## 🔁 Every time, not once
+
+A linter you run once is a one-time fix. These files are read on every prompt, so Agent.md sits on the moments they fail:
+
+```mermaid
+flowchart LR
+    S([Session start / compaction]) -- pin re-injects the hard rules --> A[Your agent]
+    I([Every install the agent runs]) -- guard blocks look-alikes and bad indexes --> A
+    N(["Every 'never' line"]) -- enforce compiles it to a deny rule --> A
+    C([Every correction you repeat]) -- learn proposes it as a rule --> F[(CLAUDE.md · AGENTS.md · rules · skills)]
+    F -- read on every prompt --> A
+    P([Every pull request]) -- lint · enforce --check · cost --budget --> F
+    R([Every dependency bump]) -- stale pins · drift · dead paths --> F
+```
+
+| Moment | Command | What happens |
+| --- | --- | --- |
+| Session start, `/compact`, resume | `pin --install` | the hard rules come back into context |
+| The agent runs `pip install` / `npm install` | `guard --install` | look-alikes, untrusted indexes and vulnerable pins are blocked, with the reason |
+| You write "never …" | `enforce --write` | it becomes a deny rule the harness applies |
+| You correct the agent twice | `learn` | the correction is proposed as a rule |
+| A pull request touches the files | `ci --write` | lint, enforce coverage and a token budget, in one workflow |
+| A dependency or a path changes | `lint` | stale pins, drift and dead references fail the check |
 
 ---
 
 ## 🚀 Quick start
 
-**1. Detect the stack, pin breaking changes, install standards**
+**1. Check every file your agent reads**: works on any repository, nothing to install first
+
+```bash
+npx activate-agentmd lint
+```
+
+```
+  ERROR   CLAUDE.md:14  secret
+          Looks like an Anthropic API key. Instruction files are sent to the model on every session — rotate it, then read it from the environment.
+  ERROR   .cursor/rules/deploy.mdc:3  injection
+          An HTML comment carries an instruction. GitHub hides comments from reviewers but the agent reads them.
+  WARNING CLAUDE.md:1  stale-pins
+          The version pins in the agentmd block do not match the dependencies this project now runs.
+
+  2 errors, 1 warning across 6 instruction files
+```
+
+**2. Gate every install the agent runs**
+
+```bash
+npx activate-agentmd guard --install
+```
+
+<div align="center">
+<img src="assets/guard.gif" alt="agentmd guard blocking a typosquat, an untrusted registry and a hidden index directive, passing a clean install, and installing itself as a Claude Code hook" width="92%">
+</div>
+
+**3. Keep the rules, and make "never" real**
+
+```bash
+npx activate-agentmd pin --install      # hard rules survive /compact and resume
+npx activate-agentmd enforce --write    # "never" lines become permissions.deny
+```
+
+```text
+  Enforcement  6 hard rules · 5 prohibitions · 4 enforceable · 0 enforced · 2 left to the model
+
+  ! prose only CLAUDE.md:3  Never force-push.
+               force pushes: Bash(git push --force:*), Bash(git push -f:*), Bash(git push --force-with-lease:*)
+  ! prose only CLAUDE.md:4  Never edit `.env`.
+               edits to `.env`: Edit(./.env)
+
+  ! 9 deny rules would make the prose above enforced. `agentmd enforce --write` adds them to .claude/settings.json.
+```
+
+**4. See what your context costs, and what it loads**
+
+```bash
+npx activate-agentmd cost
+npx activate-agentmd sbom --out bom.json
+```
+
+<div align="center">
+<img src="assets/sbom.gif" alt="agentmd sbom listing every component an agent loads with a context digest, then agentmd cost pricing the always-on context per developer per month" width="92%">
+</div>
+
+**5. Detect the stack, pin breaking changes, install standards**
 
 ```bash
 npx activate-agentmd init
+npx activate-agentmd link
 ```
+
 ```
   ✓ Next.js                  package.json (next)
   ✓ PostgreSQL               package.json (pg)
@@ -137,82 +221,44 @@ Recommended packages for claude:
 Install these? [Y/n]
 ```
 
-**2. Check every file your agent reads** — works on any repository, nothing to install first
+`link` writes a managed block into whichever of `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` and `copilot-instructions.md` your tools read. Commit `.agentmd/` and the whole team gets the same rules.
 
-```bash
-npx activate-agentmd lint
-```
-```
-  ERROR   CLAUDE.md:14  secret
-          Looks like an Anthropic API key. Instruction files are sent to the model on every session — rotate it, then read it from the environment.
-  ERROR   .cursor/rules/deploy.mdc:3  injection
-          An HTML comment carries an instruction. GitHub hides comments from reviewers but the agent reads them.
-  WARNING CLAUDE.md:1  stale-pins
-          The version pins in the agentmd block do not match the dependencies this project now runs.
+<div align="center">
+<img src="assets/quickstart.gif" alt="agentmd init detects the stack, pins the majors you run and installs matching standards; link writes them into every agent file" width="92%">
+</div>
 
-  2 errors, 1 warning across 6 instruction files
-```
-
-**3. See the breaking changes for the versions you run**
-
-```bash
-npx activate-agentmd pins
-```
-
-**4. Check a diff — deterministic, offline, zero tokens**
+**6. Check a diff: deterministic, offline, zero tokens**
 
 ```bash
 npx activate-agentmd review --fast --fail-on=high
 ```
-```
-  MEDIUM app/page.tsx:12  Next.js 16 › next-sync-request-api  [pattern]
-         Next.js 16: `cookies()` / `headers()` must be awaited — synchronous access was removed.
-  HIGH   src/repo.ts:14   Security/sql-injection › sql-string-interpolation  [pattern]
-         SQL built by string interpolation — use a parameterised query.
-```
-
-**5. Wire it into your agents**
-
-```bash
-npx activate-agentmd link
-```
-
-`link` writes a managed block into whichever of `CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, `GEMINI.md` and `copilot-instructions.md` your tools read. Commit `.agentmd/` and the whole team gets the same rules.
 
 <div align="center">
-<a href="https://agentmd.tech/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="92%"></a>
+<img src="assets/demo.gif" alt="A commit that builds SQL by string interpolation; agentmd review --fast catches it offline and fails the check" width="92%">
 </div>
 
-**Or try it in the browser in 10 seconds** at **[agentmd.tech/inspect](https://agentmd.tech/inspect)** — drop a `package.json` to see every major your agent will get wrong, or paste a `CLAUDE.md` to check it for leaked keys and prompt injection. Nothing is uploaded.
+**Or try it in the browser in 10 seconds** at **[agentmd.tech/inspect](https://agentmd.tech/inspect)**: drop a `package.json` to see every major your agent will get wrong, or paste a `CLAUDE.md` to check it. Nothing is uploaded.
+
+<a href="https://agentmd.tech/connect"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/setup.png" alt="Set up in one command — Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity" width="100%"></a>
 
 ---
 
-## 📈 Why now: the market in October 2026
+## 🧪 Try to sneak something past it
 
-**Agents are the default way code gets written.** Claude Code is used at work by **47% of US developers** and is the primary tool for 31%; Codex grew roughly **5× in six months** ([JetBrains Developer Ecosystem Survey 2026](https://blog.jetbrains.com/research/2026/08/ai-coding-agent-adoption-2026/)), with **5M+ weekly users** ([OpenAI](https://openai.com/index/codex-for-every-role-tool-workflow/)). Every one of those sessions starts by reading an instruction file.
-
-**The file formats have standardised — the trust layer has not.**
-
-| What settled in 2025–26 | What it deliberately left open |
+| Attempt | What Agent.md does |
 | --- | --- |
-| **AGENTS.md** — 60,000+ repositories, 28+ tools, stewarded by the Linux Foundation's Agentic AI Foundation ([agents.md](https://agents.md)) | What goes *in* the file, whether it is current, whether it is safe |
-| **Agent Skills** and **Agent Plugins 1.0** (Amazon, Cursor, Microsoft, OpenAI, Vercel — Aug 2026) standardise packaging ([Vercel](https://vercel.com/blog/introducing-agent-plugins)) | The spec **explicitly excludes provenance, signing and permissions** |
-| Skill scanners from Snyk, Socket and others | `CLAUDE.md`, `AGENTS.md` and rules files — and every scanner was bypassed |
-
-**Governance demand is arriving with deadlines.** Gartner sizes AI-governance platforms as a **billion-dollar market growing 36% a year** ([Gartner, Feb 2026](https://www.gartner.com/en/newsroom/press-releases/2026-02-17-gartner-global-ai-regulations-fuel-billion-dollar-market-for-ai-governance-platforms)); the EU AI Act's high-risk logging obligations took effect in August 2026. Teams need to show *what their agents were told* — and today no tool records it.
-
-**Where that leaves the market:**
-
-```
-                     what the agent knows ─────────────────────► what the agent did
-  ┌─────────────────────────────┬──────────────────────────┬───────────────────────────┐
-  │ Docs retrieval (Context7)   │  ★ Agent.md              │ Code review (CodeRabbit,  │
-  │ Skills marketplaces         │  version pins · lint ·   │ Claude Code /code-review) │
-  │ Hand-written CLAUDE.md      │  signed, attested context│ SAST (Semgrep, Snyk)      │
-  └─────────────────────────────┴──────────────────────────┴───────────────────────────┘
-```
-
-Everyone else works on what the agent *can look up* or what it *already wrote*. Agent.md owns the layer in between: **what the agent is told, whether it is true for your versions, and whether anyone approved it.**
+| Paste an API key into `CLAUDE.md` | `secret` error; the key is never echoed; the PR check goes red |
+| Hide an instruction in an HTML comment | `injection` error (GitHub hides comments from reviewers, the agent reads them) |
+| Add `pip install reqeusts` to a setup step | `package-swap` error in lint; `guard` blocks it at run time; `--online` asks PyPI whether the name exists |
+| Point installs at `--extra-index-url http://…` | `install-source` error; `guard` blocks it |
+| Write "never force-push" and hope | `enforce` adds `Bash(git push --force:*)` to `permissions.deny`; the harness refuses it |
+| Run a long session until `/compact` drops the rules | `pin` re-injects them on `SessionStart` |
+| Move a file and leave `CLAUDE.md` pointing at the old path | `stale-reference`, with where the file is now |
+| Tell the agent "use 4 spaces" when `.editorconfig` says tabs | `code-drift`; `--fix` adds the precedence sentence |
+| Ship two skills with the same name in one folder | `skill-conflict`: the agent would load one at random |
+| `npx -y some-mcp-server@latest` in an MCP config | `mcp-unpinned` |
+| Edit an approved instruction file without sign-off | `bundle verify` fails CI |
+| Grow the always-on file a little every week | `accretion` reads git history; `cost --budget` fails the PR that crosses your limit |
 
 ---
 
@@ -220,50 +266,90 @@ Everyone else works on what the agent *can look up* or what it *already wrote*. 
 
 | | Agent.md | Hand-written `CLAUDE.md` | Skills marketplaces | Docs retrieval (Context7) | Code review bots |
 | --- | :--: | :--: | :--: | :--: | :--: |
+| Lints `CLAUDE.md` / `AGENTS.md` / rules / skills for secrets, injection and drift | ✅ 26 checks | ❌ | ⚠️ `SKILL.md` only | ❌ | ❌ |
+| Rules survive compaction | ✅ `pin` | ❌ | ❌ | ❌ | ❌ |
+| "Never" lines become enforced controls | ✅ `enforce` | ❌ | ❌ | ❌ | ❌ |
+| Gates the agent's own installs | ✅ `guard` | ❌ | ❌ | ❌ | ❌ |
 | Breaking changes for *your* installed majors, in context before the agent writes | ✅ | ✋ by hand | ❌ | ⚠️ when the agent asks | ❌ |
-| Deterministic check for the old API, scoped by version | ✅ 15 checks | ❌ | ❌ | ❌ | ⚠️ model-judged |
-| Lints `CLAUDE.md` / `AGENTS.md` / rules / skills for secrets and injection | ✅ | ❌ | ⚠️ `SKILL.md` only | ❌ | ❌ |
 | Signed, approved context with an audit record per commit | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Works across Claude Code, Cursor, Codex, Gemini CLI, Copilot | ✅ 5 | ❌ 1 | ⚠️ varies | ✅ via MCP | ⚠️ varies |
 | Runs offline, no account, no API key for the core | ✅ | ✅ | ⚠️ | ❌ | ❌ |
 | Open source | ✅ MIT | n/a | ⚠️ varies | ⚠️ partly | ❌ mostly |
 
-**What makes it hard to copy:**
+**Built to be trusted:**
 
-1. **Neutral across vendors.** Every agent vendor's incentive is to make *its own* context load more easily. A record of what Claude Code, Cursor and Copilot were told — signed with *your* key — has to come from someone who is none of them.
-2. **Deterministic, not model-judged.** Checks are regular expressions with a must-catch and a must-not-fire sample each, tested in CI. A gate that cries wolf gets switched off; this one reported **zero errors and zero warnings across the 4,292 files of this registry at release 2.7.0**, including security standards that quote attacks to teach them.
-3. **Evidence-first content.** Pins are measured, not asserted: each one carries a deterministic judge, and the effect (old-API rate with vs. without the pin) is run on more than one model before it is published. No pin is added until the existing ones show an effect that repeats.
-4. **It honours the research instead of fighting it.** See below.
+1. **Neutral across vendors.** One tool for the files every agent reads, signed with *your* key, not any vendor's.
+2. **Deterministic, not model-judged.** Every rule has a must-catch and a must-not-fire sample, tested in CI, and every new rule is diffed on real repositories before it ships. A gate that cries wolf gets switched off.
+3. **Evidence-first.** A check, a pin or a standard ships when it is measured, not when it sounds right.
 
 ---
 
-## 🔬 What the research says — and what we changed
+## 🔬 What the research says — and what we built
 
-Three independent 2026 studies measured generic, always-on context files and found **no gain in task success at 20%+ more cost**; LLM-generated ones made agents *worse* ([ETH Zurich, arXiv 2602.11988](https://arxiv.org/abs/2602.11988); [arXiv 2607.27250](https://arxiv.org/abs/2607.27250); [arXiv 2608.11095](https://arxiv.org/abs/2608.11095)). The exception is **version-specific API facts** ([LibEvoBench](https://arxiv.org/abs/2606.25402)).
-
-So Agent.md was redesigned around that evidence:
-
-| Finding | What Agent.md does now |
+| Finding | What Agent.md does |
 | --- | --- |
-| Always-on generic guidance costs more than it helps | **Only version pins are always on.** Every standard loads on demand, when the agent opens a matching file. |
-| Version-specific facts help, naming the version doesn't | Pins state the *changed API*, read from what is actually installed in `node_modules` |
-| Noise and bloat measurably hurt | `lint` flags bloat, dead references, leaked lint rules and stale pins |
-| Effect has to be measured, not assumed | Every pin has a deterministic judge; `agentmd test --baseline` reports what a standard *changed*, not just whether it was obeyed |
-| Instruction files are a security boundary | `lint` treats them as untrusted input; `bundle` makes changes reviewable |
-| Compliance dilutes as instructions pile up; curators append and never delete, and the optimal file stays small however many candidates exist ([arXiv 2610.11007](https://arxiv.org/abs/2610.11007)) | `accretion` reads git history and flags files that only ever grew; `skill-leakage` moves one-task procedures out of the always-on file |
-| Repository overviews in context files do not help; agents find the right files no faster with them ([ETH, arXiv 2602.11988](https://arxiv.org/abs/2602.11988)) | `redundant-overview` flags sections copied from the README |
-| Shared rule files are a channel for **package hallucination attacks**, with 79% success across 8 agents and 13 models, and every detector tested either misses most or cries wolf ([arXiv 2610.09264](https://arxiv.org/abs/2610.09264)) | `package-swap` is deterministic: a look-alike of an installed dependency that no manifest declares is an error |
-| 57% of files flagged for contradictions by an LLM judge were real; the rest were noise ([arXiv 2606.15828](https://arxiv.org/abs/2606.15828)) | `conflict` only fires on exact opposite-polarity pairs and lockfile mismatches, so it is right when it speaks |
-| Editing only a README or requirements file makes agents install typosquats, pull from attacker indexes and pin CVE versions; the harness, not the model, decides the outcome, and a deterministic pre-install hook closes 10 of 11 scenarios ([Microsoft, arXiv 2607.15143](https://arxiv.org/abs/2607.15143)) | `guard` is that hook, for every agent with a command hook, plus `install-source` in lint so the poisoned line is caught at review time too |
-| 15.4% of 3,171 public agent setups carry an unpinned MCP package or a broad execution grant ([Red Hat, arXiv 2609.07360](https://arxiv.org/abs/2609.07360)) | `mcp-unpinned`, interpreter-wide `permissions`, `skill-preapproval`; `sbom` lists every server and grant with its pin state |
-| Skills spread by copying with no registry, version or provenance; copies almost never follow a fix at the source ([arXiv 2610.11169](https://arxiv.org/abs/2610.11169)) | `sbom` hashes every skill and script so a copy can be matched to its source; `cross-agent` catches copies that crossed platforms unadapted |
-| 90.1% of agents follow a stale instruction file over the code it describes ([arXiv 2610.30571](https://arxiv.org/abs/2610.30571)) | `code-drift` flags a file that disagrees with `.editorconfig` or with the test runner you install; `lint --fix` adds one line telling the agent to follow the code |
-| Rules are lost when a session compacts, and Anthropic closed the request as "not planned" ([claude-code#24460](https://github.com/anthropics/claude-code/issues/24460), [arXiv 2606.22528](https://arxiv.org/abs/2606.22528)) | `pin --install` re-reads the hard rules into context after every compaction and resume |
-| Only 4–16% of security rules in instruction files have a control that enforces them ([arXiv 2608.23550](https://arxiv.org/abs/2608.23550)) | `enforce` compiles "never" lines into deny rules and shows the coverage |
+| 90.1% of agent choices followed a stale instruction file over the code; one precedence sentence fixed most of it ([arXiv 2610.30571](https://arxiv.org/abs/2610.30571)) | `code-drift` flags a file that disagrees with `.editorconfig` or the test runner you install; `lint --fix` adds the precedence sentence |
+| Rule violations rise from 0% to 30–59% after compaction ([arXiv 2606.22528](https://arxiv.org/abs/2606.22528)) | `pin --install` re-reads the hard rules after every compaction and resume |
+| Only 4.4–16% of security rules in instruction files have an enforcing control ([arXiv 2608.23550](https://arxiv.org/abs/2608.23550)) | `enforce` compiles "never" lines into deny rules and shows the coverage |
+| Turning repeated corrections into rules, kept only when they measurably help, is where the gain comes from ([arXiv 2610.14216](https://arxiv.org/abs/2610.14216)) | `learn` proposes rules from the corrections you repeat; you decide what stays |
+| Generic always-on context files give no gain in task success at 20%+ more cost; repository overviews don't help ([ETH, arXiv 2602.11988](https://arxiv.org/abs/2602.11988)) | **Only version pins are always on.** Standards load on demand; `redundant-overview` flags sections copied from the README |
+| Version-specific API facts help; naming the version alone doesn't ([LibEvoBench](https://arxiv.org/abs/2606.25402)) | Pins state the *changed API*, read from what is actually installed |
+| Compliance dilutes as instructions pile up; curators append and never delete ([arXiv 2610.11007](https://arxiv.org/abs/2610.11007)) | `accretion` flags files that only ever grew; `cost --budget` caps always-on tokens in CI |
+| Shared rule files carry **package hallucination attacks** with 79% success; detectors miss most or cry wolf ([arXiv 2610.09264](https://arxiv.org/abs/2610.09264)) | `package-swap` is deterministic; `--online` asks npm and PyPI whether a name exists |
+| A deterministic pre-install hook closes 10 of 11 install-time attack scenarios ([Microsoft, arXiv 2607.15143](https://arxiv.org/abs/2607.15143)) | `guard` is that hook, plus `install-source` in lint so the poisoned line is caught at review time too |
+| 15.4% of 3,171 public agent setups carry an unpinned MCP package or a broad execution grant ([Red Hat, arXiv 2609.07360](https://arxiv.org/abs/2609.07360)) | `mcp-unpinned`, `permissions`, `skill-preapproval`; `sbom` lists every server and grant with its pin state |
+| 57% of contradictions flagged by an LLM judge were real; the rest were noise ([arXiv 2606.15828](https://arxiv.org/abs/2606.15828)) | `conflict` only fires on exact opposite-polarity pairs and lockfile mismatches |
+| Skills spread by copying with no version or provenance ([arXiv 2610.11169](https://arxiv.org/abs/2610.11169)) | `sbom` hashes every skill and script so a copy can be matched to its source; `skill-conflict` catches duplicates |
 
 ---
 
 ## 🏛 The pillars in depth
+
+### 🔒 `agentmd lint`: the 26 checks
+
+| Severity | Rule | Catches |
+| --- | --- | --- |
+| error | `secret` | Anthropic, OpenAI, GitHub, AWS, Slack, Stripe, Google keys; private keys; long values assigned to secret names. Placeholders are ignored; the secret is never echoed. |
+| error | `injection` | "ignore previous instructions", permission-bypass flags, zero-width / bidi / tag characters, instructions hidden in HTML comments, hooks that pipe a download into a shell |
+| error · warning | `skill-payload` | skill scripts that pipe a download into a shell, `eval` decoded data, serialise the environment or read credential stores while calling out |
+| error · warning | `install-source` | `--extra-index-url`, `--index-url`, `--registry` or `--trusted-host` pointing anywhere but the ecosystem's registry, plain-HTTP indexes, hidden directives in `requirements.txt`, `PIP_CONFIG_FILE` redirection |
+| error · warning | `package-swap` · `package-missing` | an install or a rule that names a typosquat of a package you install or of a widely used one (`reqeusts`, `lodahs`, `crossenv`, `@anthropic/sdk`). With `--online` (on by default in `audit`) npm and PyPI are asked: a name **nobody has registered** is an error (slopsquatting), and an established package is never flagged |
+| warning | `code-drift` 🆕 | an indentation rule `.editorconfig` contradicts; a test command for a runner the repo does not install. `--fix` adds: *"When this file and the existing code disagree, follow the code and say so in the reply."* |
+| warning | `mcp-unpinned` · `skill-preapproval` · `agent-description` | `npx -y server` with no version or `@latest`, `allowed-tools: Bash` in a skill, subagents that never load for want of a description |
+| warning | `conflict` | "always X" and "never X" in the same file; a bare `npm install` in a repo locked with pnpm. The model picks one at random |
+| warning | `bloat` · `blind-reference` · `stale-reference` · `stale-pins` · `permissions` | always-on files over 200 lines, `@file` links to nothing, paths that no longer exist (and where the file moved), pins out of date, grants that run any code like `Bash(python:*)` |
+| notice | `skill-conflict` 🆕 · `skill-network` · `skill-frontmatter` | two skills with the same name in one skills folder, every host a skill script contacts, a skill without the `name` and `description` the specification requires |
+| notice | `skill-leakage` · `redundant-overview` · `accretion` | a one-task procedure loaded on every prompt, a section copied from the README, a file whose git history shows it has only ever grown |
+| notice | `lint-leakage` · `fossil` · `duplicate` | formatting rules a formatter already enforces, unedited `/init` output, repeated lines |
+
+Injection rules read prose only, not code fences, inline code or lines that warn *against* the thing, so documentation about attacks doesn't trip them. `.claude/memory/*.md` files are linted too.
+
+### 📌 `pin`, ⛔ `enforce`, 🧠 `learn`
+
+- **`pin`** picks the explicit rules first (mark one `<!-- pin -->` or put it under a `## Pinned` heading), then the "never" lines, then the "must" lines, inside a token budget (`--budget`, default 600), and prints them back on every `SessionStart` after compaction or resume.
+- **`enforce`** maps one-reading "never" lines to `permissions.deny`. Ambiguous lines stay prose and are reported, never guessed. `--check` exits 1 when a mappable rule is not enforced.
+- **`learn`** reads your Claude Code session logs on your machine, groups corrections that say the same thing, and proposes the ones you gave more than once. `--write` appends them under a review heading.
+
+### 🛡 `agentmd guard`
+
+The gate sits between "the agent read an install command" and "it ran". `guard --install` adds it to `.claude/settings.json` as a `PreToolUse` hook; the Claude Code plugin ships it on. Blocked installs come back to the agent with the reason, so it fixes the command or asks you.
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant G as agentmd guard
+    participant R as npm / PyPI / OSV
+    A->>G: pip install reqeusts
+    G->>G: shape check against your manifests and widely installed names
+    G->>R: does it exist? how old? how used? known-vulnerable pin?
+    G-->>A: blocked: reqeusts looks like requests but is not it
+    A->>G: pip install requests
+    G-->>A: allow
+```
+
+### 📋 `agentmd sbom` and 💸 `agentmd cost`
+
+`sbom --out bom.json` writes CycloneDX 1.6 for the SBOM tools you already run. `cost` turns always-on tokens into dollars per developer per month and shows what `lint --fix` gives back; `cost --budget 1500` is a CI gate.
 
 ### ⇅ Version pins
 
@@ -280,32 +366,7 @@ So Agent.md was redesigned around that evidence:
 - No Rust query engine by default: instantiate the client with a driver adapter, not a bare `new PrismaClient()`.
 ```
 
-Coverage: Next.js 13–16, React 18–19, Pydantic 1–2, SQLAlchemy 2, Django 5, Prisma 5–7, Tailwind 3–4, Express 5, Zod 4, ESLint 9, Vue 3, Go 1.22–1.25, Python 3.12–3.13. The installed version beats the declared range, so a lockfile bump from 15 to 16 is pinned as 16 — and `lint` flags the block as stale until you run `link`.
-
-### 🔒 `agentmd lint`
-
-| Severity | Rule | Catches |
-| --- | --- | --- |
-| error | `secret` | Anthropic, OpenAI, GitHub, AWS, Slack, Stripe, Google keys; private keys; long values assigned to secret names. Placeholders are ignored; the secret is never echoed. |
-| error | `injection` | "ignore previous instructions", permission-bypass flags, zero-width / bidi / tag characters, instructions hidden in HTML comments, hooks that pipe a download into a shell |
-| error · warning | `install-source` 🆕 | `--extra-index-url`, `--index-url`, `--registry` or `--trusted-host` pointing anywhere but the ecosystem's registry, plain-HTTP indexes, hidden directives in `requirements.txt`, `PIP_CONFIG_FILE` redirection: the install-time attacks agents follow without pausing ([arXiv 2607.15143](https://arxiv.org/abs/2607.15143)) |
-| warning | `mcp-unpinned` · `skill-preapproval` · `agent-description` 🆕 | `npx -y server` with no version or with `@latest` (24.5% of setups with MCP config; a dependency the lockfile pins is fine), `allowed-tools: Bash` in a skill, subagents that never load for want of a description ([Red Hat, arXiv 2609.07360](https://arxiv.org/abs/2609.07360)); `permissions` now also flags grants that run any code, like `Bash(python:*)` or `Bash(npx ts-node:*)`, and says why, but not one known program such as `Bash(python -m pytest:*)` |
-| error · warning | `package-swap` · `package-missing` 🆕 | an install or a rule that names a typosquat of a package you install or of a widely used one (`reqeusts`, `lodahs`, `crossenv`, `@anthropic/sdk`): the **package hallucination attack** through shared rule files, which every prompt-injection detector tested misses ([arXiv 2610.09264](https://arxiv.org/abs/2610.09264)). With `lint --online` (on by default in `audit` of a public repo) npm and PyPI are asked: a name **nobody has registered** is an error (slopsquatting), a new or barely used look-alike is an error, and an established package is never flagged. Plugins like `react-router-dom` or `pytest-xdist` are not look-alikes |
-| warning | `conflict` 🆕 | "always X" and "never X" in the same file; a bare `npm install` in a repo locked with pnpm. The model picks one at random |
-| warning | `code-drift` · `skill-conflict` 🆕 | an indentation rule `.editorconfig` contradicts, a test command for a runner the repo does not install; two skills with the same name in one skills folder, where the agent loads one at random |
-| warning | `bloat` · `blind-reference` · `stale-reference` · `stale-pins` · `permissions` | always-on files over 200 lines, `@file` links to nothing, paths and scripts that no longer exist (and, when the file moved, where it is now), pins out of date, unscoped `Bash` permissions |
-| notice | `skill-leakage` · `redundant-overview` · `accretion` · `skill-frontmatter` 🆕 | a one-task procedure loaded on every prompt, a section copied from the README, a file whose git history shows it has only ever grown, a skill without the `name` and `description` the Agent Skills specification requires |
-| notice | `lint-leakage` · `fossil` · `duplicate` | formatting rules a formatter already enforces, unedited `/init` output, repeated lines |
-
-Injection rules read prose only — not code fences, not inline code, not lines that warn *against* the thing — so documentation about attacks doesn't trip them.
-
-### 🛡 `agentmd guard`
-
-The gate sits between "the agent read an install command" and "it ran". `guard --install` adds it to `.claude/settings.json` as a PreToolUse hook; the Claude Code plugin ships it on. Blocked installs come back to the agent with the reason, so it fixes the command or asks you.
-
-### 📋 `agentmd sbom` and `agentmd cost`
-
-`sbom --out bom.json` writes CycloneDX 1.6 for the tools you already run. `cost` turns always-on tokens into dollars per developer per month and shows what `lint --fix` gives back.
+Coverage: Next.js 13–16, React 18–19, Pydantic 1–2, SQLAlchemy 2, Django 5, Prisma 5–7, Tailwind 3–4, Express 5, Zod 4, ESLint 9, Vue 3, Go 1.22–1.25, Python 3.12–3.13. The installed version beats the declared range, so a lockfile bump from 15 to 16 is pinned as 16, and `lint` flags the block as stale until you run `link`.
 
 ### 🎯 On-demand standards
 
@@ -339,10 +400,10 @@ npx activate-agentmd bundle attest                                            # 
 
 - Covers every instruction file plus installed standards, overrides and policy; per-developer `*.local.*` files stay out.
 - `requireSignedContext: true` in `.agentmd/enterprise.json` makes `lint` fail on any unsigned change.
-- **In CI, pin trusted keys from a secret** (`AGENTMD_BUNDLE_KEYS`) — otherwise a pull request could swap the key in the repo and re-sign. `verify` warns when it isn't set.
+- **In CI, pin trusted keys from a secret** (`AGENTMD_BUNDLE_KEYS`), otherwise a pull request could swap the key in the repo and re-sign. `verify` warns when it isn't set.
 - `attest` gives an auditor one record per build: the commit, a digest of every instruction in force, and whether it was approved.
 
-This is a CI and review gate, not runtime enforcement: it stops an unapproved instruction file from merging unseen.
+Need a named reviewer's approval bound to the exact files your agents read, checked on every pull request? See [docs/team.md](docs/team.md) and [agentmd.tech/pro](https://agentmd.tech/pro).
 
 ---
 
@@ -361,8 +422,10 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - run: npx --yes activate-agentmd lint                    # secrets, injection, stale pins
+      - run: npx --yes activate-agentmd lint                    # secrets, injection, drift, stale pins
       - run: npx --yes activate-agentmd review --base origin/${{ github.base_ref }} --fast --fail-on=high
+      # - run: npx --yes activate-agentmd enforce --check      # optional: every mappable "never" is enforced
+      # - run: npx --yes activate-agentmd cost --budget 1500   # optional: always-on tokens stay under budget
 ```
 
 Zero tokens, no API key, nothing leaves the runner. Upload `lint --sarif` to GitHub code scanning to see findings inline. `npx activate-agentmd ci --write` generates this workflow for you.
@@ -379,7 +442,7 @@ Zero tokens, no API key, nothing leaves the runner. Upload `lint --sarif` to Git
 | `gemini` | `GEMINI.md` | Gemini CLI |
 | `copilot` | `.github/copilot-instructions.md` + `.github/instructions/` | GitHub Copilot |
 
-**Agent Skills.** Two skills teach the agent to use the toolchain — `agentmd-usage` (install, pins, lint) and `agentmd-standards` (following what's installed):
+**Agent Skills.** Two skills teach the agent to use the toolchain, `agentmd-usage` (install, pins, lint) and `agentmd-standards` (following what's installed):
 
 ```bash
 npx skills@latest add Aaditya1273/Agent.md -a claude-code -a cursor -y
@@ -401,7 +464,7 @@ Cursor and VS Code: one click at **[agentmd.tech/connect](https://agentmd.tech/c
 
 <a href="https://agentmd.tech"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md registry — install standards with any agent" width="100%"></a>
 
-This repository is the registry — plain markdown, written once in [`_canonical/`](https://github.com/Aaditya1273/Agent.md/tree/main/_canonical) and generated for eleven model families (Claude, OpenAI, Gemini, DeepSeek, Grok, Qwen, Kimi, GLM, MiniMax, Mistral, Sarvam).
+This repository is the registry: plain markdown, written once in [`_canonical/`](https://github.com/Aaditya1273/Agent.md/tree/main/_canonical) and generated for **11 model families** (Claude, OpenAI, Gemini, DeepSeek, Grok, Qwen, Kimi, GLM, MiniMax, Mistral, Sarvam): **308 standards in 21 categories** for Claude, 304 for each other family.
 
 | Category | Examples |
 | --- | --- |
@@ -412,8 +475,8 @@ This repository is the registry — plain markdown, written once in [`_canonical
 | **API** | rest, graphql, pagination, versioning, rate-limiting, webhooks, open-api |
 | **Testing** | unit, integration, e2e, pytest, go-testing, load, accessibility, test-strategy |
 | **Performance · DevOps · System Design** | caching, bundle-size, docker, kubernetes, github-actions, cicd, microservices, event-driven |
-| **Design** | 74 brand design languages — apple, stripe, linear, vercel, airbnb, spotify… |
-| **Motion** 🆕 *(Claude)* | lumen — bright keynote-grade launch films · hanami — cherry-blossom cinematic films · hanko-reel — ink-and-seal films: washi paper, sumi ink, one vermilion seal · truecut — a 60–120 s demo edited from one honest screen recording. All built in code: story, motion, voice, score, render |
+| **Design** | 74 brand design languages: apple, stripe, linear, vercel, airbnb, spotify… |
+| **Motion** *(Claude)* | lumen, hanami, hanko-reel, truecut: launch films built in code, from story to render |
 | + AI, Review, Documentation, Checklists, Startup, Business, Open Source, Templates, Community, Research | |
 
 ```bash
@@ -427,30 +490,22 @@ Browse with logos and search at **[agentmd.tech](https://agentmd.tech)**. Full C
 
 ---
 
-## 💳 Free and Team
+## 🧾 Known limits
 
-Free is anything Agent.md does not have to remember. Team is what needs Agent.md to hold state across people, repositories and time.
-
-| | Free — MIT, forever | Team |
-| --- | --- | --- |
-| `init`, `link`, `install`, `update`, `pins`, `lint`, `audit`, `guard`, `sbom`, `cost`, `pin`, `enforce`, `learn`, `review`, `test`, `bundle`, `extract`, `sync`, `analytics` | ✅ | ✅ |
-| All 300+ standards, the MCP server, the skills | ✅ | ✅ |
-| GitHub App: a named reviewer's approval bound to a signed snapshot of the files your agents read, checked in CI | | ✅ |
-| Signed, timestamped evidence export · org policy pack for Claude Code and AGENTS.md · hosted private registry | | ✅ |
-
-**Team: $19 per active contributor per month ($182.40 per year billed annually), five-contributor minimum, public repositories free.** Team works today and is in design-partner preview: we switch it on per organisation, and checkout is not open. How it works and how to set it up: [docs/team.md](docs/team.md). [Apply as a design partner →](https://tally.so/r/QKg14g)
-
-Everything in the Free column works today with no account and no key.
+- **Patterns, not verdicts.** `lint` is deterministic pattern matching; a pass is a floor. Every gap is listed per rule in [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
+- **`pin` and `enforce` are Claude Code only today.** They use Claude Code's `SessionStart` hook and `permissions.deny`; for Codex, Cursor and Gemini CLI they report "not covered" rather than pretend.
+- **`guard` runs where the agent has a command hook.** Installs typed by hand are caught at review time by `install-source` and `package-swap`.
+- **Bundles are a CI and review gate, not runtime enforcement.** They stop an unapproved file from merging unseen.
 
 ---
 
 ## 🤝 Contributing
 
-**Questions?** Ask in the [Agent.md Discord](https://discord.gg/AmukvXywRr) — about a standard, the CLI, or whether an idea is worth a pull request. No question is too small.
+**Questions?** Ask in the [Agent.md Discord](https://discord.gg/AmukvXywRr): about a standard, the CLI, or whether an idea is worth a pull request. No question is too small.
 
-Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: imperative, specific, short wrong/right code pairs, an anti-patterns table and a checklist — and **evidence that the standard changes what a model writes** (`agentmd test --baseline` prints it). A standard that doesn't change the output isn't a standard; it's a file.
+Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: imperative, specific, short wrong/right code pairs, an anti-patterns table and a checklist, and **evidence that the standard changes what a model writes** (`agentmd test --baseline` prints it). A standard that doesn't change the output isn't a standard; it's a file.
 
-**Hacktoberfest 2026:** the [open issues](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest) are scoped, markdown-only and need no build — new standards for Vue, Svelte, Angular, Rust, NestJS, Fastify and Java; upgrades of legacy packages; verification against React 19, Next 16, Prisma 7 and Tailwind 4. See [CONTRIBUTING.md](CONTRIBUTING.md).
+**Hacktoberfest 2026:** the [open issues](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest) are scoped, markdown-only and need no build: new standards for Vue, Svelte, Angular, Rust, NestJS, Fastify and Java; upgrades of legacy packages; verification against React 19, Next 16, Prisma 7 and Tailwind 4. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -458,17 +513,20 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | CLI · Agent.md Team GitHub App (design-partner preview) · version pins with 15 checks · `guard` pre-install gate · `pin` and `enforce` · `learn` · `sbom` · `cost` · `lint` with 26 checks (+ SARIF, and in the browser at /inspect) · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
-| 🔬 **Measuring** | Effect of every pin (old-API rate with vs. without), on more than one model before anything is published. Pin expansion is paused until the effect repeats |
-| 🔨 **Next** | Agent.md Team pilots with design partners · VS Code extension on the Marketplace · More lint rules · more Motion standards · library authors publishing their own pins · pins for more libraries once measurement supports it |
-| 💭 **Considering** | Signed-bundle format proposed to the AGENTS.md specification · adapters for Cursor, Gemini and Copilot policy |
+| ✅ **Shipping** | `lint` with 26 checks (+ SARIF, and in the browser at /inspect) · `audit` · `guard` · `pin` · `enforce` · `learn` · `cost --budget` · `sbom` · version pins with 15 checks · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
+| 🔬 **Measuring** | The effect of every pin (old-API rate with vs. without), on more than one model before anything is published |
+| 🔨 **Next** | `pin` and `enforce` for Codex, Cursor and Gemini CLI · skill freshness against upstream releases · MCP capability scope · VS Code extension on the Marketplace · more Motion standards · library authors publishing their own pins |
+| 💭 **Considering** | Signed-bundle format proposed to the AGENTS.md specification · a public scoreboard of agent-file health across popular repos |
 
 ---
 
 ## ❓ FAQ
 
 **Is this a replacement for `CLAUDE.md` / `AGENTS.md` / Cursor rules?**
-No — those are file formats. Agent.md fills them with what is true for your versions, checks them, and makes changes to them reviewable.
+No. Those are file formats. Agent.md checks what's in them, keeps them true to your code, and turns the rules into controls.
+
+**Isn't a linter a one-time fix?**
+The files are read on every prompt and change on every PR. `pin` runs on every compaction, `guard` on every install, `ci` on every pull request, `learn` whenever you repeat yourself, `lint` whenever a dependency or path moves.
 
 **Does it paste 30 standards into every prompt?**
 No. Only version pins are always on. Standards load on demand, when the agent opens a matching file.
@@ -476,14 +534,14 @@ No. Only version pins are always on. Standards load on demand, when the agent op
 **Does `lint` need Agent.md installed in the repo?**
 No. `npx activate-agentmd lint` works on any repository with any agent instruction files.
 
-**What does `review --fast` check?**
-Deterministic patterns over the added lines of a diff — injection, weak crypto, wildcard CORS, hard-coded secrets — plus the version checks for the majors you run. No model, no key, milliseconds.
+**Will it slow my agent down?**
+`guard` and `pin` are hooks that run in milliseconds; `pin` stays inside the token budget you give it.
 
 **Does anything leave my machine?**
-`init`, `install`, `link`, `pins`, `lint`, `bundle` and `review --fast` / `--local` run offline. `review` (model mode), `extract` and `test` send the diff or evidence to the Anthropic API under your own key. Anonymous usage counters are **off by default** and opt-in (`agentmd telemetry`).
+`init`, `install`, `link`, `pins`, `lint`, `pin`, `enforce`, `learn`, `cost`, `sbom`, `bundle` and `review --fast` run locally. `lint --online` and `guard` ask npm, PyPI and OSV about package names only. `review` (model mode), `extract` and `test` send the diff or evidence to the Anthropic API under your own key. Anonymous usage counters are **off by default** and opt-in (`agentmd telemetry`).
 
 **Does a pin actually change what a model writes?**
-That is the right question, and it is being measured rather than assumed. On a current frontier-class model, the first run of 140 tasks found the effect concentrated in a few libraries, because recent models already know most of these versions. Pins matter most when the model's training predates the version you run. Results are published once they repeat on a second model.
+That is the right question, and it is being measured rather than assumed. Pins matter most when the model's training predates the version you run. Results are published once they repeat on a second model.
 
 ---
 
