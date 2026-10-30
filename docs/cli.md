@@ -58,7 +58,7 @@ found and the files that show it, then:
    `.agentmd/policy.json`;
 2. for Claude Code, installs the `pin` hook (rules re-injected after
    compaction) and the `guard` install gate;
-3. when the runtime guard is installed (`agentmd guard-install`), attaches it
+3. attaches the runtime guard (installed with the package), after checking its SHA-256, and attaches it
    to Claude Code with `agentmd-guard init claude`. It is attached only where
    it blocks; on other agents the rules rest on each agent's own controls.
 
@@ -81,16 +81,18 @@ Codex is installed; (4) the guard refuses the forbidden calls and names the
 ## Runtime guard
 
 ```bash
-agentmd guard-install     # download agentmd-guard for this platform
+agentmd guard-install     # only if npm skipped the platform package
 agentmd allow             # approve the call it paused (a person, at a terminal)
 agentmd receipts [id]     # list signed refusals, or verify one
 agentmd impact            # what it has done in this project
 agentmd scan [dir]        # credentials an agent here could read (values never shown)
 ```
 
-`agentmd-guard` is a separate, proprietary binary (linux, macOS, Windows ×
-amd64, arm64). The CLI accepts a download only if its SHA-256 equals the hash
-pinned in the npm package. Stages, in order: self-protection (the agent cannot
+`agentmd-guard` is a proprietary Go binary shipped as one npm package per
+platform (`activate-agentmd-guard-<os>-<cpu>`, optional dependencies of
+`activate-agentmd`), so npm installs only yours. `init` copies it to
+`~/.agentmd/bin` (where the hook points, so it survives npm cache clean-ups)
+only if its SHA-256 equals the hash pinned in the CLI. Stages, in order: self-protection (the agent cannot
 approve its own refusal or edit the controls that govern it), repo rules
 (`.agentmd/policy.json`), declared intent, cross-session memory (needs the
 memory service; off by default), irreversible actions (pause), exfiltration of
