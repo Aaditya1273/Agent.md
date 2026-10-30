@@ -87,9 +87,10 @@ the caller's own permissions; enforcing it is AWS's job. The credentials go to
 `~/.config/gh`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials` do
 not exist, and removes secret-looking environment variables, printing which.
 `--keep ANTHROPIC_API_KEY` keeps the agent's own login. With `--aws`, only the
-minted credentials are present. Not covered yet: macOS and Windows sandboxing,
-GitHub, GCP and Azure tokens, and verification that AWS enforces the deny list
-on a real account.
+minted credentials are present. Verified on a real AWS account: inside `broker run --aws`, `dynamodb
+delete-table` is refused "with an explicit deny in a session policy" while the
+caller's own key is allowed, and read-only calls work. Not covered yet: macOS
+and Windows sandboxing; GitHub, GCP and Azure tokens.
 
 ## learn from refusals
 
