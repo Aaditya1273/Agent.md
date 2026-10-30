@@ -770,6 +770,8 @@ and Gemini CLI are reported as not covered, not pretended.
 agentmd enforce                # the coverage report
 agentmd enforce --write        # add the mappable rules to .claude/settings.json permissions.deny
 agentmd enforce --check        # exit 1 while an enforceable rule is prose only (CI)
+agentmd enforce --print codex  # the same rules as Codex execpolicy (.codex/rules/*.rules)
+agentmd enforce --print gemini # the same rules as a Gemini CLI policy (~/.gemini/policies/*.toml)
 ```
 
 A rule in CLAUDE.md is text the model interprets. A permission rule in
@@ -784,7 +786,7 @@ time in extended sessions", hook-backed rules 0% (anthropics/claude-code#34197).
   Enforcement  6 hard rules · 4 prohibitions · 4 enforceable · 0 enforced · 2 left to the model
 
   ! prose only CLAUDE.md:3  Never force-push to main.
-               force pushes: Bash(git push --force:*), Bash(git push -f:*), Bash(git push --force-with-lease:*)
+               force pushes: Bash(git push --force origin main:*), Bash(git push -f origin main:*)
   ! prose only CLAUDE.md:8  Never edit `src/generated/**` by hand.
                edits to `src/generated/**`: Edit(./src/generated/**)
 
@@ -794,13 +796,35 @@ time in extended sessions", hook-backed rules 0% (anthropics/claude-code#34197).
 ```
 
 **What maps.** Only sentences with one mechanical reading: force pushes,
-pushes to `main`/`master`, `rm -rf`, reading or editing `.env`, database
+pushes to `main`/`master`, `rm -rf`, reading `.env`, database
 resets and drops, history rewrites, `sudo`, publishing, production deploys,
-global installs, `curl | sh`, and "never edit `path`". Everything else is
-counted as left to the model, which is the number the report exists for.
-Install rules ("install packages only after…") are covered by the `guard`
-hook when it is installed. Only Claude Code has a repository-level deny list
-today.
+global installs, `curl | sh`, and "never edit `path`". Bans on committing,
+pushing, force-pushing and editing a path count only when the ban is the
+whole sentence: "never commit local secret files" is not a ban on committing,
+"never force-push a branch in the merge queue" is not a ban on force pushes,
+and "never hand-edit generated files under `packages/`" is not a ban on the
+folder. `--force-with-lease` is denied only when the rule names it. Everything
+else is counted as left to the model, which is the number the report exists
+for. Install rules ("install packages only after…") are covered by the `guard`
+hook when it is installed.
+
+Measured on the root CLAUDE.md and AGENTS.md of 72 company repositories (98
+files, 508 prohibitions, 30 Oct 2026): 5 map to a control, and all 5 were
+checked by hand.
+
+**Other agents.** The command rules also compile for other harnesses:
+
+| Agent | Where | Status |
+|---|---|---|
+| Claude Code | `.claude/settings.json` `permissions.deny` | written by `--write` |
+| Codex | `.codex/rules/agentmd.rules`, `prefix_rule(... decision = "forbidden")` | written by `--write` when the repo has `AGENTS.md` or `.codex/`; Codex loads project rules in trusted projects; `--check` fails when the file is out of date |
+| Gemini CLI | `~/.gemini/policies/agentmd.toml` | `--print gemini`; Gemini CLI does not load policies from the repository yet ([gemini-cli#18186](https://github.com/google-gemini/gemini-cli/issues/18186)), so nothing is written there |
+| Cursor | none | no repository-level deny list |
+
+File rules (`Read`, `Edit`) and patterns with a wildcard inside stay Claude
+Code only. The Codex output was checked with `codex execpolicy check`
+(codex-cli 0.162.1): force pushes, pushes to `main`, `rm -rf` and `sudo` are
+forbidden; `--force-with-lease`, other pushes, `rm file` and `ls` are not.
 
 ---
 
