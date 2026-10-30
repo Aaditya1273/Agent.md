@@ -65,6 +65,32 @@ found and the files that show it, then:
 Existing settings are kept and a second run adds nothing. Without the runtime
 guard, `init` says "runtime guard not installed" and does the rest.
 
+## broker
+
+```bash
+agentmd broker run --aws -- claude   # 15-minute AWS credentials; long-lived keys hidden
+agentmd broker run -- codex          # just hide long-lived credentials
+agentmd broker aws --minutes 30      # mint only (any OS with the AWS CLI)
+agentmd broker policy                # the session policy
+```
+
+`broker aws` asks AWS STS for temporary credentials (GetFederationToken, or
+AssumeRole with `--role-arn`) with a session policy: everything the caller may
+do, minus 29 destructive or escalating actions (IAM, bucket and database
+deletion, instance termination, stack deletion, DNS changes, CloudTrail stop,
+KMS key deletion…). AWS evaluates a session policy as an intersection with
+the caller's own permissions; enforcing it is AWS's job. The credentials go to
+`~/.agentmd/broker/aws-credentials` (mode 600, profile `agentmd-agent`).
+
+`broker run` (Linux, needs bubblewrap) starts the command where `~/.aws`,
+`~/.ssh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.azure`, `~/.config/gcloud`,
+`~/.config/gh`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials` do
+not exist, and removes secret-looking environment variables, printing which.
+`--keep ANTHROPIC_API_KEY` keeps the agent's own login. With `--aws`, only the
+minted credentials are present. Not covered yet: macOS and Windows sandboxing,
+GitHub, GCP and Azure tokens, and verification that AWS enforces the deny list
+on a real account.
+
 ## learn from refusals
 
 ```bash
