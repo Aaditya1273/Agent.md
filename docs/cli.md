@@ -46,8 +46,58 @@ your agent's instructions show up in review.
 ## init
 
 ```bash
-agentmd init [--model=claude] [--yes] [--dry]
+agentmd init [--dry]
+agentmd init --presets [--model=claude] [--yes] [--dry]
 ```
+
+`init` attaches to the agents in this project, once. It prints each agent it
+found and the files that show it, then:
+
+1. compiles the hard rules (`enforce --write`): Claude Code `permissions.deny`,
+   Codex `.codex/rules/agentmd.rules`, and the runtime guard's
+   `.agentmd/policy.json`;
+2. for Claude Code, installs the `pin` hook (rules re-injected after
+   compaction) and the `guard` install gate;
+3. when the runtime guard is installed (`agentmd guard-install`), attaches it
+   to Claude Code with `agentmd-guard init claude`. It is attached only where
+   it blocks; on other agents the rules rest on each agent's own controls.
+
+Existing settings are kept and a second run adds nothing. Without the runtime
+guard, `init` says "runtime guard not installed" and does the rest.
+
+## demo
+
+```bash
+agentmd demo
+```
+
+Two minutes, offline, no keys: (1) the runtime guard's PocketOS reproduction:
+the volume delete is paused, routine work is allowed, the refusal is signed and
+verified; (2) a throwaway `AGENTS.md` compiled into Claude Code denies, Codex
+rules and the guard's policy; (3) the real Codex engine checks those rules when
+Codex is installed; (4) the guard refuses the forbidden calls and names the
+`AGENTS.md` line. Parts that need a missing tool say so.
+
+## Runtime guard
+
+```bash
+agentmd guard-install     # download agentmd-guard for this platform
+agentmd allow             # approve the call it paused (a person, at a terminal)
+agentmd receipts [id]     # list signed refusals, or verify one
+agentmd impact            # what it has done in this project
+agentmd scan [dir]        # credentials an agent here could read (values never shown)
+```
+
+`agentmd-guard` is a separate, proprietary binary (linux, macOS, Windows ×
+amd64, arm64). The CLI accepts a download only if its SHA-256 equals the hash
+pinned in the npm package. Stages, in order: self-protection (the agent cannot
+approve its own refusal or edit the controls that govern it), repo rules
+(`.agentmd/policy.json`), declared intent, cross-session memory (needs the
+memory service; off by default), irreversible actions (pause), exfiltration of
+credentials through recognised network commands, supply chain, cost. The local
+guard calls no model. Latency is not benchmarked yet.
+
+## init --presets
 
 Scans the project and offers to install what matches.
 
