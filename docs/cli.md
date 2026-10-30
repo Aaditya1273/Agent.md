@@ -65,6 +65,24 @@ found and the files that show it, then:
 Existing settings are kept and a second run adds nothing. Without the runtime
 guard, `init` says "runtime guard not installed" and does the rest.
 
+## learn from refusals
+
+```bash
+agentmd learn            # repeated corrections in sessions, and repeated refusals
+agentmd learn --write    # add the rules and compile them for every agent
+agentmd learn --min 5    # how many identical refusals make a rule (default 3)
+```
+
+The runtime guard logs each refusal that stood to
+`~/.agentmd/guard/refusals.jsonl` (kind of action and command words only, no
+arguments). The same refusal three times in a project means the agent does not
+know the rule. `learn` proposes it ("Never run `terraform destroy`."), and
+`--write` appends it to AGENTS.md (or CLAUDE.md) with its reason and runs
+`enforce --write`, so the next attempt is blocked by the repo's own rule on
+Claude Code, Codex and the guard. Kinds with no single command reading
+(recursive deletes outside build output, credential exfiltration) are added
+as rules the model reads, not compiled.
+
 ## demo
 
 ```bash
