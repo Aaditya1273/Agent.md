@@ -59,6 +59,8 @@ Real output, on a small example repo:
 | --- | --- |
 | `npx activate-agentmd audit owner/repo` | Check any public GitHub repo, without cloning it |
 | `npx activate-agentmd lint` | Check your own repo. Exits non-zero in CI; SARIF for code scanning |
+| `npx activate-agentmd init` | Attach to the agents in this project, once: compile the "never" lines into Claude Code and Codex controls, install the hooks, and attach the runtime guard to Claude Code |
+| `npx activate-agentmd demo` | Two minutes, offline: the guard pauses a production volume delete, signs the refusal, and refuses what an `AGENTS.md` forbids, citing the line |
 | `npx activate-agentmd lint --fix` | Delete what only costs tokens, and tell the agent to follow the code when a file drifted from it |
 | `npx activate-agentmd guard --install` | Block typosquats, untrusted indexes and vulnerable pins before the agent's `pip` / `npm install` runs |
 | `npx activate-agentmd pin --install` | Keep the hard rules in context through compaction: they come back after every `/compact` and resume |
@@ -67,9 +69,9 @@ Real output, on a small example repo:
 | `npx activate-agentmd cost` | What your always-on context costs per developer per month, and what `--fix` gives back |
 | `npx activate-agentmd sbom --out bom.json` | Context bill of materials (CycloneDX 1.6): every file, skill, script, hook, MCP server and grant an agent loads, hashed |
 | `npx activate-agentmd ci --write` | All of it on every pull request, as one GitHub Actions workflow |
-| `npx activate-agentmd init` | Optional: version notes and engineering standards for your exact stack |
+| `npx activate-agentmd init --presets` | Optional: version notes and engineering standards for your exact stack |
 
-It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, subagents, hooks, memory files and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally. Precision first: **no known false alarms on the instruction files of 146 real-world repositories**, every reference finding checked by hand, plus 4,292 registry files and 272 skill scripts. What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
+It reads `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor and Copilot rules, every `SKILL.md` and the scripts beside it, subagents, hooks, memory files and MCP configs, for **Claude Code, Cursor, Codex, Copilot and Gemini CLI**. Free, open source, runs locally. Precision first: findings on the instruction files of 146 real-world repositories, every reference finding checked by hand, plus 4,292 registry files and 272 skill scripts; precision is re-checked on 72 of those repositories before each release. What it cannot see: [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
 
 ---
 
@@ -205,7 +207,7 @@ npx activate-agentmd sbom --out bom.json
 **5. Detect the stack, pin breaking changes, install standards**
 
 ```bash
-npx activate-agentmd init
+npx activate-agentmd init --presets
 npx activate-agentmd link
 ```
 
@@ -274,7 +276,7 @@ npx activate-agentmd review --fast --fail-on=high
 | Signed, approved context with an audit record per commit | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Works across Claude Code, Cursor, Codex, Gemini CLI, Copilot | ✅ 5 | ❌ 1 | ⚠️ varies | ✅ via MCP | ⚠️ varies |
 | Runs offline, no account, no API key for the core | ✅ | ✅ | ⚠️ | ❌ | ❌ |
-| Open source | ✅ MIT | n/a | ⚠️ varies | ⚠️ partly | ❌ mostly |
+| Open source | ✅ MIT (the CLI; the runtime guard binary is proprietary) | n/a | ⚠️ varies | ⚠️ partly | ❌ mostly |
 
 **Built to be trusted:**
 
@@ -493,7 +495,8 @@ Browse with logos and search at **[agentmd.tech](https://agentmd.tech)**. Full C
 ## 🧾 Known limits
 
 - **Patterns, not verdicts.** `lint` is deterministic pattern matching; a pass is a floor. Every gap is listed per rule in [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
-- **`pin` and `enforce` are Claude Code only today.** They use Claude Code's `SessionStart` hook and `permissions.deny`; for Codex, Cursor and Gemini CLI they report "not covered" rather than pretend.
+- **Where rules are enforced.** `enforce` compiles "never" lines into Claude Code `permissions.deny` and Codex rules (trusted projects); for Gemini CLI it prints a policy for `~/.gemini/policies`, which Gemini does not yet load from a repo; Cursor has no repo-level deny list. `pin` is Claude Code only.
+- **The runtime guard blocks on Claude Code.** It runs as Claude Code's `PreToolUse` hook. On other agents it is an advisory MCP check that `init` does not attach. Cross-session memory needs a memory service that is not yet distributed.
 - **`guard` runs where the agent has a command hook.** Installs typed by hand are caught at review time by `install-source` and `package-swap`.
 - **Bundles are a CI and review gate, not runtime enforcement.** They stop an unapproved file from merging unseen.
 
@@ -513,9 +516,9 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | `lint` with 26 checks (+ SARIF, and in the browser at /inspect) · `audit` · `guard` · `pin` · `enforce` · `learn` · `cost --budget` · `sbom` · version pins with 15 checks · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
+| ✅ **Shipping** | `init` (attach) · `demo` · runtime guard on Claude Code (pauses irreversible calls, refuses what your files forbid, signed refusals) · `enforce` for Claude Code and Codex · `lint` with 26 checks (+ SARIF, and in the browser at /inspect) · `audit` · `guard` · `pin` · `enforce` · `learn` · `cost --budget` · `sbom` · version pins with 15 checks · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
 | 🔬 **Measuring** | The effect of every pin (old-API rate with vs. without), on more than one model before anything is published |
-| 🔨 **Next** | `pin` and `enforce` for Codex, Cursor and Gemini CLI · skill freshness against upstream releases · MCP capability scope · VS Code extension on the Marketplace · more Motion standards · library authors publishing their own pins |
+| 🔨 **Next** | the runtime guard on Codex and Cursor · `pin` for Codex, Cursor and Gemini CLI · cross-session memory as a download · skill freshness against upstream releases · MCP capability scope · VS Code extension on the Marketplace · more Motion standards · library authors publishing their own pins |
 | 💭 **Considering** | Signed-bundle format proposed to the AGENTS.md specification · a public scoreboard of agent-file health across popular repos |
 
 ---
