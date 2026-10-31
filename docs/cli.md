@@ -110,6 +110,28 @@ Claude Code, Codex and the guard. Kinds with no single command reading
 (recursive deletes outside build output, credential exfiltration) are added
 as rules the model reads, not compiled.
 
+## digest
+
+```bash
+agentmd digest                  # the last 7 days, as Markdown
+agentmd digest --days 30
+agentmd digest --out digest.md  # or --json
+```
+
+One message to paste into Slack, an email or a PR, built from what is
+already on the machine: what the runtime guard stopped (by kind, with the
+command words), rules learned from refusals in the window and repeats ready to
+become rules, how many enforceable rules are in force for Claude Code, Codex
+and the guard, sandboxed `broker run`s and short-lived credentials minted
+(`~/.agentmd/broker/log.jsonl`: counts and paths, never credentials), and
+lint findings now. Counts only; nothing is estimated.
+
+Weekly, every Monday at 09:00:
+
+```cron
+0 9 * * 1  cd /path/to/repo && npx --yes activate-agentmd@3 digest --out .agentmd/digest.md
+```
+
 ## demo
 
 ```bash
