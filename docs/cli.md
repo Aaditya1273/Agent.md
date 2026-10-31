@@ -73,8 +73,9 @@ found and the files that show it, then:
    decision, so the host's own approval settings still apply. The agent
    cannot edit any of these files or approve its own refusal. Cursor can also
    run the Claude Code hooks; when both are attached, only Cursor's own
-   copy decides, so a call is judged once. Gemini CLI reads project settings
-   only in a trusted folder. On Codex the guard is not attached; the rules
+   copy decides, so a call is judged once. The Gemini CLI and Cursor hooks are
+   checked against each host's documented payload, not yet in a live session.
+   Gemini CLI reads project settings only in a trusted folder. On Codex the guard is not attached; the rules
    rest on Codex's own controls.
 
 Existing settings are kept and a second run adds nothing. Without the runtime
@@ -1398,8 +1399,8 @@ token usage.
 | --- | --- | --- |
 | `--force` | install, update | Overwrite existing files or local edits |
 | `--dry` | init, link, update | Show what would happen, change nothing |
-| `--yes`, `-y` | init | Skip the confirmation prompt |
-| `--model=NAME` | init, search | Choose a model (default `claude`) |
+| `--yes`, `-y` | init --presets | Skip the confirmation prompt |
+| `--model=NAME` | init --presets, search | Choose a model (default `claude`) |
 | `--agent=NAME` | link | Comma-separated targets, or `all` |
 | `--installed` | list | Show this project's packages |
 | `--all-models` | search | Search every model family |

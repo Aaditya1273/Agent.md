@@ -1,6 +1,6 @@
 # Known limits
 
-What `lint` and `audit` cannot see. A pass is a floor, not a verdict: these are deterministic checks that report patterns. A person, or an agent reading the evidence, still decides whether the context is good.
+What `lint`, `audit` and the runtime guard cannot see. A pass is a floor, not a verdict: these are deterministic checks that report patterns. A person, or an agent reading the evidence, still decides whether the context is good.
 
 Precision comes first. A check that cries wolf gets switched off, so every rule below prefers to miss a case rather than raise a false alarm. Measured on 4,292 registry files (0 errors, 0 warnings), 272 real skill scripts, and 146 company repositories with agent instruction files, each reference finding checked by hand: no known false alarms remain in those 146 repositories. The rules added in 2.13 were measured on 72 company and open-source repositories, comparing 2.12.2 with 2.13.0 and checking every new finding by hand, and `guard` on 33 everyday installs (none blocked) and on registered typosquat shapes.
 
@@ -21,3 +21,18 @@ Precision comes first. A check that cries wolf gets switched off, so every rule 
 | `mcp-unpinned` | A runner is fine when the package is a dependency, assuming a lockfile pins it; the lockfile itself is not read. |
 | `install-source` | Hosts written literally. An index is "the project's own" when its subdomain or a path segment equals the GitHub owner, the repository or a package name: a look-alike owner name would pass. |
 | `audit` | Fetches only instruction files, skills and their scripts, MCP configs, formatter configs and manifests. Every other file is created empty, so checks that need file *contents* elsewhere in the repo do not run. Nothing from the repository is executed. |
+
+## Runtime guard
+
+Deterministic checks; no model is called.
+
+| Area | What it cannot see |
+| --- | --- |
+| Hosts | It blocks through a hook in Claude Code (`PreToolUse`), Gemini CLI (`BeforeTool`) and Cursor (`preToolUse`). The Gemini CLI and Cursor hooks are checked against each host's documented payload, not yet in a live session of either. Gemini CLI reads project settings only in a trusted folder. On Codex the guard is not attached: an advisory MCP check exists, and the agent may skip it. |
+| Irreversible actions | Command patterns, each an action with no undo. A delete in a form the patterns do not know (`rm --recursive --force`, `find -delete`, `shutil.rmtree`, a script written and then run) passes. `git reset --hard` (recoverable through the reflog) and `docker system prune -af` are not paused. |
+| Credential exfiltration | Only through recognised network commands (`curl`, `wget`, `nc`, `ssh`, `scp`, `rsync`…). |
+| Self-protection | Shell writes to the guard's own state, the hook files and the compiled rules are found by a text match: a write through an unlisted interpreter, or to a path built at run time, passes. Edits through the agent's file tools are checked by path. |
+| Look-alike installs | Offline it judges a name's shape against widely installed packages and the project's own manifests, as `package-swap` does. On 12,150 real dependency names from 71 repositories it pauses 5; it recognises 9 of 51 documented historical squats. |
+| Memory | Off until `agentmd memory on`. Counts are per project folder. The shared memory service has no authentication: keep it on localhost or a private network. When it is unreachable the guard pauses as it would without memory, and says the call was not checked. |
+| Receipts | The guard's signing key is readable by the machine's user (the agent's edits to it are refused by a text check). A receipt that must hold against that user is signed in CI. |
+| `broker` | On Windows the run gets a fresh user profile, not a sandbox: a process that opens a credential file by its full path can still read it. The GitHub App, GCP and Azure paths, macOS and Windows are covered by unit tests, not yet run against real accounts or machines ([cli.md](cli.md#broker)). |

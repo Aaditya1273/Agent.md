@@ -9,7 +9,7 @@
 ## The files your agents follow, checked every time.
 
 Your AI coding agent reads `CLAUDE.md`, `AGENTS.md`, rules, skills, hooks and MCP configs before it reads a line of your code, then does what they say.<br>
-Agent.md **checks** them (26 deterministic checks), **keeps** the hard rules through compaction, **turns** "never" lines into real deny rules, and **guards** every install the agent runs.<br>
+Agent.md **checks** them (26 deterministic checks), **keeps** the hard rules through compaction, **turns** "never" lines into real deny rules, and **guards** what the agent runs: every install, and every irreversible call.<br>
 Any repo. Ten seconds. No account. Nothing uploaded.
 
 ```bash
@@ -59,13 +59,17 @@ Real output, on a small example repo:
 | --- | --- |
 | `npx activate-agentmd audit owner/repo` | Check any public GitHub repo, without cloning it |
 | `npx activate-agentmd lint` | Check your own repo. Exits non-zero in CI; SARIF for code scanning |
-| `npx activate-agentmd init` | Attach to the agents in this project, once: compile the "never" lines into Claude Code and Codex controls, install the hooks, and attach the runtime guard to Claude Code |
+| `npx activate-agentmd init` | Attach to the agents in this project, once: compile the "never" lines into Claude Code and Codex controls, install the hooks, and attach the runtime guard to Claude Code, Gemini CLI and Cursor |
+| `npx activate-agentmd memory on` | Opt in, per project: an action the guard already refused twice is blocked, not paused again |
 | `npx activate-agentmd demo` | Two minutes, offline: the guard pauses a production volume delete, signs the refusal, and refuses what an `AGENTS.md` forbids, citing the line |
 | `npx activate-agentmd lint --fix` | Delete what only costs tokens, and tell the agent to follow the code when a file drifted from it |
 | `npx activate-agentmd guard --install` | Block typosquats, untrusted indexes and vulnerable pins before the agent's `pip` / `npm install` runs |
 | `npx activate-agentmd pin --install` | Keep the hard rules in context through compaction: they come back after every `/compact` and resume |
 | `npx activate-agentmd enforce --write` | Turn "never do X" lines into permission deny rules, and see which rules are still prose only |
-| `npx activate-agentmd learn` | The corrections you keep giving your agent, proposed as rules |
+| `npx activate-agentmd learn` | The corrections you keep giving your agent, and the refusals it keeps hitting, proposed as rules; `--pr` opens them as a pull request |
+| `npx activate-agentmd broker run --aws -- claude` | Run the agent with short-lived credentials and your long-lived logins out of reach (AWS, GitHub App, GCP, Azure) |
+| `npx activate-agentmd digest` | One message on the last 7 days: what the guard stopped, rules learned, rules in force, broker runs, lint |
+| `npx activate-agentmd verify receipt.json` | Who signed a guard refusal or a context bundle, and whether it is intact |
 | `npx activate-agentmd cost` | What your always-on context costs per developer per month, and what `--fix` gives back |
 | `npx activate-agentmd sbom --out bom.json` | Context bill of materials (CycloneDX 1.6): every file, skill, script, hook, MCP server and grant an agent loads, hashed |
 | `npx activate-agentmd ci --write` | All of it on every pull request, as one GitHub Actions workflow |
@@ -110,12 +114,15 @@ In 320 runs across 40 projects, **90.1% of agent choices followed an outdated in
 | 🔒 | **`lint` / `audit`**: 26 deterministic checks on every file an agent reads: leaked keys, prompt injection, invisible Unicode, hidden HTML-comment instructions, look-alike packages, untrusted install sources, unpinned MCP servers, shell-wide permission grants, contradictions, file-vs-code drift, duplicate skills, bloat, dead references, stale pins. `--fix` deletes what only costs tokens. Exit 1 in CI; SARIF for code scanning. | Secrets, injected instructions and poisoned setup steps reaching the model; files that drifted from the code |
 | 📌 | **`pin`**: a Claude Code `SessionStart` hook that re-injects the hard rules after every `/compact` and resume, inside a token budget you set. | Rules that disappear halfway through a long session |
 | ⛔ | **`enforce`**: compiles one-reading "never" lines (force-push, push to main, `rm -rf`, editing `.env`, `sudo`, publish, `terraform`, `kubectl`, `curl \| sh` …) into `permissions.deny`, and reports what stays prose. `--check` fails CI on a gap. | "Never" that nothing enforces |
+| 🚦 | **Runtime guard** (attached by `init`): a hook before every tool call in Claude Code, Gemini CLI and Cursor. Irreversible actions (force-push, dropping a database, deleting a volume) pause for a person; the project's own "never" lines are refused, citing the line; look-alike package installs pause with no network; every refusal is signed. No model in the loop. | An agent doing the one thing the file said never to do |
 | 🛡 | **`guard`**: a pre-install gate for the agent's own `pip` / `npm` / `uv` commands: typosquats, separator confusion, untrusted `--extra-index-url` and registries, plain-HTTP indexes, hidden directives in requirements files, known-vulnerable pins (OSV). | Agents install from an untrusted index almost unconditionally |
-| 🧠 | **`learn`**: reads your own local session logs for the corrections you keep giving ("use pnpm", "don't touch the migrations") and proposes them as rules. Nothing is kept without you. | Repeating yourself to the agent every day |
+| 🧠 | **`learn`** and **`memory`**: `learn` reads your own local session logs for the corrections you keep giving ("use pnpm", "don't touch the migrations") and the guard's repeated refusals, and proposes them as rules, locally or as a pull request (`--pr`). Nothing is kept without you. `memory on` blocks an action refused twice in the project, and never refuses anything else. | Repeating yourself to the agent every day |
+| 🔑 | **`broker`**: starts the agent with short-lived, narrowed credentials (AWS session policy, one-repo GitHub App token, GCP impersonation, Azure access token) and its long-lived logins (`~/.aws`, `~/.ssh`, `~/.config/gh` …) out of reach. | An agent holding the keys to production |
+| 🗞 | **`digest`**: one Markdown message for Slack, an email or a PR, from local logs only: what the guard stopped, rules learned, rules in force per agent, broker runs, lint findings. | "What did the agents do this week?" |
 | 💸 | **`cost`**: what your always-on context costs per developer per month, per agent. `--budget` fails a PR that pushes it over your limit. | Context that only grows |
 | 📋 | **`sbom`**: a context bill of materials in CycloneDX 1.6: every instruction file, rule, skill and script, subagent, hook, MCP server and permission grant, hashed. | "What was this agent loading?" has no answer today |
 | ⇅ | **Version pins + checks**: reads the majors you actually run and puts their breaking changes in the agent's context; 15 deterministic checks across 13 libraries catch the old API in the diff. | Deprecated code that compiles, passes review, and breaks later |
-| ✍️ | **Signed context bundles**: sign the exact set of instruction files your team approved with your own Ed25519 key. CI fails on any change. | Unreviewed rule changes |
+| ✍️ | **Signed context bundles and receipts**: sign the exact set of instruction files your team approved with your own Ed25519 key; CI fails on any change. Bundles and guard refusals share one receipt format, and `verify` says who signed one. | Unreviewed rule changes; a refusal nobody can check |
 | 📚 | **300+ engineering standards, on demand**: security, backend, database, frontend, API, testing, DevOps, motion design and more, loaded only when the agent works in that area. | Re-writing the same 400-line rules file in every repo |
 
 ---
@@ -127,6 +134,7 @@ A linter you run once is a one-time fix. These files are read on every prompt, s
 ```mermaid
 flowchart LR
     S([Session start / compaction]) -- pin re-injects the hard rules --> A[Your agent]
+    T([Every tool call]) -- the runtime guard pauses irreversible calls and refuses forbidden ones --> A
     I([Every install the agent runs]) -- guard blocks look-alikes and bad indexes --> A
     N(["Every 'never' line"]) -- enforce compiles it to a deny rule --> A
     C([Every correction you repeat]) -- learn proposes it as a rule --> F[(CLAUDE.md · AGENTS.md · rules · skills)]
@@ -138,9 +146,11 @@ flowchart LR
 | Moment | Command | What happens |
 | --- | --- | --- |
 | Session start, `/compact`, resume | `pin --install` | the hard rules come back into context |
+| The agent runs `git push --force`, drops a database, deletes a volume | `init` | the runtime guard pauses it for a person and signs the refusal; with `memory on`, the third try is blocked |
 | The agent runs `pip install` / `npm install` | `guard --install` | look-alikes, untrusted indexes and vulnerable pins are blocked, with the reason |
 | You write "never …" | `enforce --write` | it becomes a deny rule the harness applies |
-| You correct the agent twice | `learn` | the correction is proposed as a rule |
+| You correct the agent twice, or the guard refuses the same call three times | `learn` | it is proposed as a rule; `--pr` opens it for review |
+| Every Monday | `digest` | what the guard stopped and what was learned, in one message |
 | A pull request touches the files | `ci --write` | lint, enforce coverage and a token budget, in one workflow |
 | A dependency or a path changes | `lint` | stale pins, drift and dead references fail the check |
 
@@ -165,10 +175,12 @@ npx activate-agentmd lint
   2 errors, 1 warning across 6 instruction files
 ```
 
-**2. Gate every install the agent runs**
+**2. Attach the runtime guard, and gate every install the agent runs**
 
 ```bash
-npx activate-agentmd guard --install
+npx activate-agentmd init               # runtime guard on Claude Code, Gemini CLI and Cursor; "never" lines compiled
+npx activate-agentmd guard --install    # the install gate, online checks included
+npx activate-agentmd demo               # two minutes, offline: see it pause and refuse
 ```
 
 <div align="center">
@@ -251,7 +263,10 @@ npx activate-agentmd review --fast --fail-on=high
 | --- | --- |
 | Paste an API key into `CLAUDE.md` | `secret` error; the key is never echoed; the PR check goes red |
 | Hide an instruction in an HTML comment | `injection` error (GitHub hides comments from reviewers, the agent reads them) |
-| Add `pip install reqeusts` to a setup step | `package-swap` error in lint; `guard` blocks it at run time; `--online` asks PyPI whether the name exists |
+| Add `pip install reqeusts` to a setup step | `package-swap` error in lint; the runtime guard pauses it offline; `guard` blocks it; `--online` asks PyPI whether the name exists |
+| Have the agent `git push --force` when `AGENTS.md` says never | the runtime guard refuses it, cites the line, and signs the refusal |
+| Have the agent approve its own refusal, or turn memory off | refused: only a person at a terminal can run `agentmd allow` or `memory off` |
+| Hand over a receipt signed with someone else's key | `verify` fails: the key is not where the claimed signer keeps theirs |
 | Point installs at `--extra-index-url http://…` | `install-source` error; `guard` blocks it |
 | Write "never force-push" and hope | `enforce` adds `Bash(git push --force:*)` to `permissions.deny`; the harness refuses it |
 | Run a long session until `/compact` drops the rules | `pin` re-injects them on `SessionStart` |
@@ -326,11 +341,12 @@ npx activate-agentmd review --fast --fail-on=high
 
 Injection rules read prose only, not code fences, inline code or lines that warn *against* the thing, so documentation about attacks doesn't trip them. `.claude/memory/*.md` files are linted too.
 
-### 📌 `pin`, ⛔ `enforce`, 🧠 `learn`
+### 📌 `pin`, ⛔ `enforce`, 🧠 `learn`, `memory`
 
 - **`pin`** picks the explicit rules first (mark one `<!-- pin -->` or put it under a `## Pinned` heading), then the "never" lines, then the "must" lines, inside a token budget (`--budget`, default 600), and prints them back on every `SessionStart` after compaction or resume.
 - **`enforce`** maps one-reading "never" lines to `permissions.deny`. Ambiguous lines stay prose and are reported, never guessed. `--check` exits 1 when a mappable rule is not enforced.
-- **`learn`** reads your Claude Code session logs on your machine, groups corrections that say the same thing, and proposes the ones you gave more than once. `--write` appends them under a review heading.
+- **`learn`** reads your Claude Code session logs on your machine, groups corrections that say the same thing, and proposes the ones you gave more than once. It also reads the runtime guard's refusal log: the same refusal three times in a project means the agent does not know the rule, so it proposes one ("Never run `terraform destroy`."). `--write` appends them and compiles them with `enforce`. `--pr` makes the same change in a temporary git worktree off the default branch, pushes `agentmd/learned-rules-<date>` and opens a pull request listing each rule with its evidence. Session corrections stay on your machine; only rules learned from refusals go in a pull request.
+- **`memory on`** is off by default and on per project. When the guard would pause an action and that kind was already refused twice here, with no person approving one since, it blocks it and says how many times and when. A person's approval starts the count over; refusals older than 30 days stop counting. It needs nothing installed (the count comes from the guard's own refusal log); a team can share counts across machines through the memory service (`AGENTMD_MEMORY_URL`).
 
 ### 🛡 `agentmd guard`
 
@@ -348,6 +364,46 @@ sequenceDiagram
     A->>G: pip install requests
     G-->>A: allow
 ```
+
+### 🚦 The runtime guard
+
+`init` attaches it as a hook wherever the host runs one before a tool call, after checking its SHA-256:
+
+| Agent | Hook | File |
+| --- | --- | --- |
+| Claude Code | `PreToolUse` | `.claude/settings.json` |
+| Gemini CLI | `BeforeTool` | `.gemini/settings.json` |
+| Cursor (editor and `cursor-agent`) | `preToolUse` | `.cursor/hooks.json` |
+
+Stages, in order: self-protection (the agent cannot approve its own refusal or edit the controls that govern it), the repo's rules (`.agentmd/policy.json`, compiled from your "never" lines), declared intent, irreversible actions (pause), credential exfiltration through recognised network commands, supply chain (look-alike package names paused with no network), cost, and memory. An allowed call returns no decision, so the host's own approval settings still apply. No model anywhere in the guard; the hook takes 3.8–4.9 ms at p50 end to end, signed receipt included (Linux x86_64, 12 CPUs).
+
+```bash
+npx activate-agentmd allow                  # a person approves the call it paused
+npx activate-agentmd receipts               # the signed refusals
+npx activate-agentmd impact                 # what it has done in this project
+npx activate-agentmd scan                   # credentials an agent here could read (values never shown)
+```
+
+Offline, on 12,150 real dependency names from 71 repositories, the look-alike check pauses 5; it catches 9 of 51 documented historical squats, so keep the online install gate (`guard --install`) on as well.
+
+### 🔑 `agentmd broker`
+
+```bash
+npx activate-agentmd broker run --aws -- claude      # 15-minute AWS credentials, long-lived keys hidden
+npx activate-agentmd broker run --github-app 123 --github-key app.pem --github-repo you/api -- claude
+npx activate-agentmd broker run -- codex             # just hide long-lived credentials
+```
+
+AWS gets a session policy that denies 29 destructive or escalating actions, enforced by AWS (verified on a real account: `dynamodb delete-table` refused "with an explicit deny in a session policy"). GitHub gets a one-hour App token for one repository, never with administration, secrets or workflow permissions; GCP an impersonated service account token, 10–60 minutes; Azure an access token without the refresh token. Logins are out of reach with bubblewrap on Linux and Seatbelt on macOS; Windows gets a fresh, empty user profile, which is not a sandbox, and the run says so. Tokens are never printed. Details: [docs/cli.md](docs/cli.md#broker).
+
+### 🗞 `agentmd digest`
+
+```bash
+npx activate-agentmd digest                  # the last 7 days, as Markdown
+npx activate-agentmd digest --days 30 --out digest.md
+```
+
+What the runtime guard stopped (by kind, with the command words), rules learned and repeats ready to become rules, enforceable rules in force for Claude Code, Codex and the guard, sandboxed broker runs, and lint findings now. Counts from local logs only; nothing is estimated. Put it in a Monday cron and paste it where the team reads.
 
 ### 📋 `agentmd sbom` and 💸 `agentmd cost`
 
@@ -405,6 +461,16 @@ npx activate-agentmd bundle attest                                            # 
 - **In CI, pin trusted keys from a secret** (`AGENTMD_BUNDLE_KEYS`), otherwise a pull request could swap the key in the repo and re-sign. `verify` warns when it isn't set.
 - `attest` gives an auditor one record per build: the commit, a digest of every instruction in force, and whether it was approved.
 
+**One receipt format.** A bundle signature, a runtime guard refusal and a Team evidence record are all the same thing: RFC 8785 JSON signed with Ed25519, the key named by its OpenSSH fingerprint and never carried. A receipt that brought its own key would prove only that somebody signed it, so `verify` looks the key up in a source you already trust:
+
+```bash
+npx activate-agentmd receipts key --signer github:<login>   # once per machine; add the line on GitHub as a signing key
+npx activate-agentmd receipts <id> --json > receipt.json    # hand a refusal over
+npx activate-agentmd verify receipt.json                    # anyone, anywhere: who signed it, and is it intact
+```
+
+The key is found in `AGENTMD_TRUSTED_KEYS` (a CI secret), else `.agentmd/signers.json` (committed through review), then the signer's GitHub SSH signing keys. `--offline` never asks GitHub; exit 1 if any receipt fails. The format: [docs/receipts.md](docs/receipts.md).
+
 Need a named reviewer's approval bound to the exact files your agents read, checked on every pull request? See [docs/team.md](docs/team.md) and [agentmd.tech/pro](https://agentmd.tech/pro).
 
 ---
@@ -443,6 +509,17 @@ Zero tokens, no API key, nothing leaves the runner. Upload `lint --sarif` to Git
 | `cursor` | `.cursor/rules/agentmd.mdc` + one scoped rule per standard | Cursor |
 | `gemini` | `GEMINI.md` | Gemini CLI |
 | `copilot` | `.github/copilot-instructions.md` + `.github/instructions/` | GitHub Copilot |
+
+**Runtime guard.**
+
+| Agent | How it is guarded |
+| --- | --- |
+| Claude Code | blocks, through the `PreToolUse` hook `init` attaches |
+| Gemini CLI | blocks, through the `BeforeTool` hook `init` attaches (project settings load in a trusted folder) |
+| Cursor | blocks, through the `preToolUse` hook `init` attaches; editor and `cursor-agent` |
+| Codex | advisory MCP check (`agentmd-guard init mcp`), not attached by `init`; Codex's own rules carry the "never" lines |
+
+The Gemini CLI and Cursor hooks are checked against each host's documented hook payload, not yet in a live session of either.
 
 **Agent Skills.** Two skills teach the agent to use the toolchain, `agentmd-usage` (install, pins, lint) and `agentmd-standards` (following what's installed):
 
@@ -496,7 +573,12 @@ Browse with logos and search at **[agentmd.tech](https://agentmd.tech)**. Full C
 
 - **Patterns, not verdicts.** `lint` is deterministic pattern matching; a pass is a floor. Every gap is listed per rule in [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
 - **Where rules are enforced.** `enforce` compiles "never" lines into Claude Code `permissions.deny` and Codex rules (trusted projects); for Gemini CLI it prints a policy for `~/.gemini/policies`, which Gemini does not yet load from a repo; Cursor has no repo-level deny list. `pin` is Claude Code only.
-- **The runtime guard blocks on Claude Code.** It runs as Claude Code's `PreToolUse` hook. On other agents it is an advisory MCP check that `init` does not attach. Cross-session memory needs a memory service that is not yet distributed.
+- **Where the runtime guard blocks.** Claude Code, Gemini CLI and Cursor, through their hooks; the Gemini CLI and Cursor answers are checked against each host's documented payload, not yet in a live session. On Codex it is an advisory MCP check that `init` does not attach. Its destructive and exfiltration checks match text, so a command built at run time, or a script written and then run, can pass.
+- **Look-alikes offline are a short list.** The offline check knows widely installed names and the project's manifests; a squat of anything else needs the online install gate.
+- **Memory only escalates.** It turns a third attempt at an action already refused twice into a block, and never refuses anything else. The shared memory service has no authentication: keep it on localhost or a private network. If it is unreachable, the guard pauses as it would without memory and says so.
+- **Receipts prove the key, not the process.** The guard's key is readable by the machine's own user, so a local receipt proves which key signed, not that only the guard could use it. For receipts that must hold against that user, sign in CI with a key from a secret.
+- **`learn --pr` is checked against a local git origin, not yet a real GitHub repository.**
+- **The broker is verified on AWS and on Linux.** AWS was checked on a real account, and the GCP and Azure paths under bubblewrap on Linux; real GitHub App, GCP and Azure accounts, macOS and Windows are covered by unit tests, not yet run live. On Windows the run gets a fresh profile, not a filesystem sandbox.
 - **`guard` runs where the agent has a command hook.** Installs typed by hand are caught at review time by `install-source` and `package-swap`.
 - **Bundles are a CI and review gate, not runtime enforcement.** They stop an unapproved file from merging unseen.
 
@@ -516,9 +598,9 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 
 | Status | Item |
 | --- | --- |
-| ✅ **Shipping** | `init` (attach) · `demo` · runtime guard on Claude Code (pauses irreversible calls, refuses what your files forbid, signed refusals) · `enforce` for Claude Code and Codex · `lint` with 26 checks (+ SARIF, and in the browser at /inspect) · `audit` · `guard` · `pin` · `enforce` · `learn` · `cost --budget` · `sbom` · version pins with 15 checks · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
-| 🔬 **Measuring** | The effect of every pin (old-API rate with vs. without), on more than one model before anything is published |
-| 🔨 **Next** | the runtime guard on Codex and Cursor · `pin` for Codex, Cursor and Gemini CLI · cross-session memory as a download · skill freshness against upstream releases · MCP capability scope · VS Code extension on the Marketplace · more Motion standards · library authors publishing their own pins |
+| ✅ **Shipping** | `init` (attach) · `demo` · runtime guard on Claude Code, Gemini CLI and Cursor (pauses irreversible calls, refuses what your files forbid, look-alike installs paused offline, signed refusals) · `memory` · one receipt format and `verify` · `broker` (AWS, GitHub App, GCP, Azure) · `digest` · `learn` from corrections and refusals, `learn --pr` · `enforce` for Claude Code and Codex · `lint` with 26 checks (+ SARIF, and in the browser at /inspect) · `audit` · `guard` · `pin` · `cost --budget` · `sbom` · version pins with 15 checks · signed context bundles · `review --fast` · `test --baseline` · on-demand rules for 5 agents · MCP server · Agent Skills · 300+ standards · Motion category (Claude) |
+| 🔬 **Measuring** | The effect of every pin (old-API rate with vs. without), on more than one model before anything is published · the runtime guard in live Gemini CLI and Cursor sessions · the broker on real GitHub App, GCP and Azure accounts, macOS and Windows |
+| 🔨 **Next** | the runtime guard blocking on Codex · `pin` for Codex, Cursor and Gemini CLI · skill freshness against upstream releases · MCP capability scope · VS Code extension on the Marketplace · more Motion standards · library authors publishing their own pins |
 | 💭 **Considering** | Signed-bundle format proposed to the AGENTS.md specification · a public scoreboard of agent-file health across popular repos |
 
 ---
@@ -529,7 +611,7 @@ Standards are plain markdown in `_canonical/<Category>/<name>.md`. The bar: impe
 No. Those are file formats. Agent.md checks what's in them, keeps them true to your code, and turns the rules into controls.
 
 **Isn't a linter a one-time fix?**
-The files are read on every prompt and change on every PR. `pin` runs on every compaction, `guard` on every install, `ci` on every pull request, `learn` whenever you repeat yourself, `lint` whenever a dependency or path moves.
+The files are read on every prompt and change on every PR. The runtime guard runs on every tool call, `pin` on every compaction, `guard` on every install, `ci` on every pull request, `learn` whenever you repeat yourself or the guard keeps refusing the same thing, `lint` whenever a dependency or path moves.
 
 **Does it paste 30 standards into every prompt?**
 No. Only version pins are always on. Standards load on demand, when the agent opens a matching file.
@@ -537,11 +619,14 @@ No. Only version pins are always on. Standards load on demand, when the agent op
 **Does `lint` need Agent.md installed in the repo?**
 No. `npx activate-agentmd lint` works on any repository with any agent instruction files.
 
+**What does the runtime guard do when the agent tries something irreversible?**
+It pauses the call and tells the agent why; a person approves it with `agentmd allow` or it does not run. A call your `AGENTS.md` or `CLAUDE.md` forbids is refused, citing the line. Every refusal is signed, so anyone can check it later with `verify`.
+
 **Will it slow my agent down?**
-`guard` and `pin` are hooks that run in milliseconds; `pin` stays inside the token budget you give it.
+The runtime guard's hook takes 3.8–4.9 ms at p50 end to end (Linux x86_64, 12 CPUs), and the install gate about 39 ms; `pin` stays inside the token budget you give it.
 
 **Does anything leave my machine?**
-`init`, `install`, `link`, `pins`, `lint`, `pin`, `enforce`, `learn`, `cost`, `sbom`, `bundle` and `review --fast` run locally. `lint --online` and `guard` ask npm, PyPI and OSV about package names only. `review` (model mode), `extract` and `test` send the diff or evidence to the Anthropic API under your own key. Anonymous usage counters are **off by default** and opt-in (`agentmd telemetry`).
+`init`, `install`, `link`, `pins`, `lint`, `pin`, `enforce`, `learn`, `memory`, `digest`, `cost`, `sbom`, `bundle`, `review --fast` and the runtime guard run locally. `lint --online` and `guard` ask npm, PyPI and OSV about package names only. `verify` asks GitHub for a signer's public signing keys unless `--offline`. `broker` asks AWS, GitHub, GCP or Azure for the short-lived token, and `learn --pr` pushes a branch to your own remote. `review` (model mode), `extract` and `test` send the diff or evidence to the Anthropic API under your own key. Anonymous usage counters are **off by default** and opt-in (`agentmd telemetry`).
 
 **Does a pin actually change what a model writes?**
 That is the right question, and it is being measured rather than assumed. Pins matter most when the model's training predates the version you run. Results are published once they repeat on a second model.
