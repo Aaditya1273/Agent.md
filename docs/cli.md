@@ -69,28 +69,47 @@ guard, `init` says "runtime guard not installed" and does the rest.
 
 ```bash
 agentmd broker run --aws -- claude   # 15-minute AWS credentials; long-lived keys hidden
+agentmd broker run --github-app 123 --github-key app.pem --github-repo acme/api -- claude
+agentmd broker run --gcp agent@proj.iam.gserviceaccount.com -- codex
+agentmd broker run --azure -- claude
 agentmd broker run -- codex          # just hide long-lived credentials
-agentmd broker aws --minutes 30      # mint only (any OS with the AWS CLI)
-agentmd broker policy                # the session policy
+agentmd broker aws --minutes 30      # mint only: aws, github, gcp, azure
+agentmd broker policy                # the AWS session policy
 ```
 
-`broker aws` asks AWS STS for temporary credentials (GetFederationToken, or
-AssumeRole with `--role-arn`) with a session policy: everything the caller may
-do, minus 29 destructive or escalating actions (IAM, bucket and database
-deletion, instance termination, stack deletion, DNS changes, CloudTrail stop,
-KMS key deletion…). AWS evaluates a session policy as an intersection with
-the caller's own permissions; enforcing it is AWS's job. The credentials go to
-`~/.agentmd/broker/aws-credentials` (mode 600, profile `agentmd-agent`).
+Each provider limits a token its own way; this code mints, hides and says
+which sandbox it used. Minted tokens go to `~/.agentmd/broker` (mode 600) and
+are never printed.
 
-`broker run` (Linux, needs bubblewrap) starts the command where `~/.aws`,
-`~/.ssh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.azure`, `~/.config/gcloud`,
-`~/.config/gh`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials` do
-not exist, and removes secret-looking environment variables, printing which.
-`--keep ANTHROPIC_API_KEY` keeps the agent's own login. With `--aws`, only the
-minted credentials are present. Verified on a real AWS account: inside `broker run --aws`, `dynamodb
+| Provider | What the agent gets | What limits it |
+|---|---|---|
+| AWS | STS credentials, 15–720 min (GetFederationToken, or AssumeRole with `--role-arn`) | a session policy: everything the caller may do minus 29 destructive or escalating actions (IAM, bucket and database deletion, instance termination, DNS changes, CloudTrail stop, KMS key deletion…), enforced by AWS |
+| GitHub | a GitHub App installation token, 1 hour, for the one repository in `--github-repo` (`GH_TOKEN`, `GITHUB_TOKEN`) | the permissions you name (`--github-permissions contents:read,pull_requests:write`; default contents, pull requests and issues write). Never administration, secrets, workflows, environments, actions, webhooks, deployments or organization permissions: asking for one is refused before GitHub is called |
+| GCP | an access token for a service account you impersonate, 10–60 min (`CLOUDSDK_AUTH_ACCESS_TOKEN_FILE`, `GOOGLE_OAUTH_ACCESS_TOKEN`; gcloud gets its own config directory) | that service account's roles: create one for agents with only what they need. Needs Service Account Token Creator on it |
+| Azure | an access token for the signed-in identity and one resource (`AZURE_ACCESS_TOKEN`), about an hour, without the refresh token `az` keeps | that identity's role assignments. For REST and SDK calls: the `az` CLI cannot use a bare token |
+
+`broker run` starts the command where `~/.aws`, `~/.ssh`, `~/.gnupg`,
+`~/.kube`, `~/.docker`, `~/.azure`, `~/.config/gcloud`, `~/.config/gh`,
+`~/.netrc`, `~/.npmrc`, `~/.pypirc` and `~/.git-credentials` are out of reach,
+and removes secret-looking environment variables (including
+`GOOGLE_APPLICATION_CREDENTIALS` and Azure client secrets), printing which.
+`--keep ANTHROPIC_API_KEY` keeps the agent's own login.
+
+| Platform | How the logins are out of reach |
+|---|---|
+| Linux | bubblewrap: they do not exist inside the run |
+| macOS | Seatbelt (`sandbox-exec`): reading or writing them is denied. Logins kept in the macOS Keychain (gh, git's osxkeychain helper) are not covered |
+| Windows | no unprivileged sandbox exists: the run gets a fresh, empty user profile (`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `HOME`), so CLIs find no logins. A process that opens a credential file by its full path can still read it, and `broker run` says so every time |
+
+Verified: on a real AWS account, inside `broker run --aws`, `dynamodb
 delete-table` is refused "with an explicit deny in a session policy" while the
-caller's own key is allowed, and read-only calls work. Not covered yet: macOS
-and Windows sandboxing; GitHub, GCP and Azure tokens.
+caller's own key is allowed, and read-only calls work. On Linux, with
+bubblewrap, the GCP and Azure paths hide the real login directories and the
+parent's `GH_TOKEN` and `GOOGLE_APPLICATION_CREDENTIALS`, and give the agent
+only the minted tokens. Not yet run against a real GitHub App, GCP or Azure
+account, or on macOS or Windows; those paths are covered by unit tests
+(the GitHub App JWT is checked against the App's public key, the Seatbelt
+profile and the Windows profile are checked exactly).
 
 ## learn from refusals
 
