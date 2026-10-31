@@ -110,6 +110,22 @@ Claude Code, Codex and the guard. Kinds with no single command reading
 (recursive deletes outside build output, credential exfiltration) are added
 as rules the model reads, not compiled.
 
+## verify
+
+```bash
+agentmd receipts <id> --json > receipt.json   # on the machine that refused the call
+agentmd verify receipt.json                   # anywhere: who signed it, and is it intact
+agentmd verify .agentmd/bundle.sig --offline  # never ask GitHub
+```
+
+One receipt format for guard decisions, context bundles and Team evidence
+([receipts.md](receipts.md)). A receipt names its key by fingerprint and never
+carries it, so `verify` finds the key in a source you trust:
+`AGENTMD_TRUSTED_KEYS` (CI secret), else `.agentmd/signers.json`, then the
+signer's GitHub signing keys for `github:<login>`. Run
+`agentmd receipts key --signer github:<login>` once and add the printed
+`ssh-ed25519` line on GitHub as a **signing key**. Exit 1 if any receipt fails.
+
 ## digest
 
 ```bash
@@ -151,6 +167,8 @@ Codex is installed; (4) the guard refuses the forbidden calls and names the
 agentmd guard-install     # only if npm skipped the platform package
 agentmd allow             # approve the call it paused (a person, at a terminal)
 agentmd receipts [id]     # list signed refusals, or verify one
+agentmd receipts key --signer github:<login>   # name this machine's signing key
+agentmd verify receipt.json                    # who signed a receipt (anyone, anywhere)
 agentmd impact            # what it has done in this project
 agentmd scan [dir]        # credentials an agent here could read (values never shown)
 ```
