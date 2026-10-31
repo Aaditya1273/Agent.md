@@ -58,9 +58,24 @@ found and the files that show it, then:
    `.agentmd/policy.json`;
 2. for Claude Code, installs the `pin` hook (rules re-injected after
    compaction) and the `guard` install gate;
-3. attaches the runtime guard (installed with the package), after checking its SHA-256, and attaches it
-   to Claude Code with `agentmd-guard init claude`. It is attached only where
-   it blocks; on other agents the rules rest on each agent's own controls.
+3. attaches the runtime guard (installed with the package), after checking its SHA-256, as a hook
+   wherever the host runs one before a tool call:
+
+   | Agent | Hook | File |
+   | --- | --- | --- |
+   | Claude Code | `PreToolUse` | `.claude/settings.json` |
+   | Gemini CLI | `BeforeTool`, every tool | `.gemini/settings.json` |
+   | Cursor (editor and `cursor-agent`) | `preToolUse` | `.cursor/hooks.json` |
+
+   Each host gets the refusal in its own format (`permissionDecision`,
+   `decision`, `permission`), so the guard blocks there, signs the refusal,
+   and refuses the project's "never" lines. An allowed call returns no
+   decision, so the host's own approval settings still apply. The agent
+   cannot edit any of these files or approve its own refusal. Cursor can also
+   run the Claude Code hooks; when both are attached, only Cursor's own
+   copy decides, so a call is judged once. Gemini CLI reads project settings
+   only in a trusted folder. On Codex the guard is not attached; the rules
+   rest on Codex's own controls.
 
 Existing settings are kept and a second run adds nothing. Without the runtime
 guard, `init` says "runtime guard not installed" and does the rest.
