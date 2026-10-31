@@ -65,6 +65,35 @@ found and the files that show it, then:
 Existing settings are kept and a second run adds nothing. Without the runtime
 guard, `init` says "runtime guard not installed" and does the rest.
 
+## memory
+
+```bash
+agentmd memory on        # this project: an action refused twice is then blocked, not paused
+agentmd memory status
+agentmd memory forgive   # refusals before now stop counting
+agentmd memory off
+```
+
+Off by default, on per project. With memory on, when the guard would pause an
+action (a force-push, dropping a database, a look-alike install, a deletion)
+and that kind of action was already refused twice in this project, with no
+person approving one since, it blocks it instead and says how many times and
+when. Memory never refuses a call the guard would otherwise allow: `git status`
+works for an agent with any history. A person approving a call (`agentmd
+allow`, or the approval window) starts that kind over; refusals older than 30
+days stop counting. The agent cannot run `memory off` or `memory forgive`, or
+approve its own refusal, however it spells the CLI.
+
+It needs nothing installed: the count is read from the refusal log the guard
+already keeps (`~/.agentmd/guard/refusals.jsonl`), and the switch lives in
+`~/.agentmd/guard/memory.json`. For a team, the memory service counts
+refusals per agent across machines: build it from
+`packages/guard/memory-service/Dockerfile` (SQLite in a volume, or
+PostgreSQL with `AGENTMD_MEMORY_DATABASE_URL`) and point every guard at it
+with `AGENTMD_MEMORY_URL`. It has no authentication: keep it on localhost or a
+private network. If it is unreachable, the guard pauses as it would without
+memory and says the call was not checked.
+
 ## broker
 
 ```bash
@@ -208,10 +237,10 @@ platform (`activate-agentmd-guard-<os>-<cpu>`, optional dependencies of
 `~/.agentmd/bin` (where the hook points, so it survives npm cache clean-ups)
 only if its SHA-256 equals the hash pinned in the CLI. Stages, in order: self-protection (the agent cannot
 approve its own refusal or edit the controls that govern it), repo rules
-(`.agentmd/policy.json`), declared intent, cross-session memory (needs the
-memory service; off by default), irreversible actions (pause), exfiltration of
-credentials through recognised network commands, supply chain (a compromised
-list, and look-alike package names, paused with no network), cost. The local
+(`.agentmd/policy.json`), declared intent, irreversible actions (pause),
+exfiltration of credentials through recognised network commands, supply chain
+(a compromised list, and look-alike package names, paused with no network),
+cost, and memory (`agentmd memory on`; below). The local
 guard calls no model. Measured on Linux x86_64 (30 Oct 2026): the hook end to
 end, with process start and a signed receipt, takes 3.8–4.9 ms at p50 and at
 most 7.0 ms at p99; Agent.md's install-gate hook takes about 39 ms.
