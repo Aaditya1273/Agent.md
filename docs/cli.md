@@ -181,7 +181,8 @@ only if its SHA-256 equals the hash pinned in the CLI. Stages, in order: self-pr
 approve its own refusal or edit the controls that govern it), repo rules
 (`.agentmd/policy.json`), declared intent, cross-session memory (needs the
 memory service; off by default), irreversible actions (pause), exfiltration of
-credentials through recognised network commands, supply chain, cost. The local
+credentials through recognised network commands, supply chain (a compromised
+list, and look-alike package names, paused with no network), cost. The local
 guard calls no model. Measured on Linux x86_64 (30 Oct 2026): the hook end to
 end, with process start and a signed receipt, takes 3.8–4.9 ms at p50 and at
 most 7.0 ms at p99; Agent.md's install-gate hook takes about 39 ms.
