@@ -98,6 +98,7 @@ and Windows sandboxing; GitHub, GCP and Azure tokens.
 agentmd learn            # repeated corrections in sessions, and repeated refusals
 agentmd learn --write    # add the rules and compile them for every agent
 agentmd learn --min 5    # how many identical refusals make a rule (default 3)
+agentmd learn --pr       # the same rules as a pull request, for the team to review
 ```
 
 The runtime guard logs each refusal that stood to
@@ -109,6 +110,15 @@ know the rule. `learn` proposes it ("Never run `terraform destroy`."), and
 Claude Code, Codex and the guard. Kinds with no single command reading
 (recursive deletes outside build output, credential exfiltration) are added
 as rules the model reads, not compiled.
+
+`--pr` makes the change `--write` would, in a temporary git worktree off the
+default branch (your working tree is not touched), commits it, pushes the
+branch `agentmd/learned-rules-<date>` and opens a pull request whose
+description lists each rule with its evidence (times refused, kind, last date,
+command words, what it compiles to). It opens the PR with `gh` when it is
+signed in, else the GitHub API with `GH_TOKEN` or `GITHUB_TOKEN`, else it
+prints GitHub's compare link. Only rules learned from refusals go in a pull
+request: session corrections are your own words and stay on your machine.
 
 ## verify
 
