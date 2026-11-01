@@ -6,7 +6,9 @@
 
 # Agent.md
 
-## The files your agents follow, checked every time.
+## Security for the instructions AI agents obey.
+
+The files your agents follow, checked every time.<br>
 
 Your AI coding agent reads `CLAUDE.md`, `AGENTS.md`, rules, skills, hooks and MCP configs before it reads a line of your code, then does what they say.<br>
 Agent.md **checks** them (26 deterministic checks), **keeps** the hard rules through compaction, **turns** "never" lines into real deny rules, and **guards** what the agent runs: every install, and every irreversible call.<br>
@@ -23,7 +25,6 @@ npx activate-agentmd audit your/repo
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/AmukvXywRr)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Hacktoberfest](https://img.shields.io/badge/Hacktoberfest-2026-ff6b35)](https://github.com/Aaditya1273/Agent.md/issues?q=is%3Aissue+is%3Aopen+label%3Ahacktoberfest)
-![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2FAaditya1273%2FAgent.md&label=Visitors&countColor=%23d9e3f0&style=flat&labelStyle=upper)
 
 **[The problem](#-the-problem) · [What it does](#-what-agentmd-does) · [Every time](#-every-time-not-once) · [Quick start](#-quick-start) · [Why it's different](#-why-its-different) · [Research](#-what-the-research-says--and-what-we-built) · [CI](#-enforce-it-in-ci) · [FAQ](#-faq)**
 
@@ -95,8 +96,8 @@ In 320 runs across 40 projects, **90.1% of agent choices followed an outdated in
 ### 3. They are an unguarded attack surface
 
 - **~0.7% of public agent instruction files contain a live credential**, mostly pasted by hand ([Radware, Aug 2026](https://www.radware.com/blog/the-new-env-measuring-credential-leakage-in-ai-agent-instruction-files/)), and mainstream secret scanners don't watch these files.
-- **Shared rule files make agents install look-alike packages** with 79% success across 8 agents and 13 models ([arXiv 2610.09264](https://arxiv.org/abs/2610.09264)); editing only a README or requirements file makes agents pull from attacker indexes ([Microsoft, arXiv 2607.15143](https://arxiv.org/abs/2607.15143)).
-- **Rule files are a working prompt-injection channel** ([Aletheia, 2026](https://arxiv.org/abs/2609.39678)); skill scanners stop at `SKILL.md`, and every one tested was bypassed ([CSA / Trail of Bits](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-agent-skill-scanner-bypass-20260610-csa/)).
+- **Shared rule files make agents install look-alike packages** with 79% success across 8 agents and 13 models ([arXiv 2610.09264](https://arxiv.org/abs/2610.09264)); editing only a README or requirements file makes agents pull from attacker indexes ([authors at Microsoft, arXiv 2607.15143](https://arxiv.org/abs/2607.15143)).
+- **Rule files are a working prompt-injection channel** ([Aletheia, 2026](https://arxiv.org/abs/2609.39678)); skill scanners stop at `SKILL.md`, and Trail of Bits bypassed every one it tested ([CSA / Trail of Bits](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-agent-skill-scanner-bypass-20260610-csa/)).
 
 ### 4. They bloat, and bloat costs accuracy
 
@@ -313,8 +314,8 @@ npx activate-agentmd review --fast --fail-on=high
 | Version-specific API facts help; naming the version alone doesn't ([LibEvoBench](https://arxiv.org/abs/2606.25402)) | Pins state the *changed API*, read from what is actually installed |
 | Compliance dilutes as instructions pile up; curators append and never delete ([arXiv 2610.11007](https://arxiv.org/abs/2610.11007)) | `accretion` flags files that only ever grew; `cost --budget` caps always-on tokens in CI |
 | Shared rule files carry **package hallucination attacks** with 79% success; detectors miss most or cry wolf ([arXiv 2610.09264](https://arxiv.org/abs/2610.09264)) | `package-swap` is deterministic; `--online` asks npm and PyPI whether a name exists |
-| A deterministic pre-install hook closes 10 of 11 install-time attack scenarios ([Microsoft, arXiv 2607.15143](https://arxiv.org/abs/2607.15143)) | `guard` is that hook, plus `install-source` in lint so the poisoned line is caught at review time too |
-| 15.4% of 3,171 public agent setups carry an unpinned MCP package or a broad execution grant ([Red Hat, arXiv 2609.07360](https://arxiv.org/abs/2609.07360)) | `mcp-unpinned`, `permissions`, `skill-preapproval`; `sbom` lists every server and grant with its pin state |
+| A deterministic pre-install hook closes 10 of 11 install-time attack scenarios ([authors at Microsoft, arXiv 2607.15143](https://arxiv.org/abs/2607.15143)) | `guard` is that hook, plus `install-source` in lint so the poisoned line is caught at review time too |
+| 15.4% of 2,660 public agent setups (in 3,171 repos) carry an unpinned MCP package or a broad execution grant ([Red Hat, arXiv 2609.07360](https://arxiv.org/abs/2609.07360)) | `mcp-unpinned`, `permissions`, `skill-preapproval`; `sbom` lists every server and grant with its pin state |
 | 57% of contradictions flagged by an LLM judge were real; the rest were noise ([arXiv 2606.15828](https://arxiv.org/abs/2606.15828)) | `conflict` only fires on exact opposite-polarity pairs and lockfile mismatches |
 | Skills spread by copying with no version or provenance ([arXiv 2610.11169](https://arxiv.org/abs/2610.11169)) | `sbom` hashes every skill and script so a copy can be matched to its source; `skill-conflict` catches duplicates |
 
@@ -541,6 +542,8 @@ Cursor and VS Code: one click at **[agentmd.tech/connect](https://agentmd.tech/c
 
 ## 📚 The registry
 
+The registry is separate from the security product. Standards are optional: on demand, and installed only with `init --presets`. Plain `init` attaches the checks and the guard and installs no standards.
+
 <a href="https://agentmd.tech"><img src="https://raw.githubusercontent.com/Aaditya1273/Agent.md/main/assets/hero.png" alt="Agent.md registry — install standards with any agent" width="100%"></a>
 
 This repository is the registry: plain markdown, written once in [`_canonical/`](https://github.com/Aaditya1273/Agent.md/tree/main/_canonical) and generated for **11 model families** (Claude, OpenAI, Gemini, DeepSeek, Grok, Qwen, Kimi, GLM, MiniMax, Mistral, Sarvam): **308 standards in 21 categories** for Claude, 304 for each other family.
@@ -575,7 +578,7 @@ Browse with logos and search at **[agentmd.tech](https://agentmd.tech)**. Full C
 - **Where rules are enforced.** `enforce` compiles "never" lines into Claude Code `permissions.deny` and Codex rules (trusted projects); for Gemini CLI it prints a policy for `~/.gemini/policies`, which Gemini does not yet load from a repo; Cursor has no repo-level deny list. `pin` is Claude Code only.
 - **Where the runtime guard blocks.** Claude Code, Gemini CLI and Cursor, through their hooks; the Gemini CLI and Cursor answers are checked against each host's documented payload, not yet in a live session. On Codex it is an advisory MCP check that `init` does not attach. Its destructive and exfiltration checks match text, so a command built at run time, or a script written and then run, can pass.
 - **Look-alikes offline are a short list.** The offline check knows widely installed names and the project's manifests; a squat of anything else needs the online install gate.
-- **Memory only escalates.** It turns a third attempt at an action already refused twice into a block, and never refuses anything else. The shared memory service has no authentication: keep it on localhost or a private network. If it is unreachable, the guard pauses as it would without memory and says so.
+- **Memory only escalates.** It turns a third attempt at an action already refused twice into a block, and never refuses anything else. Per-project memory needs no service. The optional shared service has no authentication, so the documented `docker run` publishes it on 127.0.0.1 only; keep it there or on a private network. If it is unreachable, the guard pauses as it would without memory and says so.
 - **Receipts prove the key, not the process.** The guard's key is readable by the machine's own user, so a local receipt proves which key signed, not that only the guard could use it. For receipts that must hold against that user, sign in CI with a key from a secret.
 - **`learn --pr` is checked against a local git origin, not yet a real GitHub repository.**
 - **The broker is verified on AWS and on Linux.** AWS was checked on a real account, and the GCP and Azure paths under bubblewrap on Linux; real GitHub App, GCP and Azure accounts, macOS and Windows are covered by unit tests, not yet run live. On Windows the run gets a fresh profile, not a filesystem sandbox.
