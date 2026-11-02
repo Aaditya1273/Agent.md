@@ -90,7 +90,7 @@ In 320 runs across 40 projects, **90.1% of agent choices followed an outdated in
 
 ### 2. The rules vanish, and "never" is only a sentence
 
-- After a session compacts, violations of the project's own rules go **from 0% to 30–59%** ([arXiv 2606.22528](https://arxiv.org/abs/2606.22528)); the request to fix it upstream was closed *not planned* ([claude-code#24460](https://github.com/anthropics/claude-code/issues/24460)).
+- After a session compacts, violations of the project's own rules go **from 0% to 30–59%** ([arXiv 2606.22528](https://arxiv.org/abs/2606.22528)). Claude Code now re-reads the root `CLAUDE.md` after `/compact`; nested files and path-scoped rules come back only on demand ([Claude Code docs](https://code.claude.com/docs/en/memory)).
 - In 481 public `CLAUDE.md` files, only **4.4–16% of security rules have a control that enforces them** ([arXiv 2608.23550](https://arxiv.org/abs/2608.23550)). "Never force-push" is advice until something refuses the command.
 
 ### 3. They are an unguarded attack surface
