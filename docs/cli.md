@@ -73,8 +73,9 @@ found and the files that show it, then:
    decision, so the host's own approval settings still apply. The agent
    cannot edit any of these files or approve its own refusal. Cursor can also
    run the Claude Code hooks; when both are attached, only Cursor's own
-   copy decides, so a call is judged once. The Gemini CLI and Cursor hooks are
-   checked against each host's documented payload, not yet in a live session.
+   copy decides, so a call is judged once. The Gemini CLI hook was
+   verified in a live session (gemini-cli 0.66.0, 2 Nov 2026); the Cursor hook is
+   checked against Cursor's documented payload, not yet in a live session.
    Gemini CLI reads project settings only in a trusted folder. On Codex the guard is not attached; the rules
    rest on Codex's own controls.
 

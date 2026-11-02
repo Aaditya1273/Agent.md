@@ -28,7 +28,7 @@ Deterministic checks; no model is called.
 
 | Area | What it cannot see |
 | --- | --- |
-| Hosts | It blocks through a hook in Claude Code (`PreToolUse`), Gemini CLI (`BeforeTool`) and Cursor (`preToolUse`). The Gemini CLI and Cursor hooks are checked against each host's documented payload, not yet in a live session of either. Gemini CLI reads project settings only in a trusted folder. On Codex the guard is not attached: an advisory MCP check exists, and the agent may skip it. |
+| Hosts | It blocks through a hook in Claude Code (`PreToolUse`), Gemini CLI (`BeforeTool`) and Cursor (`preToolUse`). The Gemini CLI hook was verified in a live session (gemini-cli 0.66.0, 2 Nov 2026: force-push and a repo never-line blocked, `git status` allowed); the Cursor hook is checked against Cursor's documented payload, not yet in a live session. Gemini CLI reads project settings only in a trusted folder. On Codex the guard is not attached: an advisory MCP check exists, and the agent may skip it. |
 | Irreversible actions | Command patterns, each an action with no undo. A delete in a form the patterns do not know (`rm --recursive --force`, `find -delete`, `shutil.rmtree`, a script written and then run) passes. `git reset --hard` (recoverable through the reflog) and `docker system prune -af` are not paused. |
 | Credential exfiltration | Only through recognised network commands (`curl`, `wget`, `nc`, `ssh`, `scp`, `rsync`…). |
 | Self-protection | Shell writes to the guard's own state, the hook files and the compiled rules are found by a text match: a write through an unlisted interpreter, or to a path built at run time, passes. Edits through the agent's file tools are checked by path. |

@@ -520,7 +520,7 @@ Zero tokens, no API key, nothing leaves the runner. Upload `lint --sarif` to Git
 | Cursor | blocks, through the `preToolUse` hook `init` attaches; editor and `cursor-agent` |
 | Codex | advisory MCP check (`agentmd-guard init mcp`), not attached by `init`; Codex's own rules carry the "never" lines |
 
-The Gemini CLI and Cursor hooks are checked against each host's documented hook payload, not yet in a live session of either.
+The Gemini CLI hook was verified in a live session (gemini-cli 0.66.0, 2 Nov 2026: force-push and a repo never-line blocked, `git status` allowed); the Cursor hook is checked against Cursor's documented payload, not yet in a live session.
 
 **Agent Skills.** Two skills teach the agent to use the toolchain, `agentmd-usage` (install, pins, lint) and `agentmd-standards` (following what's installed):
 
@@ -576,7 +576,7 @@ Browse with logos and search at **[agentmd.tech](https://agentmd.tech)**. Full C
 
 - **Patterns, not verdicts.** `lint` is deterministic pattern matching; a pass is a floor. Every gap is listed per rule in [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md).
 - **Where rules are enforced.** `enforce` compiles "never" lines into Claude Code `permissions.deny` and Codex rules (trusted projects); for Gemini CLI it prints a policy for `~/.gemini/policies`, which Gemini does not yet load from a repo; Cursor has no repo-level deny list. `pin` is Claude Code only.
-- **Where the runtime guard blocks.** Claude Code, Gemini CLI and Cursor, through their hooks; the Gemini CLI and Cursor answers are checked against each host's documented payload, not yet in a live session. On Codex it is an advisory MCP check that `init` does not attach. Its destructive and exfiltration checks match text, so a command built at run time, or a script written and then run, can pass.
+- **Where the runtime guard blocks.** Claude Code, Gemini CLI and Cursor, through their hooks; the Gemini CLI hook was verified in a live session (gemini-cli 0.66.0, 2 Nov 2026), and the Cursor hook is checked against Cursor's documented payload, not yet in a live session. On Codex it is an advisory MCP check that `init` does not attach. Its destructive and exfiltration checks match text, so a command built at run time, or a script written and then run, can pass.
 - **Look-alikes offline are a short list.** The offline check knows widely installed names and the project's manifests; a squat of anything else needs the online install gate.
 - **Memory only escalates.** It turns a third attempt at an action already refused twice into a block, and never refuses anything else. Per-project memory needs no service. The optional shared service has no authentication, so the documented `docker run` publishes it on 127.0.0.1 only; keep it there or on a private network. If it is unreachable, the guard pauses as it would without memory and says so.
 - **Receipts prove the key, not the process.** The guard's key is readable by the machine's own user, so a local receipt proves which key signed, not that only the guard could use it. For receipts that must hold against that user, sign in CI with a key from a secret.
