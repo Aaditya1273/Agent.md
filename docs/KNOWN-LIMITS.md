@@ -1,6 +1,6 @@
 # Known limits
 
-What `lint`, `audit` and the runtime guard cannot see. A pass is a floor, not a verdict: these are deterministic checks that report patterns. A person, or an agent reading the evidence, still decides whether the context is good.
+What `lint`, `audit`, the runtime guard and the automation commands cannot see. A pass is a floor, not a verdict: these are deterministic checks that report patterns. A person, or an agent reading the evidence, still decides whether the context is good.
 
 Precision comes first. A check that cries wolf gets switched off, so every rule below prefers to miss a case rather than raise a false alarm. Measured on 4,292 registry files (0 errors, 0 warnings), 272 real skill scripts, and 146 company repositories with agent instruction files, each reference finding checked by hand: no known false alarms remain in those 146 repositories. The rules added in 2.13 were measured on 72 company and open-source repositories, comparing 2.12.2 with 2.13.0 and checking every new finding by hand, and `guard` on 33 everyday installs (none blocked) and on registered typosquat shapes.
 
@@ -36,3 +36,11 @@ Deterministic checks; no model is called.
 | Memory | Off until `agentmd memory on`. Counts are per project folder. The shared memory service has no authentication: keep it on localhost or a private network. When it is unreachable the guard pauses as it would without memory, and says the call was not checked. |
 | Receipts | The guard's signing key is readable by the machine's user (the agent's edits to it are refused by a text check). A receipt that must hold against that user is signed in CI. |
 | `broker` | On Windows the run gets a fresh user profile, not a sandbox: a process that opens a credential file by its full path can still read it. The GitHub App, GCP and Azure paths, macOS and Windows are covered by unit tests, not yet run against real accounts or machines ([cli.md](cli.md#broker)). |
+
+## Automation
+
+| Command | What it cannot see |
+| --- | --- |
+| `integrity` | The `SessionStart` check is Claude Code only; run `integrity` from cron for other agents. It trusts the first session it sees. The guard keeps the agent out of the baseline, but an install script runs as you and could rewrite it, so this catches config worms that do not know about Agent.md. A change that is committed and clean is accepted, even when the commit was only made locally. |
+| `screen` | Text patterns: a paraphrased injection with none of the known shapes gets through. |
+| `sweep` | Exact locked versions only: ranges without a lockfile are not queried. Look-alike checks cover direct dependencies. |

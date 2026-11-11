@@ -70,6 +70,10 @@ Real output, on a small example repo:
 | `npx activate-agentmd learn` | The corrections you keep giving your agent, and the refusals it keeps hitting, proposed as rules; `--pr` opens them as a pull request |
 | `npx activate-agentmd broker run --aws -- claude` | Run the agent with short-lived credentials and your long-lived logins out of reach (AWS, GitHub App, GCP, Azure) |
 | `npx activate-agentmd digest` | One message on the last 7 days: what the guard stopped, rules learned, rules in force, broker runs, lint |
+| `npx activate-agentmd integrity --install` | Every Claude Code session starts by checking for agent config changed outside git: a planted hook, a new MCP server, a hidden line |
+| `npx activate-agentmd screen --github` | In CI: pull request, issue and comment text checked for prompt injection before an agent action reads it |
+| `npx activate-agentmd sweep` | Every locked dependency against OSV: malicious releases, known vulnerabilities, look-alike names, what changed |
+| `npx activate-agentmd notify --set <webhook>` | The guard posts each refusal to Slack, Discord or any webhook as it happens |
 | `npx activate-agentmd verify receipt.json` | Who signed a guard refusal or a context bundle, and whether it is intact |
 | `npx activate-agentmd cost` | What your always-on context costs per developer per month, and what `--fix` gives back |
 | `npx activate-agentmd sbom --out bom.json` | Context bill of materials (CycloneDX 1.6): every file, skill, script, hook, MCP server and grant an agent loads, hashed |
@@ -120,6 +124,10 @@ In 320 runs across 40 projects, **90.1% of agent choices followed an outdated in
 | 🧠 | **`learn`** and **`memory`**: `learn` reads your own local session logs for the corrections you keep giving ("use pnpm", "don't touch the migrations") and the guard's repeated refusals, and proposes them as rules, locally or as a pull request (`--pr`). Nothing is kept without you. `memory on` blocks an action refused twice in the project, and never refuses anything else. | Repeating yourself to the agent every day |
 | 🔑 | **`broker`**: starts the agent with short-lived, narrowed credentials (AWS session policy, one-repo GitHub App token, GCP impersonation, Azure access token) and its long-lived logins (`~/.aws`, `~/.ssh`, `~/.config/gh` …) out of reach. | An agent holding the keys to production |
 | 🗞 | **`digest`**: one Markdown message for Slack, an email or a PR, from local logs only: what the guard stopped, rules learned, rules in force per agent, broker runs, lint findings. | "What did the agents do this week?" |
+| 🧷 | **`integrity`**: a baseline of every file that configures the agent, kept outside the repository. A change made outside git (a hook planted in a gitignored `.claude/settings.local.json`, a server added to `.mcp.json`, a line appended to `CLAUDE.md`) is named with what it adds, the session is warned before it reads anything, and `--restore` puts the files back. | Agent-config worms that persist in files no diff shows |
+| 🧹 | **`screen`**: checks pull request, issue, review and commit text for the shapes of prompt injection (hidden HTML-comment instructions, fake system tags, asks to post secrets) before an agent in CI reads it, and writes `clean` to the step outputs. | One comment that makes the CI agent post its own token |
+| 🔁 | **`sweep`** and **`pins --check`**: `sweep` re-checks every locked version against OSV in one batch, including releases that turned malicious after you installed them. `pins --check` fails the dependency bump that leaves the agent files on the old major; `--pr` opens the fix. | A trusted package's bad release; agent files a major behind |
+| 🔔 | **`notify`**: the guard posts each refusal to Slack, Discord or any https webhook the moment it happens: the kind of action and the reason, never the arguments. The agent cannot switch it off. | An agent stopped while nobody was watching the terminal |
 | 💸 | **`cost`**: what your always-on context costs per developer per month, per agent. `--budget` fails a PR that pushes it over your limit. | Context that only grows |
 | 📋 | **`sbom`**: a context bill of materials in CycloneDX 1.6: every instruction file, rule, skill and script, subagent, hook, MCP server and permission grant, hashed. | "What was this agent loading?" has no answer today |
 | ⇅ | **Version pins + checks**: reads the majors you actually run and puts their breaking changes in the agent's context; 15 deterministic checks across 13 libraries catch the old API in the diff. | Deprecated code that compiles, passes review, and breaks later |
@@ -152,6 +160,10 @@ flowchart LR
 | You write "never …" | `enforce --write` | it becomes a deny rule the harness applies |
 | You correct the agent twice, or the guard refuses the same call three times | `learn` | it is proposed as a rule; `--pr` opens it for review |
 | Every Monday | `digest` | what the guard stopped and what was learned, in one message |
+| Something edits the agent's config outside git | `integrity --install` | the next session is told what changed, before it reads it; `--restore` puts it back |
+| A comment reaches an agent action in CI | `screen --github` | text with the shape of an injection stops the job before the agent reads it |
+| A locked version turns out to be malicious | `sweep` | the run fails and names the release |
+| The guard stops an agent | `notify --set` | the refusal is posted to your channel as it happens |
 | A pull request touches the files | `ci --write` | lint, enforce coverage and a token budget, in one workflow |
 | A dependency or a path changes | `lint` | stale pins, drift and dead references fail the check |
 

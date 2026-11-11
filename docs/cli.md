@@ -164,6 +164,7 @@ agentmd learn            # repeated corrections in sessions, and repeated refusa
 agentmd learn --write    # add the rules and compile them for every agent
 agentmd learn --min 5    # how many identical refusals make a rule (default 3)
 agentmd learn --pr       # the same rules as a pull request, for the team to review
+agentmd learn --pr --sessions  # and the repeated session corrections, marked for review
 ```
 
 The runtime guard logs each refusal that stood to
@@ -182,8 +183,11 @@ branch `agentmd/learned-rules-<date>` and opens a pull request whose
 description lists each rule with its evidence (times refused, kind, last date,
 command words, what it compiles to). It opens the PR with `gh` when it is
 signed in, else the GitHub API with `GH_TOKEN` or `GITHUB_TOKEN`, else it
-prints GitHub's compare link. Only rules learned from refusals go in a pull
-request: session corrections are your own words and stay on your machine.
+prints GitHub's compare link. By default only rules learned from refusals go
+in a pull request: session corrections are your own words and stay on your
+machine. `--sessions` adds the repeated ones to CLAUDE.md under "Learned from
+sessions (review before keeping)" in the same pull request. Only those lines are
+published, never the logs.
 
 ## verify
 
@@ -217,11 +221,79 @@ and the guard, sandboxed `broker run`s and short-lived credentials minted
 (`~/.agentmd/broker/log.jsonl`: counts and paths, never credentials), and
 lint findings now. Counts only; nothing is estimated.
 
+With `--sweep` it also re-checks every locked dependency (see `sweep`;
+`--offline` skips the network), and with `--notify` it posts the digest to the
+webhook set with `notify --set`. When an `integrity` baseline exists, the
+digest reports agent config that changed outside git.
+
 Weekly, every Monday at 09:00:
 
 ```cron
-0 9 * * 1  cd /path/to/repo && npx --yes activate-agentmd@3 digest --out .agentmd/digest.md
+0 9 * * 1  cd /path/to/repo && npx --yes activate-agentmd@3 digest --sweep --notify
 ```
+
+## integrity
+
+```bash
+agentmd integrity --install   # baseline + Claude Code SessionStart hook
+agentmd integrity             # drift since the baseline, outside git (exit 1 on drift)
+agentmd integrity --accept    # approve what is on disk now
+agentmd integrity --restore   # put drifted files back; new files are moved aside
+agentmd integrity --json
+```
+
+Checks every file an agent reads or runs as a hook (the `lint` set, local files
+included, plus `.claude/hooks/`, `.claude/commands/`, `.codex/rules/`,
+`.gemini/commands/`, `.cursor/hooks.json`, `.agentmd/policy.json`) against a
+baseline in `~/.agentmd/guard/integrity/`. For each change it reports what the
+change adds: hook commands, MCP servers and allow rules in JSON, and lines that
+read as injection anywhere else. Content that is committed and clean in git is
+accepted automatically. The hook gives the session the drift as untrusted context
+and shows the user a warning. See [automation.md](automation.md).
+
+## screen
+
+```bash
+agentmd screen --github         # inside GitHub Actions: the event's comment, review, PR, issue, branch, commits
+agentmd screen comment.txt      # files; `-` reads stdin
+agentmd screen --text "…"
+agentmd screen --github --no-fail --json
+```
+
+Prompt injection in text someone outside the team can write, checked before an
+agent reads it. Exit 1 on an attack shape. In Actions it writes `clean` and
+`findings` to `$GITHUB_OUTPUT` and a table to the job summary, so the agent step
+can run `if: steps.screen.outputs.clean == 'true'`.
+
+## sweep
+
+```bash
+agentmd sweep             # OSV for every locked version, look-alikes, changes since the last sweep
+agentmd sweep --offline
+agentmd sweep --json
+```
+
+Reads `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `requirements*.txt` (`==`
+pins), `poetry.lock` and `uv.lock` at the current directory. Malicious releases
+(OSV `MAL-` advisories) and look-alike direct dependencies exit 1. Known
+vulnerabilities are listed but do not fail the run. The previous sweep is kept in
+`~/.agentmd/sweep/` (`AGENTMD_SWEEP_DIR`).
+
+## notify
+
+```bash
+agentmd notify --set https://hooks.slack.com/services/…   # or Discord, or any https endpoint
+agentmd notify --test
+agentmd notify --off
+agentmd notify             # which webhook is in use
+```
+
+The runtime guard posts each refusal that stands. `digest --notify` posts the
+digest. The payload carries what a receipt holds (kind, command words, reason,
+argument hash, project folder name), never arguments. Config lives in
+`~/.agentmd/guard/notify.json`, mode 600. `AGENTMD_NOTIFY_URL` overrides it.
+From runtime guard 0.7.0, the guard posts refusals itself and pauses an agent that
+runs `notify --set` or `--off`.
 
 ## demo
 
@@ -1226,12 +1298,19 @@ the form an agent reads:
 ```bash
 agentmd pins           # markdown, exactly as link writes it
 agentmd pins --json    # with the measured effect, where one exists
+agentmd pins --check   # exit 1 when an agent file carries the pins of an older major (CI)
+agentmd pins --pr      # a pull request bringing the agent files up to the majors installed here
 ```
 
 Pins cover Next.js, React, Pydantic, SQLAlchemy, Django, Prisma, Tailwind,
 Express, Zod, ESLint, Vue, Go and Python. Each major that has deterministic
 checks is also checked in `review --fast`, by detected version: a Next 16
 project is flagged for synchronous `cookies()`, a Next 13 project is not.
+
+`--check` and `--pr` look only at files `link` already manages: the block
+between `<!-- agentmd:start -->` and `<!-- agentmd:end -->`, and the Cursor rule.
+`--pr` reads the pins from this checkout and writes them into the files from the
+default branch, in a temporary worktree, and pushes `agentmd/version-pins-<date>`.
 
 ## bundle
 
