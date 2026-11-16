@@ -12,11 +12,17 @@ The files your agents follow, checked every time.<br>
 
 Your AI coding agent reads `CLAUDE.md`, `AGENTS.md`, rules, skills, hooks and MCP configs before it reads a line of your code, then does what they say.<br>
 Agent.md **checks** them (26 deterministic checks), **keeps** the hard rules through compaction, **turns** "never" lines into real deny rules, and **guards** what the agent runs: every install, and every irreversible call.<br>
-Any repo. Ten seconds. No account. Nothing uploaded.
+Any repo. No account. Nothing uploaded.
 
 ```bash
 npx activate-agentmd audit your/repo
 ```
+
+**New: [Agent.md Autopilot](https://github.com/apps/agent-md-autopilot), the GitHub App.** Install it once and it works by itself:
+it comments on a pull request only when it changes what your agents read or may run, turns the corrections your reviewers
+keep giving AI-written PRs into rules every agent follows, and opens one setup PR that makes the "never" lines in your files
+real permissions. Deterministic checks; no model decides anything.<br>
+**[Install on GitHub](https://github.com/apps/agent-md-autopilot/installations/new)** · [Dashboard](https://app.agentmd.tech)
 
 [![npm version](https://img.shields.io/npm/v/activate-agentmd?color=6366f1&label=activate-agentmd)](https://www.npmjs.com/package/activate-agentmd)
 [![26 checks](https://img.shields.io/badge/lint-26%20deterministic%20checks-4bc680)](#-agentmd-lint-the-26-checks)
@@ -570,7 +576,7 @@ This repository is the registry: plain markdown, written once in [`_canonical/`]
 | **Testing** | unit, integration, e2e, pytest, go-testing, load, accessibility, test-strategy |
 | **Performance · DevOps · System Design** | caching, bundle-size, docker, kubernetes, github-actions, cicd, microservices, event-driven |
 | **Design** | 74 brand design languages: apple, stripe, linear, vercel, airbnb, spotify… |
-| **Motion** *(Claude)* | lumen, hanami, hanko-reel, truecut: launch films built in code, from story to render |
+| **Motion** *(Claude)* | lumen, hanami, hanko-reel, truecut, kamishibai, monogatari, kirameki, proofreel, filmcraft: launch films built in code, from story to render |
 | + AI, Review, Documentation, Checklists, Startup, Business, Open Source, Templates, Community, Research | |
 
 ```bash
